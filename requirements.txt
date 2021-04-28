@@ -1,0 +1,35 @@
+# put here only additional package for extended/developpement
+# for mandatory packages, see setup.py
+# https://packaging.python.org/discussions/install-requires-vs-requirements/
+jupyter
+jupyter_contrib_nbextensions
+holoviews
+geoviews
+cartopy
+fiona
+pyproj
+geopandas
+jinja2
+matplotlib
+graphviz
+cachey
+psutil
+sphinx
+numpydoc
+sphinx-rtd-theme
+rasterio
+lxml
+shapely
+dask
+numpy
+xarray
+scipy
+pandas
+#spatialpandas
+affine
+jmespath
+setuptools
+nbsphinx
+jupyter-sphinx
+sphinxcontrib-programoutput
+

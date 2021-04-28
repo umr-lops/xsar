@@ -1,0 +1,1 @@
+conda install -c conda-forge rasterio gdal cartopy dask[array]

@@ -1,0 +1,6 @@
+git clone https://github.com/oarcher/xsar
+cd saroumane
+# this is needed to register git filters
+git config --local include.path ../.gitconfig
+pip install -e .
+pip install -r requirements.txt

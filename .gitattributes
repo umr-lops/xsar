@@ -1,0 +1,2 @@
+# see http://timstaley.co.uk/posts/making-git-and-jupyter-notebooks-play-nice/
+*.ipynb filter=nbstrip_full

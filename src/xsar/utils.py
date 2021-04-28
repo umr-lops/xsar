@@ -1,0 +1,392 @@
+"""miscellaneous functions"""
+
+from functools import wraps
+import time
+import os
+import numpy as np
+import logging
+from scipy.interpolate import griddata
+import xarray as xr
+import dask
+from functools import reduce, partial
+import rasterio
+
+logger = logging.getLogger('xsar.utils')
+logger.addHandler(logging.NullHandler())
+
+mem_monitor = True
+
+try:
+    from psutil import Process
+except ImportError:
+    logger.warning("psutil module not found. Disabling memory monitor")
+    mem_monitor = False
+
+class bind(partial):
+    """
+    An improved version of partial which accepts Ellipsis (...) as a placeholder
+    https://stackoverflow.com/a/66274908
+    """
+    def __call__(self, *args, **keywords):
+        keywords = {**self.keywords, **keywords}
+        iargs = iter(args)
+        args = (next(iargs) if arg is ... else arg for arg in self.args)
+        return self.func(*args, *iargs, **keywords)
+
+def timing(f):
+    """provide a @timing decorator for functions, that log time spent in it"""
+
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        mem_str = ''
+        process = None
+        if mem_monitor:
+            process = Process(os.getpid())
+            startrss = process.memory_info().rss
+        starttime = time.time()
+        result = f(*args, **kwargs)
+        endtime = time.time()
+        if mem_monitor:
+            endrss = process.memory_info().rss
+            mem_str = 'mem: %+.1fMb' % ((endrss - startrss) / (1024 ** 2))
+        logger.debug(
+            'timing %s : %.2fs. %s' % (f.__name__, endtime - starttime, mem_str))
+        return result
+
+    return wrapper
+
+
+def to_lon180(lon):
+    """
+
+    Parameters
+    ----------
+    lon: array_like of float
+        longitudes in [0, 360] range
+
+    Returns
+    -------
+    array_like
+        longitude in [-180, 180] range
+
+    """
+    change = lon > 180
+    lon[change] = lon[change] - 360
+    return lon
+
+
+def haversine(lon1, lat1, lon2, lat2):
+    """
+    Compute distance in meters, and bearing in degrees from point1 to point2, assuming spherical earth.
+
+    Parameters
+    ----------
+    lon1: float
+    lat1: float
+    lon2: float
+    lat2: float
+
+    Returns
+    -------
+    tuple(float, float)
+        distance in meters, and bearing in degrees
+
+    """
+    # convert decimal degrees to radians
+    lon1, lat1, lon2, lat2 = map(np.radians, [lon1, lat1, lon2, lat2])
+
+    # haversine formula
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+    a = np.sin(dlat / 2) ** 2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2) ** 2
+    c = 2 * np.arcsin(np.sqrt(a))
+    r = 6371000  # Radius of earth in meters.
+    bearing = np.arctan2(np.sin(lon2 - lon1) * np.cos(lat2),
+                         np.cos(lat1) * np.sin(lat2) - np.sin(lat1) * np.cos(lat2) * np.cos(lon2 - lon1))
+    return c * r, np.rad2deg(bearing)
+
+
+def minigrid(x, y, z, method='linear', dims=['x', 'y']):
+    """
+
+    Parameters
+    ----------
+    x: 1D array_like
+        x coordinates
+
+    y: 1D array_like
+        y coodinate
+
+    z: 1D array_like
+        value at [x, y] coordinates
+
+    method: str
+        default to 'linear'. passed to `scipy.interpolate.griddata`
+
+    dims: list of str
+        dimensions names for returned dataarray. default to `['x', 'y']`
+
+    Returns
+    -------
+    xarray.DataArray
+        2D grid of `z` interpolated values, with 1D coordinates `x` and `y`.
+    """
+    x_u = np.unique(np.sort(x))
+    y_u = np.unique(np.sort(y))
+    xx, yy = np.meshgrid(x_u, y_u, indexing='ij')
+    ngrid = griddata((x, y), z, (xx, yy), method=method)
+    return xr.DataArray(ngrid, dims=dims, coords={dims[0]: x_u, dims[1]: y_u})
+
+
+@timing
+def gdal_rms(filename, out_shape, winsize=None):
+    """
+    Temporary function, waiting fadjuor a better solution on https://github.com/OSGeo/gdal/issues/3196 (gdal>=3.3)
+    """
+    from osgeo import gdal
+    gdal.UseExceptions()
+    sourcexml = '''
+        <SimpleSource>
+            <SourceFilename>{fname}</SourceFilename>
+            <SourceBand>{band}</SourceBand>
+        </SimpleSource>
+        '''
+
+    ds = gdal.Open(filename, gdal.GA_ReadOnly)
+
+    if winsize is None:
+        xsize = ds.RasterXSize
+        ysize = ds.RasterYSize
+    else:
+        xsize = winsize[2]
+        ysize = winsize[3]
+    count = ds.RasterCount
+
+    prefix = '/vsimem'
+    dn2file = '%s/dn2.vrt' % prefix
+    avgfile = '%s/dn2_avg.vrt' % prefix
+    datfile = '%s/dn2_avd_dat.vrt' % prefix
+
+    vrt_driver = gdal.GetDriverByName("VRT")
+    ds_dn2 = vrt_driver.Create(dn2file, xsize=xsize, ysize=ysize, bands=0)
+
+    # Create square band
+    options = [
+        'subClass=VRTDerivedRasterBand',
+        'PixelFunctionType=intensity',
+        'SourceTransferType=UInt32']
+    for iband in range(1, ds.RasterCount + 1):
+        ds_dn2.AddBand(gdal.GDT_UInt32, options)
+        ds_dn2.GetRasterBand(iband).SetMetadata(
+            {'source_0': sourcexml.format(fname=filename, band=iband)},
+            'vrt_sources')
+
+    ds_dn2.SetProjection(ds.GetProjection())
+
+    ds = None
+
+    ##Set up options for translation
+    gdalTranslateOpts = gdal.TranslateOptions(
+        format='VRT',
+        width=out_shape[0], height=out_shape[1],
+        srcWin=[0, 0, xsize, ysize],
+        resampleAlg=gdal.gdalconst.GRIORA_Average)
+
+    # translate using average
+
+    ds_dn2_average = gdal.Translate(avgfile, ds_dn2, options=gdalTranslateOpts)
+    ds_dn2 = None
+    ds_dn2_average = None
+
+    # Write from memory to VRT using pixel functions
+    ds_dn2_average = gdal.OpenShared(avgfile)
+    ds_dn2_average_data = vrt_driver.Create(datfile, out_shape[0], out_shape[1], 0)
+    ds_dn2_average_data.SetProjection(ds_dn2_average.GetProjection())
+    ds_dn2_average_data.SetGeoTransform(ds_dn2_average.GetGeoTransform())
+
+    options = ['subClass=VRTDerivedRasterBand',
+               'sourceTransferType=UInt32']
+
+    options = ['subClass=VRTDerivedRasterBand',
+               'SourceTransferType=UInt32']
+
+    for iband in range(1, count + 1):
+        ds_dn2_average_data.AddBand(gdal.GDT_UInt32, options)
+        ds_dn2_average_data.GetRasterBand(iband).SetMetadata({'source_0': sourcexml.format(fname=avgfile, band=iband)},
+                                                             'vrt_sources')
+
+    dn2_arr = ds_dn2_average.ReadAsArray()
+
+    dn_arr = dn2_arr ** 0.5
+    ds_dn2_average_data = None
+
+    gdal.Unlink(dn2file)
+    gdal.Unlink(avgfile)
+    gdal.Unlink(datfile)
+
+    return dn_arr
+
+
+def _compute_chunks(minchunks, shape, dtype=np.float, block_size=1e8):
+    """
+    compute best chunks size for array like `shape` that are a multiple of `minchunks`.
+
+    Parameters
+    ----------
+    minchunks: dict
+        minimum chunk size. Unlike dask, it can be very small, as the final computed chunk will be large enought.
+        good values for minichunks is the windows size that will be used with `xarray.DataArray.rolling`.
+        ex: `{'atrack': 10, 'xtrack': 10}`
+    shape: dict
+        the shape of the data we want to chunk (sames keys as minchunks)
+    dtype:
+        data dtype, to compute the size of a single chunk (sames keys as minchunks)
+    block_size
+        max chunk size, in bytes
+
+    Returns
+    -------
+    tuple of dict
+        (chunks, pad) with computed chunks,
+        and pad, a dict for `dask.array.pad` needed to pad data so chunks are all equals.
+    """
+
+    # pad size
+    pad = {d:  (minchunks[d] * int(np.ceil(shape[d] / minchunks[d])) - shape[d]) for d in minchunks.keys()}
+
+    # add pad to old shape
+    new_shape = {d: shape[d] + pad[d] for d in minchunks.keys()}
+
+    # possibles chunks count
+    # https://stackoverflow.com/a/6800214/5988771
+    _factor = lambda n: list(reduce(list.__add__,
+                                    ([i, n // i] for i in range(1, int(n ** 0.5) + 1) if n % i == 0)))
+    possible_chunks = {d: np.array(_factor(new_shape[d])) for d in minchunks.keys()}
+
+    # remove sizes smallest than minchunks
+    possible_chunks = {d: np.clip(possible_chunks[d], minchunks[d], None) for d in minchunks.keys()}
+
+    # temp
+    # [ np.random.shuffle(possible_chunks[d]) for d in minchunks.keys()]
+
+    # filter small sizes
+    possible_chunks = {d: possible_chunks[d][possible_chunks[d] > 1] for d in possible_chunks.keys()}
+
+    # compute the matrix of all possible size (in elements count)
+    sizes = np.multiply.reduce(np.meshgrid(*possible_chunks.values()))
+
+    # compute the diff with block_size (in bytes)
+    sizes_diff = np.abs(block_size - sizes * dtype.itemsize)
+
+    # select in possible_chunks the minimum diff
+    mat_idx = np.argwhere(sizes_diff == np.min(sizes_diff))
+    best_chunk_idx = dict(zip(possible_chunks.keys(), reversed(mat_idx[0].tolist())))
+    best_chunk = {d: possible_chunks[d][best_chunk_idx[d]] for d in possible_chunks.keys()}
+
+    return best_chunk, pad
+
+
+def map_blocks_coords(da, func,  func_kwargs={}, **kwargs):
+    """
+    like `dask.map_blocks`, but `func` parameters are dimensions coordinates belonging to the block.
+
+    Parameters
+    ----------
+    da: xarray.DataArray
+        template (meta) of the output dataarray, with dask chunks, dimensions, coordinates and dtype
+    func: function
+        function that take gridded `numpy.array` atrack and xtrack, and return a `numpy.array`.
+        (see `_evaluate_from_coords`)
+    kwargs: dict
+        passed to dask.array.map_blocks
+
+    Returns
+    -------
+    xarray.DataArray
+        dataarray with same coords/dims as self from `func(*dims)`.
+    """
+
+    def _evaluate_from_coords(block, f, coords, block_info=None, dtype=None):
+        """
+        evaluate 'f(x_coords,y_coords,...)' with x_coords, y_coords, ... extracted from dims
+
+        Parameters
+        ----------
+        coords: iterable of numpy.array
+            coordinates for each dimension block
+        block: numpy.array
+            the current block in the dataarray
+        f: function
+            function to evaluate with 'func(atracks_grid, xtracks_grid)'
+        block_info: dict
+            provided by 'xarray.DataArray.map_blocks', and used to get block location.
+
+        Returns
+        -------
+        numpy.array
+            result from 'f(*coords_sel)', where coords_sel are dimension coordinates for each dimensions
+
+        Notes
+        -----
+        block values are note used.
+        Unless manualy providing block_info,
+        this function should be called from 'xarray.DataArray.map_blocks' with coords preset with functools.partial
+        """
+
+        # get loc ((dim_0_start,dim_0_stop),(dim_1_start,dim_1_stop),...)
+        try:
+            loc = block_info[None]['array-location']
+        except TypeError:
+            # map_blocks is feeding us some dummy block data to check output type and shape
+            # so we juste generate dummy coords to be able to call f
+            # (Note : dummy coords are 0 sized if dummy block is empty)
+            loc = tuple(zip((0,) * len(block.shape), block.shape))
+
+        # use loc to get corresponding coordinates
+        coords_sel = tuple(c[loc[i][0]:loc[i][1]] for i, c in enumerate(coords))
+
+        result = f(*coords_sel, **func_kwargs)
+
+        if dtype is not None:
+            result = result.astype(dtype)
+
+        return result
+
+
+    coords = { c: da[c].values for c in da.dims }
+    if 'name' not in kwargs:
+        kwargs['name'] = dask.utils.funcname(func)
+
+    meta = da.data
+    dtype = meta.dtype
+
+    from_coords = bind(_evaluate_from_coords, ..., ..., coords.values(), dtype=dtype)
+
+    daskarr = meta.map_blocks(from_coords, func, meta=meta, **kwargs)
+    dataarr = xr.DataArray(daskarr,
+                           dims=da.dims,
+                           coords=coords
+                           )
+    return dataarr
+
+def rioread(subdataset, out_shape, winsize, resampling=rasterio.enums.Resampling.rms):
+    """
+    wrapper around rasterio.read, to replace self.rio.read and
+    avoid 'TypeError: self._hds cannot be converted to a Python object for pickling'
+    (see https://github.com/mapbox/rasterio/issues/1731)
+    """
+    with rasterio.open(subdataset) as rio:
+        resampled = rio.read(out_shape=out_shape, resampling=resampling,
+                             window=rasterio.windows.Window(*winsize))
+        return resampled
+
+
+def rioread_fromfunction(subdataset, bands, atracks, xtracks, resampling=None, resolution=None):
+    """
+    rioread version for dask.array.fromfunction
+    """
+    bounds = (xtracks.min() * resolution['xtrack'], atracks.min() * resolution['atrack'],
+              (xtracks.max() + 1) * resolution['xtrack'], (atracks.max() + 1) * resolution['atrack'])
+    winsize = (bounds[0], bounds[1], bounds[2] - bounds[0], bounds[3] - bounds[1])
+
+    return rioread(subdataset, bands.shape, winsize, resampling=resampling)

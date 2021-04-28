@@ -1,0 +1,12 @@
+# need to run `git config --local include.path ../.gitconfig` to include this file in git config
+
+# see http://timstaley.co.uk/posts/making-git-and-jupyter-notebooks-play-nice/
+[filter "nbstrip_full"]
+clean = "jq --indent 1 \
+        '(.cells[] | select(has(\"outputs\")) | .outputs) = []  \
+        | (.cells[] | select(has(\"execution_count\")) | .execution_count) = null  \
+        | .metadata = {\"language_info\": {\"name\": \"python\", \"pygments_lexer\": \"ipython3\"}} \
+        | .cells[].metadata = {} \
+        '"
+smudge = cat
+required = true

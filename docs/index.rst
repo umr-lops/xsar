@@ -70,7 +70,7 @@ Reference
 Get in touch
 ------------
 
-- Report bugs, suggest features or view the source code `on GitLab`_.
+- Report bugs, suggest features or view the source code `on github`_.
 
 ----------------------------------------------
 
@@ -101,7 +101,7 @@ Last documentation build: |today|
 
    basic_api
 
-.. _on GitLab: https://gitlab.ifremer.fr/sarlib/saroumane
+.. _on github: https://github.com/oarcher/xsar
 .. _xarray: http://xarray.pydata.org
 .. _dask: http://dask.org
 .. _xarray.open_dataset: http://xarray.pydata.org/en/stable/generated/xarray.open_dataset.html

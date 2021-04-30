@@ -20,6 +20,9 @@ Getting Started
 :doc:`installing`
 ~~~~~~~~~~~~~~~~~
 
+    .. note::
+        Currently, xsar has only been tested on **linux platform**.
+
    Quick install:
 
    .. program-output:: cat scripts/conda_create_activate scripts/conda_install_recommended scripts/pip_install

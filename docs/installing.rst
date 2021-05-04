@@ -4,6 +4,9 @@
 Installation
 ************
 
+.. note::
+    Currently, xsar has only been tested on **linux platform**.
+
 `xsar` relies on gdal_ and other shared libs, that are not provided by pip.
 So insallation in a conda_ environement is recommended.
 

@@ -4,7 +4,7 @@ xsar: efficient level 1 sar reader for xarray/dask
 
 **xsar** is a distributed level 1 SAR file reader designed to write efficient distributed processing algorhitm with `xarray`_ and `dask`_.
 
-It currently handles Sentinel-1 data, as found on `scihub`_ or `PEPS`_.
+It currently handles Level-1 Sentinel-1 data in `SAFE format`_, as found on `scihub`_ or `PEPS`_.
 
 **xsar** is as simple to use as the well known `xarray.open_dataset`_ : simply give the dataset path, and :meth:`xsar.open_dataset` will return an `xarray.Dataset`:
 
@@ -19,9 +19,6 @@ Getting Started
 
 :doc:`installing`
 ~~~~~~~~~~~~~~~~~
-
-    .. note::
-        Currently, xsar has only been tested on **linux platform**.
 
    Quick install:
 
@@ -49,7 +46,7 @@ Examples
 ........
 
 .. note::
-    With `recommended installation`_ you will be able to download and execute those examples.
+    With `recommended installation`_ you will be able to download and execute those examples in `jupyter notebook`_.
 
     Those examples will automatically download test data from https://cyclobs.ifremer.fr/static/sarwing_datarmor/xsardata/
 
@@ -119,3 +116,5 @@ Last documentation build: |today|
 .. _open a dataset at lower resolution: examples/xsar_advanced.ipynb#Open-a-dataset-at-lower-resolution
 .. _convert lon/lat to dataset coordinates: examples/xsar_advanced.ipynb#Convert-(lon,lat)-to-(atrack,-xtrack)
 .. _`recommended installation`: installing.rst#recommended-packages
+.. _SAFE format: https://sentinel.esa.int/web/sentinel/user-guides/sentinel-1-sar/data-formats
+.. _jupyter notebook: https://jupyter.readthedocs.io/en/latest/running.html#running

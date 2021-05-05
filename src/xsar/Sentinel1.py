@@ -137,13 +137,14 @@ class SentinelMeta:
 
     """
 
-    def __init__(self, name, xml_parser=None):
+    def __init__(self, name, xml_parser=None, driver=None):
         if xml_parser is None:
             xml_parser = XmlParser(
                 xpath_mappings=sentinel1_xml_mappings.xpath_mappings,
                 compounds_vars=sentinel1_xml_mappings.compounds_vars,
                 namespaces=sentinel1_xml_mappings.namespaces)
         self.xml_parser = xml_parser
+        self._driver = driver
         if not name.startswith('SENTINEL1_DS:'):
             name = 'SENTINEL1_DS:%s:' % name
         self.name = name
@@ -343,7 +344,11 @@ class SentinelMeta:
 
         # rio object not stored as self.rio attribute because of pickling problem
         # (https://github.com/dymaxionlabs/dask-rasterio/issues/3)
-        return rasterio.open(self.name)
+        if self._driver == 'tiff':
+            name = self.files[self.files['dsid'] == self.name]['measurement'].iloc[0]
+        else:
+            name = self.name
+        return rasterio.open(name)
 
     @property
     def files(self):
@@ -357,6 +362,7 @@ class SentinelMeta:
         pandas.Dataframe
             with columns:
                 * index         : file number, extracted from the filename.
+                * dsid          : dataset id, compatible with gdal sentinel1 driver ('SENTINEL1_DS:/path/file.SAFE:WV_012')
                 * polarization  : polarization name.
                 * annotation    : xml annotation file.
                 * calibration   : xml calibration file.

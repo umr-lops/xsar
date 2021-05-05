@@ -210,27 +210,6 @@ class SentinelMeta:
         self._orbit_pass = None
         self._platform_heading = None
 
-    def _get_files(self):
-        xml_ann_files = [file for file in self.rio.files if '/annotation/' in file and file.endswith('.xml')]
-        pols = [self.xml_parser.get_var(xml_ann_file, "annotation.polarization") for xml_ann_file in xml_ann_files]
-        files_numbers = [int(re.search(r'-(\d*).xml', f)[1]) for f in xml_ann_files]
-        xml_cal_files = [file.replace('annotation/', 'annotation/calibration/calibration-') for file in
-                         xml_ann_files]
-        xml_cal_noise_files = [file.replace('annotation/', 'annotation/calibration/noise-') for file in
-                               xml_ann_files]
-
-        df_files = pd.DataFrame({
-            "polarization": pols,
-            "annotation": xml_ann_files,
-            "calibration": xml_cal_files,
-            "noise": xml_cal_noise_files
-        }, index=files_numbers)
-        # set "polarization" as a category, so sorting dataframe on polarization
-        # will return the dataframe in same order as self._safe_attributes['polarizations']
-        df_files["polarization"] = df_files.polarization.astype("category").cat.reorder_categories(
-            self.manifest_attrs['polarizations'], ordered=True)
-        return df_files
-
     def _get_gcps(self):
         rio_gcps, crs = self.rio.get_gcps()
 
@@ -408,7 +387,16 @@ class SentinelMeta:
 
         """
         if self._files is None:
-            self._files = self._get_files()
+            files = self.xml_parser.get_compound_var(self.manifest, 'files')
+            # add path
+            for f in ['annotation', 'measurement', 'noise', 'calibration']:
+                files[f] = files[f].map(lambda f: os.path.join(self.path, f))
+
+            # set "polarization" as a category, so sorting dataframe on polarization
+            # will return the dataframe in same order as self._safe_attributes['polarizations']
+            files["polarization"] = files.polarization.astype('category').cat.reorder_categories(
+                self.manifest_attrs['polarizations'], ordered=True)
+            self._files = files
         return self._files
 
     @property

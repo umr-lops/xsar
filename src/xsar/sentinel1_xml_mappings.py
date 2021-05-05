@@ -11,6 +11,7 @@ import xarray as xr
 import warnings
 import geopandas as gpd
 from shapely.geometry import Polygon
+import os.path
 
 namespaces = {
     "xfdu": "urn:ccsds:schema:xfdu:1",
@@ -68,7 +69,13 @@ xpath_mappings = {
         'mission': (scalar, '//safe:platform/safe:familyName'),
         'satellite': (scalar, '//safe:platform/safe:number'),
         'start_date': (date_converter, '//safe:acquisitionPeriod/safe:startTime'),
-        'stop_date': (date_converter, '//safe:acquisitionPeriod/safe:stopTime')
+        'stop_date': (date_converter, '//safe:acquisitionPeriod/safe:stopTime'),
+        'annotation_files': '/xfdu:XFDU/dataObjectSection/*[@repID="s1Level1ProductSchema"]/byteStream/fileLocation/@href',
+        'measurement_files': '/xfdu:XFDU/dataObjectSection/*[@repID="s1Level1MeasurementSchema"]/byteStream/fileLocation/@href',
+        'noise_files': '/xfdu:XFDU/dataObjectSection/*[@repID="s1Level1NoiseSchema"]/byteStream/fileLocation/@href',
+        'calibration_files': '/xfdu:XFDU/dataObjectSection/*[@repID="s1Level1CalibrationSchema"]/byteStream/fileLocation/@href'
+
+
     },
     'calibration': {
         'polarization': (scalar, '/calibration/adsHeader/polarisation'),
@@ -284,11 +291,39 @@ def annotation_angle(atrack, xtrack, angle):
     lut_f = RectBivariateSpline(atrack, xtrack, lut, kx=1, ky=1)
     return lut_f
 
-
 def datetime64_array(dates):
     """list of datetime to np.datetime64 array"""
     return np.array([np.datetime64(d) for d in dates])
 
+def df_files(annotation_files, measurement_files, noise_files, calibration_files):
+    # get polarizations and file number from filename
+    pols = [ os.path.basename(f).split('-')[3].upper() for f in annotation_files ]
+    num = [ int(os.path.splitext(os.path.basename(f))[0].split('-')[8]) for f in annotation_files ]
+    dsid = [ os.path.basename(f).split('-')[1].upper() for f in annotation_files ]
+
+    # check that dsid are spatialy uniques (i.e. there is only one dsid per geographic position)
+    # some SAFES like WV, dsid are not uniques ('WV1' and 'WV2')
+    # we want them uniques, and compatibles with gdal sentinel driver (ie 'WV_012')
+    pols_count = len(set(pols))
+    subds_count = len(annotation_files) // pols_count
+    dsid_count = len(set(dsid))
+    if dsid_count != subds_count:
+        dsid_rad = dsid[0][:-1]  # WV
+        dsid = [ "%s_%03d" % (dsid_rad, n) for n in num]
+        assert len(set(dsid)) == subds_count  # probably an unknown mode we need to handle
+
+    df = pd.DataFrame(
+        {
+            'polarization': pols,
+            'dsid': dsid,
+            'annotation': annotation_files,
+            'measurement': measurement_files,
+            'noise': noise_files,
+            'calibration': calibration_files
+        },
+        index=num
+    )
+    return df
 
 # dict of compounds variables.
 # compounds variables are variables composed of several variables.
@@ -305,6 +340,10 @@ compounds_vars = {
         'start_date': 'manifest.start_date',
         'stop_date': 'manifest.stop_date',
         'footprints': 'manifest.footprints'
+    },
+    'files': {
+        'func': df_files,
+        'args': ('manifest.annotation_files', 'manifest.measurement_files', 'manifest.noise_files', 'manifest.calibration_files')
     },
     'sigma0_lut': {
         'func': signal_lut,

@@ -107,29 +107,6 @@ def product_info(path, columns='minimal', include_multi=False, _xml_parser=None)
 
     return df
 
-
-def _get_gdal_datasets_names(rio_ds, skip_pols=[]):
-    # get subdatasets list, from rasterio
-    rio_subdatasets = rio_ds.subdatasets
-    if len(rio_subdatasets) == 0:
-        # no subdatasets, assume rio_ds.name is the only one
-        rio_subdatasets = [rio_ds.name]
-    # rasterio gave too many subdatasets per footprints (one for each pol, and one for all pols)
-    # so we filter out those specific to only one pol
-    subdatasets = [rsds for rsds in rio_subdatasets if
-                   not any([pol in rsds.split(':')[-1] for pol in skip_pols])]
-    if len(subdatasets) == 0:
-        # oops, previous filter removed all subdatasets, because they all mention a polarisation. (probably single pol)
-        subdatasets = rio_subdatasets
-
-    # only keep subdatasets that contain rio_ds.name
-    subdatasets = [n for n in subdatasets if rio_ds.name in n]
-
-    # rasterio doesn't sort subdatasets, and there is no easy ways to be sure to have the same order as the manifest file
-    # but as the manifest subdatasets order is lexically  ordered, we order here that way.
-    return sorted(subdatasets)
-
-
 # hardcoded sensor pixel spacing from https://sentinels.copernicus.eu/web/sentinel/user-guides/sentinel-1-sar/resolutions
 # if key is not found in this dict, values must be computed from footprint and image size.
 # (but values will differ from one image to another)
@@ -184,11 +161,12 @@ class SentinelMeta:
         """Product type, like 'GRDH', 'SLC', etc .."""
         self.manifest = os.path.join(self.path, 'manifest.safe')
         self.manifest_attrs = self.xml_parser.get_compound_var(self.manifest, 'safe_attributes')
+        self._files = None
         self.multidataset = None
         """True if multi dataset"""
         self.subdatasets = None
         """Subdatasets list (empty if single dataset)"""
-        datasets_names = _get_gdal_datasets_names(self.rio, skip_pols=self.manifest_attrs['polarizations'])
+        datasets_names = list(self.files['dsid'].unique())
         if len(datasets_names) == 1:
             self.name = datasets_names[0]  # to be sure to not use default name (i.e. ending with ':')
             self.subdatasets = []
@@ -200,7 +178,6 @@ class SentinelMeta:
         """Dataset identifier (like 'WV_001', 'IW1', 'IW'), or empty string for multidataset"""
         self.platform = self.manifest_attrs['mission'] + self.manifest_attrs['satellite']
         """Mission platform"""
-        self._files = None
         self._gcps = None
         self._time_range = None
         self._mask_features = {}
@@ -394,8 +371,10 @@ class SentinelMeta:
 
             # set "polarization" as a category, so sorting dataframe on polarization
             # will return the dataframe in same order as self._safe_attributes['polarizations']
-            files["polarization"] = files.polarization.astype('category').cat.reorder_categories(
-                self.manifest_attrs['polarizations'], ordered=True)
+            #files["polarization"] = files.polarization.astype('category').cat.reorder_categories(
+            #    self.manifest_attrs['polarizations'], ordered=True)
+            # replace 'dsid' with full path, compatible with gdal sentinel1 driver
+            files['dsid'] = files['dsid'].map(lambda dsid: "SENTINEL1_DS:%s:%s" % (self.path, dsid))
             self._files = files
         return self._files
 

@@ -30,7 +30,7 @@ logger.addHandler(logging.NullHandler())
 warnings.filterwarnings("ignore", category=rasterio.errors.NotGeoreferencedWarning)
 
 
-def product_info(path, columns='minimal', include_multi=False, _xml_parser=None):
+def product_info(path, columns='minimal', include_multi=False, driver='GTiff', _xml_parser=None):
     """
 
     Parameters
@@ -88,14 +88,14 @@ def product_info(path, columns='minimal', include_multi=False, _xml_parser=None)
 
     df_list = []
     for p in path:
-        s1meta = SentinelMeta(p)
+        s1meta = SentinelMeta(p, driver=driver)
         if s1meta.multidataset and include_multi:
             df_list.append(_meta2df(s1meta))
         elif not s1meta.multidataset:
             df_list.append(_meta2df(s1meta))
         if s1meta.multidataset:
             for n in s1meta.subdatasets:
-                s1meta = SentinelMeta(n)
+                s1meta = SentinelMeta(n,driver=driver)
                 df_list.append(_meta2df(s1meta))
     df = pd.concat(df_list).reset_index(drop=True)
     if 'geometry' in df:
@@ -106,6 +106,7 @@ def product_info(path, columns='minimal', include_multi=False, _xml_parser=None)
         df = df.drop(columns=add_cols)
 
     return df
+
 
 # hardcoded sensor pixel spacing from https://sentinels.copernicus.eu/web/sentinel/user-guides/sentinel-1-sar/resolutions
 # if key is not found in this dict, values must be computed from footprint and image size.
@@ -137,14 +138,15 @@ class SentinelMeta:
 
     """
 
-    def __init__(self, name, xml_parser=None, driver=None):
+    def __init__(self, name, xml_parser=None, driver='GTiff'):
         if xml_parser is None:
             xml_parser = XmlParser(
                 xpath_mappings=sentinel1_xml_mappings.xpath_mappings,
                 compounds_vars=sentinel1_xml_mappings.compounds_vars,
                 namespaces=sentinel1_xml_mappings.namespaces)
         self.xml_parser = xml_parser
-        self._driver = driver
+        self.driver = driver
+        """GDAL driver used. ('auto' for SENTINEL1, or 'tiff')"""
         if not name.startswith('SENTINEL1_DS:'):
             name = 'SENTINEL1_DS:%s:' % name
         self.name = name
@@ -156,24 +158,22 @@ class SentinelMeta:
         self.path = self.name.split(':')[1]
         """Dataset path"""
         self.safe = os.path.basename(self.path)
-        """Safe name"""
+        """Safe file name"""
         # there is no information on resolution 'F' 'H' or 'M' in the manifest, so we have to extract it from filename
         self.product = os.path.basename(self.path).split('_')[2]
         """Product type, like 'GRDH', 'SLC', etc .."""
         self.manifest = os.path.join(self.path, 'manifest.safe')
         self.manifest_attrs = self.xml_parser.get_compound_var(self.manifest, 'safe_attributes')
-        self._files = None
-        self.multidataset = None
+        self._safe_files = None
+        self.multidataset = False
         """True if multi dataset"""
-        self.subdatasets = None
+        self.subdatasets = []
         """Subdatasets list (empty if single dataset)"""
-        datasets_names = list(self.files['dsid'].unique())
-        if len(datasets_names) == 1:
-            self.name = datasets_names[0]  # to be sure to not use default name (i.e. ending with ':')
-            self.subdatasets = []
-            self.multidataset = False
-        else:
-            self.subdatasets = [d for d in datasets_names if d != self.name]
+        datasets_names = list(self.safe_files['dsid'].sort_index().unique())
+        if self.name.endswith(':') and len(datasets_names) == 1:
+            self.name = datasets_names[0]
+        if self.files.empty:
+            self.subdatasets = datasets_names
             self.multidataset = True
         self.dsid = self.name.split(':')[2]
         """Dataset identifier (like 'WV_001', 'IW1', 'IW'), or empty string for multidataset"""
@@ -344,16 +344,16 @@ class SentinelMeta:
 
         # rio object not stored as self.rio attribute because of pickling problem
         # (https://github.com/dymaxionlabs/dask-rasterio/issues/3)
-        if self._driver == 'tiff':
-            name = self.files[self.files['dsid'] == self.name]['measurement'].iloc[0]
+        if self.driver == 'GTiff':
+            name = self.files['measurement'].iloc[0]
         else:
             name = self.name
         return rasterio.open(name)
 
     @property
-    def files(self):
+    def safe_files(self):
         """
-        Files and polarizations for dataset, in the some order as self.rio.files.
+        Files and polarizations for whole SAFE.
         The index is the file number, extracted from the filename.
         To get files in official SAFE order, the resulting dataframe should be sorted by polarization or index.
 
@@ -367,9 +367,14 @@ class SentinelMeta:
                 * annotation    : xml annotation file.
                 * calibration   : xml calibration file.
                 * noise         : xml noise file.
+                * measurement   : tiff measurement file.
+
+        See Also
+        --------
+        xsar.SentinelMeta.files
 
         """
-        if self._files is None:
+        if self._safe_files is None:
             files = self.xml_parser.get_compound_var(self.manifest, 'files')
             # add path
             for f in ['annotation', 'measurement', 'noise', 'calibration']:
@@ -377,12 +382,24 @@ class SentinelMeta:
 
             # set "polarization" as a category, so sorting dataframe on polarization
             # will return the dataframe in same order as self._safe_attributes['polarizations']
-            #files["polarization"] = files.polarization.astype('category').cat.reorder_categories(
-            #    self.manifest_attrs['polarizations'], ordered=True)
+            files["polarization"] = files.polarization.astype('category').cat.reorder_categories(
+                self.manifest_attrs['polarizations'], ordered=True)
             # replace 'dsid' with full path, compatible with gdal sentinel1 driver
             files['dsid'] = files['dsid'].map(lambda dsid: "SENTINEL1_DS:%s:%s" % (self.path, dsid))
-            self._files = files
-        return self._files
+            files.sort_values('polarization', inplace=True)
+            self._safe_files = files
+        return self._safe_files
+
+    @property
+    def files(self):
+        """
+        Files for current dataset. (Empty for multi datasets)
+
+        See Also
+        --------
+        xsar.SentinelMeta.safe_files
+        """
+        return self.safe_files[self.safe_files['dsid'] == self.name]
 
     @property
     def gcps(self):
@@ -641,7 +658,6 @@ class SentinelMeta:
             return self._coords2ll_shapely(args[0])
 
         atracks, xtracks = args
-
 
         scalar = True
         if hasattr(atracks, '__iter__'):
@@ -1103,7 +1119,7 @@ class SentinelDataset:
 
         for lut_name in luts_names:
             xml_type = self._map_lut_files[lut_name]
-            xml_files = self.s1meta.files
+            xml_files = self.s1meta.files.copy()
             # polarization is a category. we use codes (ie index),
             # to have well ordered polarizations in latter combine_by_coords
             xml_files['pol_code'] = xml_files['polarization'].cat.codes
@@ -1164,18 +1180,35 @@ class SentinelDataset:
             'xtrack': 'x'
         }
 
+        rio = self.s1meta.rio
+
         if resolution is None:
             best_chunks, pad = _compute_chunks(
-                chunks, {'atrack': self.s1meta.rio.shape[0], 'xtrack': self.s1meta.rio.shape[1]},
-                dtype=np.dtype(self.s1meta.rio.dtypes[0]), block_size=self.block_size_limit
+                chunks, {'atrack': rio.shape[0], 'xtrack': rio.shape[1]},
+                dtype=np.dtype(rio.dtypes[0]), block_size=self.block_size_limit
             )
             best_chunks['pol'] = 1
             best_chunks = dict(sorted(best_chunks.items(), key=lambda pair: list(map_dims.keys()).index(pair[0])))
+            best_chunks_rio = {map_dims[d]: best_chunks[d] for d in map_dims.keys()}
 
-            dn = xr.open_rasterio(
-                self.s1meta.rio,
-                chunks={map_dims[d]: best_chunks[d] for d in map_dims.keys()},
-                parse_coordinates=False)  # manual coordinates parsing because we're going to pad
+            if self.s1meta.driver == 'auto':
+                # using sentinel1 driver: all pols are read in one shot
+                dn = xr.open_rasterio(
+                    self.s1meta.name,
+                    chunks=best_chunks_rio,
+                    parse_coordinates=False)  # manual coordinates parsing because we're going to pad
+            elif self.s1meta.driver == 'GTiff':
+                # using tiff driver: need to read individual tiff and concat them
+                # self.s1meta.files['measurement'] is ordered like self.s1meta.manifest_attrs['polarizations']
+                dn = xr.concat(
+                    [
+                        xr.open_rasterio(
+                            f, chunks=best_chunks_rio, parse_coordinates=False
+                        ) for f in self.s1meta.files['measurement']
+                    ], 'band'
+                ).assign_coords(band=np.arange(len(self.s1meta.manifest_attrs['polarizations'])) + 1)
+            else:
+                raise NotImplementedError('Unhandled driver %s' % self.s1meta.driver)
 
             # set dimensions names
             dn = dn.rename(dict(zip(map_dims.values(), map_dims.keys())))
@@ -1191,40 +1224,67 @@ class SentinelDataset:
             # 0.5 is for pixel center (geotiff standard)
             dn = dn.assign_coords({'atrack': dn.atrack + 0.5, 'xtrack': dn.xtrack + 0.5})
         else:
-            # resample the DN at tiff level, before feeding it to the dataset
+            # resample the DN at gdal level, before feeding it to the dataset
             out_shape = (
-                self.s1meta.rio.count, self.s1meta.rio.height // resolution['atrack'],
-                self.s1meta.rio.width // resolution['xtrack']
+                rio.height // resolution['atrack'],
+                rio.width // resolution['xtrack']
             )
+            if self.s1meta.driver == 'auto':
+                out_shape_pol = (rio.count,) + out_shape
+            else:
+                out_shape_pol = (len(self.s1meta.manifest_attrs['polarizations']),) + out_shape
             best_chunks, pad = _compute_chunks(
-                chunks, {'atrack': out_shape[1], 'xtrack': out_shape[2]},
-                dtype=np.dtype(self.s1meta.rio.dtypes[0]), block_size=self.block_size_limit
+                chunks, {'atrack': out_shape[0], 'xtrack': out_shape[1]},
+                dtype=np.dtype(rio.dtypes[0]), block_size=self.block_size_limit
             )
             best_chunks['pol'] = 1
             # order best_chunks like map_dims ( ie in dimensions order)
             best_chunks = dict(sorted(best_chunks.items(), key=lambda pair: list(map_dims.keys()).index(pair[0])))
             # both following methods produce same result,
             # but we can choose one of them by comparing out_shape and chunks size
-            if all([b - s >= 0 for b, s in zip(best_chunks.values(), out_shape)][1:]):
+            if all([b - s >= 0 for b, s in zip(best_chunks.values(), out_shape_pol)][1:]):
                 # read resampled array in one chunk, and rechunk
                 # winsize is the maximum full image size that can be divided  by resolution (int)
-                winsize = (0, 0, self.s1meta.rio.width // resolution['xtrack'] * resolution['xtrack'],
-                           self.s1meta.rio.height // resolution['atrack'] * resolution['atrack'])
+                winsize = (0, 0, rio.width // resolution['xtrack'] * resolution['xtrack'],
+                           rio.height // resolution['atrack'] * resolution['atrack'])
 
-                resampled = dask.array.from_delayed(
-                    dask.delayed(rioread)(self.s1meta.name, out_shape, winsize, resampling=resampling),
-                    out_shape, dtype=np.dtype(self.s1meta.rio.dtypes[0]))
-
+                if self.s1meta.driver == 'GTiff':
+                    resampled = dask.array.stack(
+                        [
+                            dask.array.from_delayed(
+                                dask.delayed(rioread)(f, out_shape, winsize, resampling=resampling),
+                                out_shape, dtype=np.dtype(rio.dtypes[0])
+                            ) for f in self.s1meta.files['measurement']
+                        ], axis=0
+                    )
+                else:
+                    resampled = dask.array.from_delayed(
+                        dask.delayed(rioread)(self.s1meta.name, out_shape_pol, winsize, resampling=resampling),
+                        out_shape, dtype=np.dtype(rio.dtypes[0]))
                 dn = xr.DataArray(resampled, dims=tuple(map_dims.keys())).chunk(best_chunks)
             else:
                 # read resampled array chunk by chunk
                 best_chunks['pol'] = 2
                 # TODO: there is no way to specify dask graph name with fromfunction: => open github issue ?
-                resampled = dask.array.fromfunction(partial(rioread_fromfunction, self._gdal_dataset_url),
-                                                    shape=out_shape,
-                                                    chunks=tuple(best_chunks.values()),
-                                                    dtype=np.dtype(self.s1meta.rio.dtypes[0]),
-                                                    resolution=resolution, resampling=resampling)
+                if self.s1meta.driver == 'GTiff':
+                    resampled = dask.array.stack(
+                        [
+                            dask.array.fromfunction(
+                                partial(rioread_fromfunction, f),
+                                shape=out_shape,
+                                chunks=tuple(best_chunks.values())[1:],
+                                dtype=np.dtype(rio.dtypes[0]),
+                                resolution=resolution, resampling=resampling
+                            ) for f in self.s1meta.files['measurement']
+                        ], axis=0
+                    )
+                else:
+                    resampled = dask.array.fromfunction(
+                        partial(rioread_fromfunction, self.s1meta.name),
+                        shape=out_shape_pol,
+                        chunks=tuple(best_chunks.values()),
+                        dtype=np.dtype(rio.dtypes[0]),
+                        resolution=resolution, resampling=resampling)
                 dn = xr.DataArray(resampled.rechunk({0: 1}), dims=tuple(map_dims.keys()))
 
             # only pad if needed, to avoid complex dask graph
@@ -1237,8 +1297,8 @@ class SentinelDataset:
             # create coordinates at box center (+0.5 for pixel center, -1 because last index not included)
             translate = Affine.translation((resolution['xtrack'] - 1) / 2 + 0.5, (resolution['atrack'] - 1) / 2 + 0.5)
             scale = Affine.scale(
-                self.s1meta.rio.width // resolution['xtrack'] * resolution['xtrack'] / out_shape[2],
-                self.s1meta.rio.height // resolution['atrack'] * resolution['atrack'] / out_shape[1])
+                rio.width // resolution['xtrack'] * resolution['xtrack'] / out_shape[1],
+                rio.height // resolution['atrack'] * resolution['atrack'] / out_shape[0])
             xtrack, _ = translate * scale * (dn.xtrack, 0)
             _, atrack = translate * scale * (0, dn.atrack)
             dn = dn.assign_coords({'atrack': atrack, 'xtrack': xtrack})
@@ -1253,13 +1313,20 @@ class SentinelDataset:
                 chunks_all.append(chunks_tuples)
             dn = dn.chunk(tuple(chunks_all))
 
-        # pols are ordered as self.rio.files,
-        # and we may have to reorder them in the same order as the manifest
-        dn_pols = [
-            self.s1meta.xml_parser.get_var(f, "annotation.polarization")
-            for f in self.s1meta.rio.files
-            if re.search(r'annotation.*\.xml', f)]
-        dn = dn.assign_coords(pol=dn_pols).reindex(pol=self.s1meta.manifest_attrs['polarizations'])
+        if self.s1meta.driver == 'auto':
+            # pols are ordered as self.rio.files,
+            # and we may have to reorder them in the same order as the manifest
+            dn_pols = [
+                self.s1meta.xml_parser.get_var(f, "annotation.polarization")
+                for f in rio.files
+                if re.search(r'annotation.*\.xml', f)]
+            dn = dn.assign_coords(pol=dn_pols)
+            dn = dn.reindex(pol=self.s1meta.manifest_attrs['polarizations'])
+        else:
+            # for GTiff driver, pols are already ordered. just rename them
+            dn = dn.assign_coords(pol=self.s1meta.manifest_attrs['polarizations'])
+
+
 
         dn.attrs = {}
         var_name = 'digital_number'

@@ -15,6 +15,7 @@ warnings.filterwarnings("ignore", category=rasterio.errors.NotGeoreferencedWarni
 logging.basicConfig()
 logger = logging.getLogger(os.path.basename(__file__))
 
+logging.getLogger('rasterio').setLevel(logging.CRITICAL)
 
 def get_dir_size(path):
     """
@@ -85,15 +86,11 @@ def compress_safe(safe_path, out_dir_prefix, constant=None, smooth=0, rasterio_k
     os.mkdir(file_out_tmp + "/measurement")
     for tiff_file in glob.glob(os.path.join(safe_path, 'measurement', '*.tiff')):
         src = rasterio.open(tiff_file)
-        open_kwargs = {
-            'driver': 'GTiff',
-            'height': src.shape[0],
-            'width': src.shape[1],
-            'count': src.count,
-            'dtype': src.dtypes[0],
-            'crs': src.crs
-        }
+        open_kwargs = src.profile
         open_kwargs.update(rasterio_kwargs)
+        gcps,crs = src.gcps
+        open_kwargs['gcps'] = gcps
+        open_kwargs['crs'] = crs
         if smooth > 1:
             reduced = xr.DataArray(
                 src.read(
@@ -109,8 +106,6 @@ def compress_safe(safe_path, out_dir_prefix, constant=None, smooth=0, rasterio_k
                 dim_0=np.arange(src.height),
                 dim_1=np.arange(src.width),
                 method='nearest').values.astype(src.dtypes[0])
-        #            open_kwargs['blockxsize'] = smooth
-        #            open_kwargs['blockysize'] = smooth
         else:
             band = src.read(1)
 
@@ -189,7 +184,7 @@ if __name__ == '__main__':
     out_size = get_dir_size(safe_out)
     ratio = (out_size / in_size) * 100
     zip_file = '%s.zip' % os.path.basename(safe_out)
-    zip_msg = subprocess.check_output('cd %s ; zip -r %s %s' % (args.d, zip_file, safe_out), shell=True)
+    zip_msg = subprocess.check_output('cd %s ; zip -r %s %s' % (args.d, zip_file, os.path.basename(safe_out)), shell=True)
     zip_path = os.path.join(args.d, zip_file)
     zip_size = os.path.getsize(zip_path) / (1024 ** 2)  # in Mb
     zip_ratio = (zip_size / out_size) * 100

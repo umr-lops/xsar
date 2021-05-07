@@ -54,7 +54,7 @@ os.environ["GDAL_CACHEMAX"] = "128"
 
 @timing
 def open_dataset(dataset_id, resolution=None, resampling=rasterio.enums.Resampling.average, sub_datasets=None,
-                 chunks={'xtrack': 120, 'atrack': 120}, pol_dim=True, luts=False, dtypes=None):
+                 chunks={'xtrack': 5000, 'atrack': 5000}, pol_dim=True, luts=False, dtypes=None):
     """
 
     Parameters

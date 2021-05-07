@@ -227,65 +227,6 @@ def gdal_rms(filename, out_shape, winsize=None):
     return dn_arr
 
 
-def _compute_chunks(minchunks, shape, dtype=np.float, block_size=1e8):
-    """
-    compute best chunks size for array like `shape` that are a multiple of `minchunks`.
-
-    Parameters
-    ----------
-    minchunks: dict
-        minimum chunk size. Unlike dask, it can be very small, as the final computed chunk will be large enought.
-        good values for minichunks is the windows size that will be used with `xarray.DataArray.rolling`.
-        ex: `{'atrack': 10, 'xtrack': 10}`
-    shape: dict
-        the shape of the data we want to chunk (sames keys as minchunks)
-    dtype:
-        data dtype, to compute the size of a single chunk (sames keys as minchunks)
-    block_size
-        max chunk size, in bytes
-
-    Returns
-    -------
-    tuple of dict
-        (chunks, pad) with computed chunks,
-        and pad, a dict for `dask.array.pad` needed to pad data so chunks are all equals.
-    """
-
-    # pad size
-    pad = {d:  (minchunks[d] * int(np.ceil(shape[d] / minchunks[d])) - shape[d]) for d in minchunks.keys()}
-
-    # add pad to old shape
-    new_shape = {d: shape[d] + pad[d] for d in minchunks.keys()}
-
-    # possibles chunks count
-    # https://stackoverflow.com/a/6800214/5988771
-    _factor = lambda n: list(reduce(list.__add__,
-                                    ([i, n // i] for i in range(1, int(n ** 0.5) + 1) if n % i == 0)))
-    possible_chunks = {d: np.array(_factor(new_shape[d])) for d in minchunks.keys()}
-
-    # remove sizes smallest than minchunks
-    possible_chunks = {d: np.clip(possible_chunks[d], minchunks[d], None) for d in minchunks.keys()}
-
-    # temp
-    # [ np.random.shuffle(possible_chunks[d]) for d in minchunks.keys()]
-
-    # filter small sizes
-    possible_chunks = {d: possible_chunks[d][possible_chunks[d] > 1] for d in possible_chunks.keys()}
-
-    # compute the matrix of all possible size (in elements count)
-    sizes = np.multiply.reduce(np.meshgrid(*possible_chunks.values()))
-
-    # compute the diff with block_size (in bytes)
-    sizes_diff = np.abs(block_size - sizes * dtype.itemsize)
-
-    # select in possible_chunks the minimum diff
-    mat_idx = np.argwhere(sizes_diff == np.min(sizes_diff))
-    best_chunk_idx = dict(zip(possible_chunks.keys(), reversed(mat_idx[0].tolist())))
-    best_chunk = {d: possible_chunks[d][best_chunk_idx[d]] for d in possible_chunks.keys()}
-
-    return best_chunk, pad
-
-
 def map_blocks_coords(da, func,  func_kwargs={}, **kwargs):
     """
     like `dask.map_blocks`, but `func` parameters are dimensions coordinates belonging to the block.

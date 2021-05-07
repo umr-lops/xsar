@@ -13,7 +13,7 @@ from scipy.interpolate import RectBivariateSpline, interp1d
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 import shapely
-from .utils import timing, to_lon180, haversine, minigrid, _compute_chunks, map_blocks_coords, rioread, \
+from .utils import timing, to_lon180, haversine, map_blocks_coords, rioread, \
     rioread_fromfunction
 from . import sentinel1_xml_mappings
 from .xml_parser import XmlParser
@@ -23,7 +23,7 @@ from functools import partial
 import datetime
 import os
 
-logger = logging.getLogger('xsar.SentinelSubdataset')
+logger = logging.getLogger('xsar.Sentinel1')
 logger.addHandler(logging.NullHandler())
 
 # we know tiff as no geotransform : ignore warning
@@ -1181,21 +1181,17 @@ class SentinelDataset:
         }
 
         rio = self.s1meta.rio
+        chunks['pol'] = 1
+        # sort chunks keys like map_dims
+        chunks = dict(sorted(chunks.items(), key=lambda pair: list(map_dims.keys()).index(pair[0])))
+        chunks_rio = {map_dims[d]: chunks[d] for d in map_dims.keys()}
 
         if resolution is None:
-            best_chunks, pad = _compute_chunks(
-                chunks, {'atrack': rio.shape[0], 'xtrack': rio.shape[1]},
-                dtype=np.dtype(rio.dtypes[0]), block_size=self.block_size_limit
-            )
-            best_chunks['pol'] = 1
-            best_chunks = dict(sorted(best_chunks.items(), key=lambda pair: list(map_dims.keys()).index(pair[0])))
-            best_chunks_rio = {map_dims[d]: best_chunks[d] for d in map_dims.keys()}
-
             if self.s1meta.driver == 'auto':
                 # using sentinel1 driver: all pols are read in one shot
                 dn = xr.open_rasterio(
                     self.s1meta.name,
-                    chunks=best_chunks_rio,
+                    chunks=chunks_rio,
                     parse_coordinates=False)  # manual coordinates parsing because we're going to pad
             elif self.s1meta.driver == 'GTiff':
                 # using tiff driver: need to read individual tiff and concat them
@@ -1203,7 +1199,7 @@ class SentinelDataset:
                 dn = xr.concat(
                     [
                         xr.open_rasterio(
-                            f, chunks=best_chunks_rio, parse_coordinates=False
+                            f, chunks=chunks_rio, parse_coordinates=False
                         ) for f in self.s1meta.files['measurement']
                     ], 'band'
                 ).assign_coords(band=np.arange(len(self.s1meta.manifest_attrs['polarizations'])) + 1)
@@ -1212,13 +1208,6 @@ class SentinelDataset:
 
             # set dimensions names
             dn = dn.rename(dict(zip(map_dims.values(), map_dims.keys())))
-
-            # only pad if needed, to avoid complex dask graph
-            pad_needed = not all([v == 0 for v in pad.values()])
-            if pad_needed:
-                # pad so chunks are all equals (at axis end) (nb: 0 padded)
-                pad_end = {d: (0, pad[d]) for d in pad.keys()}
-                dn = dn.pad(pad_end, constant_values=0)
 
             # create coordinates from dimension index (because of parse_coordinates=False)
             # 0.5 is for pixel center (geotiff standard)
@@ -1233,16 +1222,9 @@ class SentinelDataset:
                 out_shape_pol = (rio.count,) + out_shape
             else:
                 out_shape_pol = (1,) + out_shape
-            best_chunks, pad = _compute_chunks(
-                chunks, {'atrack': out_shape[0], 'xtrack': out_shape[1]},
-                dtype=np.dtype(rio.dtypes[0]), block_size=self.block_size_limit
-            )
-            best_chunks['pol'] = 1
-            # order best_chunks like map_dims ( ie in dimensions order)
-            best_chunks = dict(sorted(best_chunks.items(), key=lambda pair: list(map_dims.keys()).index(pair[0])))
             # both following methods produce same result,
             # but we can choose one of them by comparing out_shape and chunks size
-            if all([b - s >= 0 for b, s in zip(best_chunks.values(), out_shape_pol)][1:]):
+            if all([b - s >= 0 for b, s in zip(chunks.values(), out_shape_pol)][1:]):
                 # read resampled array in one chunk, and rechunk
                 # winsize is the maximum full image size that can be divided  by resolution (int)
                 winsize = (0, 0, rio.width // resolution['xtrack'] * resolution['xtrack'],
@@ -1259,12 +1241,12 @@ class SentinelDataset:
                         ) for f, pol in
                         zip(self.s1meta.files['measurement'], self.s1meta.manifest_attrs['polarizations'])
                     ]
-                    dn = xr.concat(resampled, 'pol').chunk(best_chunks)
+                    dn = xr.concat(resampled, 'pol').chunk(chunks)
                 else:
                     resampled = dask.array.from_delayed(
                         dask.delayed(rioread)(self.s1meta.name, out_shape_pol, winsize, resampling=resampling),
                         out_shape_pol, dtype=np.dtype(rio.dtypes[0]))
-                    dn = xr.DataArray(resampled, dims=tuple(map_dims.keys())).chunk(best_chunks)
+                    dn = xr.DataArray(resampled, dims=tuple(map_dims.keys())).chunk(chunks)
             else:
                 # read resampled array chunk by chunk
                 # TODO: there is no way to specify dask graph name with fromfunction: => open github issue ?
@@ -1274,7 +1256,7 @@ class SentinelDataset:
                             dask.array.fromfunction(
                                 partial(rioread_fromfunction, f),
                                 shape=out_shape_pol,
-                                chunks=tuple(best_chunks.values()),
+                                chunks=tuple(chunks.values()),
                                 dtype=np.dtype(rio.dtypes[0]),
                                 resolution=resolution, resampling=resampling
                             ),
@@ -1284,20 +1266,14 @@ class SentinelDataset:
                     ]
                     dn = xr.concat(resampled, 'pol')
                 else:
-                    best_chunks['pol'] = 2
+                    chunks['pol'] = 2
                     resampled = dask.array.fromfunction(
                         partial(rioread_fromfunction, self.s1meta.name),
                         shape=out_shape_pol,
-                        chunks=tuple(best_chunks.values()),
+                        chunks=tuple(chunks.values()),
                         dtype=np.dtype(rio.dtypes[0]),
                         resolution=resolution, resampling=resampling)
                     dn = xr.DataArray(resampled.rechunk({0: 1}), dims=tuple(map_dims.keys()))
-            # only pad if needed, to avoid complex dask graph
-            pad_needed = not all([v == 0 for v in pad.values()])
-            if pad_needed:
-                # pad so chunks are all equals (at axis end) (nb: 0 padded)
-                pad_end = {d: (0, pad[d]) for d in pad.keys()}
-                dn = dn.pad(pad_end, constant_values=0)
 
             # create coordinates at box center (+0.5 for pixel center, -1 because last index not included)
             translate = Affine.translation((resolution['xtrack'] - 1) / 2 + 0.5, (resolution['atrack'] - 1) / 2 + 0.5)
@@ -1307,16 +1283,6 @@ class SentinelDataset:
             xtrack, _ = translate * scale * (dn.xtrack, 0)
             _, atrack = translate * scale * (0, dn.atrack)
             dn = dn.assign_coords({'atrack': atrack, 'xtrack': xtrack})
-
-        if pad_needed:
-            # pad has introduced new chunks: merge  the last two into one
-            chunks_all = []
-            for d in dn.dims:
-                chunks_tuples = dn.chunks[dn.get_axis_num(d)]
-                if (d != 'pol' and len(chunks_tuples) != 1) and chunks_tuples[-1] == pad_end[d][1]:
-                    chunks_tuples = tuple(chunks_tuples[:-2]) + (chunks_tuples[-2] + chunks_tuples[-1],)
-                chunks_all.append(chunks_tuples)
-            dn = dn.chunk(tuple(chunks_all))
 
         if self.s1meta.driver == 'auto':
             # pols are ordered as self.rio.files,

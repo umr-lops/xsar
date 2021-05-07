@@ -21,3 +21,6 @@ meta = xsar.SentinelMeta(
 ds = xsar.open_dataset(meta, resolution={'atrack': 100, 'xtrack': 100}, resampling=rasterio.enums.Resampling.average)
 
 ds.compute()
+
+ds = xsar.open_dataset(meta).isel(pol=0,atrack=slice(0,100),xtrack=slice(0,100))
+ds.compute()

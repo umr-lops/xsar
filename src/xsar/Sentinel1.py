@@ -1263,7 +1263,7 @@ class SentinelDataset:
                 else:
                     resampled = dask.array.from_delayed(
                         dask.delayed(rioread)(self.s1meta.name, out_shape_pol, winsize, resampling=resampling),
-                        out_shape, dtype=np.dtype(rio.dtypes[0]))
+                        out_shape_pol, dtype=np.dtype(rio.dtypes[0]))
                     dn = xr.DataArray(resampled, dims=tuple(map_dims.keys())).chunk(best_chunks)
             else:
                 # read resampled array chunk by chunk

@@ -1,6 +1,6 @@
 # xsar
 
-Python Sar Library with L1 Reader for efficent xarray/dask based processor
+Sentinel1 Level 1 python reader for efficient xarray/dask based processor
 
 # Documentation
 

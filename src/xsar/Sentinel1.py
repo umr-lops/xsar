@@ -95,7 +95,7 @@ def product_info(path, columns='minimal', include_multi=False, driver='GTiff', _
             df_list.append(_meta2df(s1meta))
         if s1meta.multidataset:
             for n in s1meta.subdatasets:
-                s1meta = SentinelMeta(n,driver=driver)
+                s1meta = SentinelMeta(n, driver=driver)
                 df_list.append(_meta2df(s1meta))
     df = pd.concat(df_list).reset_index(drop=True)
     if 'geometry' in df:
@@ -1232,7 +1232,7 @@ class SentinelDataset:
             if self.s1meta.driver == 'auto':
                 out_shape_pol = (rio.count,) + out_shape
             else:
-                out_shape_pol = (len(self.s1meta.manifest_attrs['polarizations']),) + out_shape
+                out_shape_pol = (1,) + out_shape
             best_chunks, pad = _compute_chunks(
                 chunks, {'atrack': out_shape[0], 'xtrack': out_shape[1]},
                 dtype=np.dtype(rio.dtypes[0]), block_size=self.block_size_limit
@@ -1249,44 +1249,49 @@ class SentinelDataset:
                            rio.height // resolution['atrack'] * resolution['atrack'])
 
                 if self.s1meta.driver == 'GTiff':
-                    resampled = dask.array.stack(
-                        [
+                    resampled = [
+                        xr.DataArray(
                             dask.array.from_delayed(
-                                dask.delayed(rioread)(f, out_shape, winsize, resampling=resampling),
-                                out_shape, dtype=np.dtype(rio.dtypes[0])
-                            ) for f in self.s1meta.files['measurement']
-                        ], axis=0
-                    )
+                                dask.delayed(rioread)(f, out_shape_pol, winsize, resampling=resampling),
+                                out_shape_pol, dtype=np.dtype(rio.dtypes[0])
+                            ),
+                            dims = tuple(map_dims.keys()), coords = {'pol': [pol]}
+                        ) for f, pol in
+                        zip(self.s1meta.files['measurement'], self.s1meta.manifest_attrs['polarizations'])
+                    ]
+                    dn = xr.concat(resampled, 'pol').chunk(best_chunks)
                 else:
                     resampled = dask.array.from_delayed(
                         dask.delayed(rioread)(self.s1meta.name, out_shape_pol, winsize, resampling=resampling),
                         out_shape, dtype=np.dtype(rio.dtypes[0]))
-                dn = xr.DataArray(resampled, dims=tuple(map_dims.keys())).chunk(best_chunks)
+                    dn = xr.DataArray(resampled, dims=tuple(map_dims.keys())).chunk(best_chunks)
             else:
                 # read resampled array chunk by chunk
-                best_chunks['pol'] = 2
                 # TODO: there is no way to specify dask graph name with fromfunction: => open github issue ?
                 if self.s1meta.driver == 'GTiff':
-                    resampled = dask.array.stack(
-                        [
+                    resampled = [
+                        xr.DataArray(
                             dask.array.fromfunction(
                                 partial(rioread_fromfunction, f),
-                                shape=out_shape,
-                                chunks=tuple(best_chunks.values())[1:],
+                                shape=out_shape_pol,
+                                chunks=tuple(best_chunks.values()),
                                 dtype=np.dtype(rio.dtypes[0]),
                                 resolution=resolution, resampling=resampling
-                            ) for f in self.s1meta.files['measurement']
-                        ], axis=0
-                    )
+                            ),
+                            dims=tuple(map_dims.keys()), coords={'pol': [pol]}
+                        ) for f, pol in
+                        zip(self.s1meta.files['measurement'], self.s1meta.manifest_attrs['polarizations'])
+                    ]
+                    dn = xr.concat(resampled, 'pol')
                 else:
+                    best_chunks['pol'] = 2
                     resampled = dask.array.fromfunction(
                         partial(rioread_fromfunction, self.s1meta.name),
                         shape=out_shape_pol,
                         chunks=tuple(best_chunks.values()),
                         dtype=np.dtype(rio.dtypes[0]),
                         resolution=resolution, resampling=resampling)
-                dn = xr.DataArray(resampled.rechunk({0: 1}), dims=tuple(map_dims.keys()))
-
+                    dn = xr.DataArray(resampled.rechunk({0: 1}), dims=tuple(map_dims.keys()))
             # only pad if needed, to avoid complex dask graph
             pad_needed = not all([v == 0 for v in pad.values()])
             if pad_needed:
@@ -1325,8 +1330,6 @@ class SentinelDataset:
         else:
             # for GTiff driver, pols are already ordered. just rename them
             dn = dn.assign_coords(pol=self.s1meta.manifest_attrs['polarizations'])
-
-
 
         dn.attrs = {}
         var_name = 'digital_number'

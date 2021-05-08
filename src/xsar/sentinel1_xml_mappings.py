@@ -34,7 +34,7 @@ float_1Darray_from_join_strings = lambda x: np.fromstring(" ".join(x), dtype=flo
 int_array = lambda x: np.array(x, dtype=int)
 uniq_sorted = lambda x: np.array(sorted(set(x)))
 ordered_category = lambda x:  pd.Categorical(x).reorder_categories(x,ordered=True)
-
+normpath = lambda paths: [ os.path.normpath(p) for p in paths ]
 
 def or_ipf28(xpath):
     """change xpath to match ipf <2.8 or >2.9 (for noise range)"""
@@ -50,7 +50,6 @@ def list_poly_from_list_string_coords(str_coords_list):
             [(float(lon), float(lat)) for lat, lon in [latlon.split(",")
                                                        for latlon in gmlpoly.split(" ")]]))
     return footprints
-
 
 # xpath_mappings:
 # first level key is xml file type
@@ -70,12 +69,10 @@ xpath_mappings = {
         'satellite': (scalar, '//safe:platform/safe:number'),
         'start_date': (date_converter, '//safe:acquisitionPeriod/safe:startTime'),
         'stop_date': (date_converter, '//safe:acquisitionPeriod/safe:stopTime'),
-        'annotation_files': '/xfdu:XFDU/dataObjectSection/*[@repID="s1Level1ProductSchema"]/byteStream/fileLocation/@href',
-        'measurement_files': '/xfdu:XFDU/dataObjectSection/*[@repID="s1Level1MeasurementSchema"]/byteStream/fileLocation/@href',
-        'noise_files': '/xfdu:XFDU/dataObjectSection/*[@repID="s1Level1NoiseSchema"]/byteStream/fileLocation/@href',
-        'calibration_files': '/xfdu:XFDU/dataObjectSection/*[@repID="s1Level1CalibrationSchema"]/byteStream/fileLocation/@href'
-
-
+        'annotation_files': (normpath, '/xfdu:XFDU/dataObjectSection/*[@repID="s1Level1ProductSchema"]/byteStream/fileLocation/@href'),
+        'measurement_files': (normpath, '/xfdu:XFDU/dataObjectSection/*[@repID="s1Level1MeasurementSchema"]/byteStream/fileLocation/@href'),
+        'noise_files': (normpath, '/xfdu:XFDU/dataObjectSection/*[@repID="s1Level1NoiseSchema"]/byteStream/fileLocation/@href'),
+        'calibration_files': (normpath, '/xfdu:XFDU/dataObjectSection/*[@repID="s1Level1CalibrationSchema"]/byteStream/fileLocation/@href')
     },
     'calibration': {
         'polarization': (scalar, '/calibration/adsHeader/polarisation'),

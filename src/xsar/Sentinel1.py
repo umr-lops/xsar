@@ -152,10 +152,14 @@ class SentinelMeta:
         self.name = name
         """Gdal dataset name"""
         name_parts = self.name.split(':')
+        if len(name_parts) > 3:
+            # windows might have semicolon in path ('c:\...')
+            name_parts[1] = ':'.join(name_parts[1:-1])
+            del name_parts[2:-1]
         name_parts[1] = os.path.basename(name_parts[1])
-        self.short_name = ":".join(name_parts)
+        self.short_name = ':'.join(name_parts)
         """Like name, but without path"""
-        self.path = self.name.split(':')[1]
+        self.path = ':'.join(self.name.split(':')[1:-1])
         """Dataset path"""
         self.safe = os.path.basename(self.path)
         """Safe file name"""

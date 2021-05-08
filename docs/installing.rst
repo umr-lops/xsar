@@ -5,7 +5,9 @@ Installation
 ************
 
 .. note::
-    Currently, xsar has only been tested on **linux platform**.
+    xsar is mainly used on **linux platform**. However, it should be used on **windows platform**, with the following limitations:
+
+    - no `xsar.get_test_file` used in examples: You file have to set filename to a local SAFE path.
 
 `xsar` relies on gdal_ and other shared libs, that are not provided by pip.
 So insallation in a conda_ environement is recommended.

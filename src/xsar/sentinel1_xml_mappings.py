@@ -179,7 +179,7 @@ def noise_lut_range(atracks, xtracks, noiseLuts):
     xtracks: list of np.ndarray
         arrays of xtracks. list length is same as xtracks. each array define xtracks where lut is defined
     noiseLuts: list of np.ndarray
-        arrays of luts. Same structure as xtarcks.
+        arrays of luts. Same structure as xtracks.
 
     Returns
     -------
@@ -205,8 +205,10 @@ def noise_lut_range(atracks, xtracks, noiseLuts):
     blocks = []
     # atracks is where lut is defined. compute atracks interval validity
     atracks_start = (atracks - np.diff(atracks, prepend=0) / 2).astype(int)
-    atracks_stop = np.ceil(atracks + np.diff(atracks, append=atracks[-1] + 1) / 2).astype(
-        int)  # end is not included in the interval
+    atracks_stop = np.ceil(
+        atracks + np.diff(atracks, append=atracks[-1] + 1) / 2
+    ).astype(int)  # end is not included in the interval
+    atracks_stop[-1] = 65535  # be sure to include all image if last azimuth line, is not last azimuth image
     for a_start, a_stop, x, l in zip(atracks_start, atracks_stop, xtracks, noiseLuts):
         lut_f = Lut_box_range(a_start, a_stop, x, l)
         block = pd.Series(dict([

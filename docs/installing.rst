@@ -4,11 +4,6 @@
 Installation
 ************
 
-.. note::
-    xsar is mainly used on **linux platform**. However, it should be used on **windows platform**, with the following limitations:
-
-    - no `xsar.get_test_file` used in examples: You file have to set filename to a local SAFE path.
-
 `xsar` relies on gdal_ and other shared libs, that are not provided by pip.
 So insallation in a conda_ environement is recommended.
 
@@ -52,7 +47,7 @@ As a normal user
 .. literalinclude:: scripts/pip_install
     :language: shell
 
-for developpment installation
+for development installation
 .............................
 
 .. literalinclude:: scripts/git_install
@@ -75,6 +70,12 @@ To update xsar installation, just rerun `pip install`, in your already activated
 
 .. literalinclude:: scripts/pip_install
     :language: shell
+
+.. note::
+    if you have some problems after updating **xsar**, you might have to update also your conda environment:
+
+    .. literalinclude:: scripts/conda_install_minimal
+        :language: shell
 
 
 .. _conda: https://docs.anaconda.com/anaconda/install/

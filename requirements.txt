@@ -25,11 +25,13 @@ numpy
 xarray
 scipy
 pandas
-#spatialpandas
 affine
 jmespath
 setuptools
 nbsphinx
 jupyter-sphinx
 sphinxcontrib-programoutput
-
+pyyaml
+fsspec
+aiohttp
+packaging

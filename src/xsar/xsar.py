@@ -1,7 +1,7 @@
 """
 TODO: this docstring is the main xsar module documentation shown to the user. It's should be updated with some examples.
 """
-
+import warnings
 from importlib.metadata import version
 
 __version__ = version('xsar')
@@ -15,7 +15,9 @@ import numbers
 import yaml
 from importlib_resources import files
 from pathlib import Path
-import subprocess
+import fsspec
+import aiohttp
+import zipfile
 
 
 def _load_config():
@@ -162,7 +164,7 @@ def apply_cf_convention(dataset):
 def get_test_file(fname):
     """
     get test file from  https://cyclobs.ifremer.fr/static/sarwing_datarmor/xsardata/
-    file is unziped and extracted to `config['data_dir']`
+    file is unzipped and extracted to `config['data_dir']`
 
     Parameters
     ----------
@@ -176,22 +178,17 @@ def get_test_file(fname):
 
     """
 
-    res_path = os.path.join(config['data_dir'], fname)
+    res_path = config['data_dir']
     base_url = 'https://cyclobs.ifremer.fr/static/sarwing_datarmor/xsardata'
     file_url = '%s/%s.zip' % (base_url, fname)
-    if not os.path.exists(res_path):
-        try:
-            subprocess.check_output(
-                'cd %s ; wget -N %s' % (config['data_dir'], file_url),
-                stderr=subprocess.STDOUT, shell=True)
-        except subprocess.CalledProcessError as e:
-            raise ConnectionError("Unable to fetch %s. Error is:\n %s" % (file_url, e.output.decode("utf-8")))
-
-        try:
-            subprocess.check_output(
-                'cd %s ; unzip -n %s.zip' % (config['data_dir'], fname),
-                stderr=subprocess.STDOUT, shell=True)
-        except subprocess.CalledProcessError as e:
-            raise IOError("Unable to unzip %s.zip.  Error is:\n %s" % (fname, e.output.decode("utf-8")))
-
-    return res_path
+    if not os.path.exists(os.path.join(res_path, fname)):
+        warnings.warn("Downloading %s" % file_url)
+        with fsspec.open(
+                'filecache::%s' % file_url,
+                https={'client_kwargs': {'timeout': aiohttp.ClientTimeout(total=3600)}},
+                filecache={'cache_storage': os.path.join(os.path.join(config['data_dir'], 'fsspec_cache'))}
+        ) as f:
+            warnings.warn("Unzipping %s" % os.path.join(res_path, fname))
+            with zipfile.ZipFile(f, 'r') as zip_ref:
+                zip_ref.extractall(res_path)
+    return os.path.join(res_path, fname)

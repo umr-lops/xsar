@@ -55,29 +55,14 @@ os.environ["GDAL_CACHEMAX"] = "128"
 
 
 @timing
-def open_dataset(dataset_id, resolution=None, resampling=rasterio.enums.Resampling.average, sub_datasets=None,
-                 chunks={'xtrack': 5000, 'atrack': 5000}, pol_dim=True, luts=False, dtypes=None):
+def open_dataset(*args, **kwargs):
     """
-
     Parameters
     ----------
-    dataset_id: str or SentinelMeta object
-        if str, it can be a path, or a gdal dataset identifier like `'SENTINEL1_DS:%s:WV_001' % filename`)
-    resolution: dict, optional
-        resampling dict like `{'atrack': 20, 'xtrack': 20}` where 20 is in pixels.
-    resampling: rasterio.enums.Resampling or str, optional
-        Only used if `resolution` is not None.
-        ` rasterio.enums.Resampling.rms` by default. `rasterio.enums.Resampling.nearest` (decimation) is fastest.
-    pol_dim: bool, optional
-        if `False`, datasets will not have 'pol' dimension, but several variables names (ie 'sigma0_vv' and 'sigma0_vh').
-        (`True` by default).
-    luts: bool, optional
-        if `True` return also luts as variables (ie `sigma0_lut`, `gamma0_lut`, etc...). False by default.
-    chunks: dict, optional
-        dict with keys ['pol','atrack','xtrack'] (dask chunks).
-        Chunks size will be adjusted so every chunks have the same size. (rechunking later is possible if not wanted)
-    dtypes: None or dict, optional
-        Specify the data type for each variable. Keys are assumed with `pol_dim=True` (ie no `_vv`).
+    *args:
+        Passed to `xsar.SentinelDataset`
+    **kwargs:
+        Passed to `xsar.SentinelDataset`
 
     Returns
     -------
@@ -85,20 +70,18 @@ def open_dataset(dataset_id, resolution=None, resampling=rasterio.enums.Resampli
 
     Notes
     -----
-      * for `dataset_id`, SentinelMeta object or a full gdal string is mandatory if the SAFE has multiples subdatasets.
-      * for `resolution` and `resampling`:
-        if `resampling` is `rasterio.enums.Resampling.nearest`, the result looks like:
+    xsar.open_dataset` is a simple wrapper to `xsar.SentinelDataset` that directly returns the `xarray.Dataset` object.
 
-        >>> res = [ 20 , 20 ] # note that in this case, res is in *pixels*.
-        >>> ds.sel(atrack=slice(res[0]/2-1,None,res[0]),xtrack=slice(res[1]/2-1,None,res[1])
+    >>> xsar.SentinelDataset(*args, **kwargs).dataset
 
-        but it's computed much faster.
-
+    See Also
+    --------
+    xsar.SentinelDataset
     """
+    dataset_id = args[0]
     # TODO: check product type (S1, RS2), and call specific reader
     if isinstance(dataset_id, SentinelMeta) or isinstance(dataset_id, str) and ".SAFE" in dataset_id:
-        sar_obj = SentinelDataset(dataset_id, resolution=resolution, resampling=resampling, pol_dim=pol_dim,
-                                  luts=luts, chunks=chunks, dtypes=dtypes)
+        sar_obj = SentinelDataset(*args, **kwargs)
     else:
         raise TypeError("Unknown dataset type from %s" % str(dataset_id))
 

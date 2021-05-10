@@ -51,7 +51,7 @@ def product_info(path, columns='minimal', include_multi=False, driver='GTiff', _
 
     See Also
     --------
-    `xsar.SentinelMeta`
+    xsar.SentinelMeta
 
     """
 
@@ -934,31 +934,27 @@ class SentinelDataset:
     Handle a SAFE subdataset.
     A dataset might contain several tiff files (multiples polarizations), but all tiff files must share the same footprint.
 
-    The main attribute usefull to the end-user is `self.dataset` (`xarray.Dataset` , withl all variables parsed from xml and tiff files.)
+    The main attribute useful to the end-user is `self.dataset` (`xarray.Dataset` , with all variables parsed from xml and tiff files.)
 
     Parameters
     ----------
     dataset_id: str or SentinelMeta object
         if str, it can be a path, or a gdal dataset identifier like `'SENTINEL1_DS:%s:WV_001' % filename`)
-
-        Note:SentinelMeta object or a full gdal string is mandatory if the SAFE has multiples subdatasets.
-    resolution: None or dict
-        see `xsar.open_dataset`
-    resampling: rasterio.enums.Resampling
-        see `xsar.open_dataset`
-    luts: bool
-        If True, `self.luts` will be merged in `self.dataset`. (False by default)
-    pol_dim: bool,
-        If True, self.dataset will not have 'pol' dimension. var names will be duplicated, ie 'sigma0_raw_vv' ans 'sigma0_raw_vh'.
-        False by default.
-    chunks: dict
-        passed to `xarray.open_rasterio`.
-    dtypes: dict
-        Optional. Specify the variable dtypes. ex : dtypes = { 'latitude' : 'float32', 'nesz': 'float32' }
-
-    Notes
-    -----
-    End user doesn't have to call this class, as it's done by `xsar.open_dataset`
+    resolution: dict, optional
+        resampling dict like `{'atrack': 20, 'xtrack': 20}` where 20 is in pixels.
+    resampling: rasterio.enums.Resampling or str, optional
+        Only used if `resolution` is not None.
+        ` rasterio.enums.Resampling.rms` by default. `rasterio.enums.Resampling.nearest` (decimation) is fastest.
+    pol_dim: bool, optional
+        if `False`, datasets will not have 'pol' dimension, but several variables names (ie 'sigma0_vv' and 'sigma0_vh').
+        (`True` by default).
+    luts: bool, optional
+        if `True` return also luts as variables (ie `sigma0_lut`, `gamma0_lut`, etc...). False by default.
+    chunks: dict, optional
+        dict with keys ['pol','atrack','xtrack'] (dask chunks).
+        Chunks size will be adjusted so every chunks have the same size. (rechunking later is possible if not wanted)
+    dtypes: None or dict, optional
+        Specify the data type for each variable. Keys are assumed with `pol_dim=True` (ie no `_vv`).
 
     See Also
     --------
@@ -967,11 +963,11 @@ class SentinelDataset:
 
     def __init__(self, dataset_id, resolution=None,
                  resampling=rasterio.enums.Resampling.average,
-                 luts=False, pol_dim=True, chunks=None,
+                 luts=False, pol_dim=True, chunks={'atrack': 5000, 'xtrack': 5000},
                  dtypes=None):
 
         # default dtypes (TODO: find defaults, so science precision is not affected)
-        self.dtypes = {
+        self._dtypes = {
             'latitude': 'f4',
             'longitude': 'f4',
             'incidence': 'f4',
@@ -988,15 +984,18 @@ class SentinelDataset:
             'digital_number': None
         }
         if dtypes is not None:
-            self.dtypes.update(dtypes)
-
-        # max chunks size, in bytes (for dn dtype)
-        self.block_size_limit = 2.5e8  # 250M
+            self._dtypes.update(dtypes)
 
         # default meta for map_blocks output.
         # as asarray is imported from numpy, it's a numpy array.
         # but if later we decide to import asarray from cupy, il will be a cupy.array (gpu)
         self._default_meta = asarray([], dtype='f8')
+
+        self.s1meta = None
+        """`xsar.SentinelMeta` object"""
+
+        self.dataset = None
+        """`xarray.Dataset` representation of this `xsar.SentinelDataset` object"""
 
         if not isinstance(dataset_id, SentinelMeta):
             xml_parser = XmlParser(
@@ -1012,7 +1011,7 @@ class SentinelDataset:
                 """Can't open an multi-dataset. Use `xsar.SentinelMeta('%s').subdatasets` to show availables ones""" % self.s1meta.path
             )
 
-        self._dataset = self.load_digital_number(resolution=resolution, resampling=resampling, chunks=chunks)
+        self._dataset = self._load_digital_number(resolution=resolution, resampling=resampling, chunks=chunks)
 
         # set time(atrack) from s1meta.time_range
         time_range = self.s1meta.time_range
@@ -1069,13 +1068,13 @@ class SentinelDataset:
         # variables not returned to the user (unless luts=True)
         self._hidden_vars = ['sigma0_lut', 'gamma0_lut', 'noise_lut', 'noise_lut_range', 'noise_lut_azi']
 
-        self._luts = self.lazy_load_luts(self._map_lut_files.keys())
+        self._luts = self._lazy_load_luts(self._map_lut_files.keys())
 
         # noise_lut is noise_lut_range * noise_lut_azi
         if 'noise_lut_range' in self._luts.keys() and 'noise_lut_azi' in self._luts.keys():
             self._luts = self._luts.assign(noise_lut=self._luts.noise_lut_range * self._luts.noise_lut_azi)
 
-        lon_lat = self.load_lon_lat()
+        lon_lat = self._load_lon_lat()
 
         ds_merge_list = [self._dataset, lon_lat] + [self._luts[v] for v in self._luts.keys() if
                                                     v not in self._hidden_vars]
@@ -1088,13 +1087,13 @@ class SentinelDataset:
         for var_name, lut_name in self._map_var_lut.items():
             if lut_name in self._luts:
                 # merge var_name into dataset (not denoised)
-                self._dataset = self._dataset.merge(self.apply_calibration_lut(var_name))
+                self._dataset = self._dataset.merge(self._apply_calibration_lut(var_name))
                 # merge noise equivalent for var_name (named 'ne%sz' % var_name[0)
-                self._dataset = self._dataset.merge(self.get_noise(var_name))
+                self._dataset = self._dataset.merge(self._get_noise(var_name))
             else:
                 logger.debug("Skipping variable '%s' ('%s' lut is missing)" % (var_name, lut_name))
 
-        self._dataset = self.add_denoised(self._dataset)
+        self._dataset = self._add_denoised(self._dataset)
 
         if not pol_dim:
             # remove 'pol' dim
@@ -1103,7 +1102,7 @@ class SentinelDataset:
             self.dataset = self._dataset
 
     @timing
-    def lazy_load_luts(self, luts_names):
+    def _lazy_load_luts(self, luts_names):
         """
         lazy load luts from xml files
         Parameters
@@ -1144,7 +1143,7 @@ class SentinelDataset:
                 # 1s faster, but lut_f will be loaded, even if not used
                 # lut_f_delayed = lut_f_delayed.persist()
 
-                lut = map_blocks_coords(self._da_tmpl.astype(self.dtypes[lut_name]), lut_f_delayed,
+                lut = map_blocks_coords(self._da_tmpl.astype(self._dtypes[lut_name]), lut_f_delayed,
                                         name='blocks_%s' % name)
 
                 # needs to add pol dim ?
@@ -1161,7 +1160,7 @@ class SentinelDataset:
         return luts
 
     @timing
-    def load_digital_number(self, resolution=None, chunks=None, resampling=rasterio.enums.Resampling.average):
+    def _load_digital_number(self, resolution=None, chunks=None, resampling=rasterio.enums.Resampling.average):
         """
         load digital_number from self.s1meta.rio, as an `xarray.Dataset`.
 
@@ -1305,14 +1304,14 @@ class SentinelDataset:
         var_name = 'digital_number'
         ds = dn.to_dataset(name=var_name)
 
-        astype = self.dtypes.get(var_name)
+        astype = self._dtypes.get(var_name)
         if astype is not None:
-            ds = ds.astype(self.dtypes[var_name])
+            ds = ds.astype(self._dtypes[var_name])
 
         return ds
 
     @timing
-    def load_lon_lat(self):
+    def _load_lon_lat(self):
         """
         Load longitude and latitude using `self.s1meta.gcps`.
 
@@ -1329,14 +1328,14 @@ class SentinelDataset:
 
         ll_coords = ['longitude', 'latitude']
         # ll_tmpl is like self._da_tmpl stacked 2 times (for both longitude and latitude)
-        ll_tmpl = self._da_tmpl.expand_dims({'ll': 2}).assign_coords(ll=ll_coords).astype(self.dtypes['longitude'])
+        ll_tmpl = self._da_tmpl.expand_dims({'ll': 2}).assign_coords(ll=ll_coords).astype(self._dtypes['longitude'])
         ll_ds = map_blocks_coords(ll_tmpl, coords2ll, name='blocks_lonlat')
         # remove ll_coords to have two separate variables longitude and latitude
         ll_ds = xr.merge([ll_ds.sel(ll=ll).drop('ll').rename(ll) for ll in ll_coords])
 
         return ll_ds
 
-    def get_lut(self, var_name):
+    def _get_lut(self, var_name):
         """
         Get lut for `var_name`
 
@@ -1359,7 +1358,7 @@ class SentinelDataset:
             raise ValueError("can't find lut from name '%s' for variable '%s' " % (lut_name, var_name))
         return lut
 
-    def apply_calibration_lut(self, var_name):
+    def _apply_calibration_lut(self, var_name):
         """
         Apply calibration lut to `digital_number` to compute `var_name`.
         see https://sentinel.esa.int/web/sentinel/radiometric-calibration-of-level-1-products
@@ -1374,11 +1373,11 @@ class SentinelDataset:
         xarray.Dataset
             with one variable named by `var_name`
         """
-        lut = self.get_lut(var_name)
+        lut = self._get_lut(var_name)
         res = (np.abs(self._dataset.digital_number) ** 2. / (lut ** 2))
         # dn default value is 0: convert to Nan
         res = res.where(res > 0)
-        astype = self.dtypes.get(var_name)
+        astype = self._dtypes.get(var_name)
         if astype is not None:
             res = res.astype(astype)
         return res.to_dataset(name=var_name)
@@ -1386,7 +1385,7 @@ class SentinelDataset:
     def reverse_calibration_lut(self, ds_var):
         """
         TODO: replace ds_var by var_name
-        Inverse of `apply_calibration_lut` : from `var_name`, reverse apply lut, to get digital_number.
+        Inverse of `_apply_calibration_lut` : from `var_name`, reverse apply lut, to get digital_number.
         See `official ESA documentation <https://sentinel.esa.int/web/sentinel/radiometric-calibration-of-level-1-products>`_ .
         > Level-1 products provide four calibration Look Up Tables (LUTs) to produce ß0i, σ0i and γi
         > or to return to the Digital Number (DN)
@@ -1434,7 +1433,7 @@ class SentinelDataset:
 
         return ds
 
-    def get_noise(self, var_name):
+    def _get_noise(self, var_name):
         """
         Get noise equivalent for  `var_name`.
         see https://sentinel.esa.int/web/sentinel/radiometric-calibration-of-level-1-products
@@ -1450,10 +1449,10 @@ class SentinelDataset:
             with one variable named by `'ne%sz' % var_name[0]` (ie 'nesz' for 'sigma0', 'nebz' for 'beta0', etc...)
         """
         noise_lut = self._luts['noise_lut']
-        lut = self.get_lut(var_name)
+        lut = self._get_lut(var_name)
         dataarr = noise_lut / lut ** 2
         name = 'ne%sz' % var_name[0]
-        astype = self.dtypes.get(name)
+        astype = self._dtypes.get(name)
         if astype is not None:
             dataarr = dataarr.astype(astype)
         return dataarr.to_dataset(name=name)
@@ -1480,7 +1479,7 @@ class SentinelDataset:
                 ds_no_pol = ds_no_pol.merge(ds[var])
         return ds_no_pol
 
-    def add_denoised(self, ds, clip=True, vars=None):
+    def _add_denoised(self, ds, clip=True, vars=None):
         """add denoised vars to dataset
 
         Parameters

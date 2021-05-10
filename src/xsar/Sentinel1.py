@@ -944,17 +944,13 @@ class SentinelDataset:
         resampling dict like `{'atrack': 20, 'xtrack': 20}` where 20 is in pixels.
     resampling: rasterio.enums.Resampling or str, optional
         Only used if `resolution` is not None.
-        ` rasterio.enums.Resampling.rms` by default. `rasterio.enums.Resampling.nearest` (decimation) is fastest.
-    pol_dim: bool, optional
-        if `False`, datasets will not have 'pol' dimension, but several variables names (ie 'sigma0_vv' and 'sigma0_vh').
-        (`True` by default).
+        ` rasterio.enums.Resampling.average` by default. `rasterio.enums.Resampling.nearest` (decimation) is fastest.
     luts: bool, optional
         if `True` return also luts as variables (ie `sigma0_lut`, `gamma0_lut`, etc...). False by default.
     chunks: dict, optional
         dict with keys ['pol','atrack','xtrack'] (dask chunks).
-        Chunks size will be adjusted so every chunks have the same size. (rechunking later is possible if not wanted)
     dtypes: None or dict, optional
-        Specify the data type for each variable. Keys are assumed with `pol_dim=True` (ie no `_vv`).
+        Specify the data type for each variable.
 
     See Also
     --------
@@ -963,7 +959,7 @@ class SentinelDataset:
 
     def __init__(self, dataset_id, resolution=None,
                  resampling=rasterio.enums.Resampling.average,
-                 luts=False, pol_dim=True, chunks={'atrack': 5000, 'xtrack': 5000},
+                 luts=False, chunks={'atrack': 5000, 'xtrack': 5000},
                  dtypes=None):
 
         # default dtypes (TODO: find defaults, so science precision is not affected)
@@ -993,9 +989,6 @@ class SentinelDataset:
 
         self.s1meta = None
         """`xsar.SentinelMeta` object"""
-
-        self.dataset = None
-        """`xarray.Dataset` representation of this `xsar.SentinelDataset` object"""
 
         if not isinstance(dataset_id, SentinelMeta):
             xml_parser = XmlParser(
@@ -1095,11 +1088,10 @@ class SentinelDataset:
 
         self._dataset = self._add_denoised(self._dataset)
 
-        if not pol_dim:
-            # remove 'pol' dim
-            self.dataset = self._remove_pol_dim(self._dataset)
-        else:
-            self.dataset = self._dataset
+    @property
+    def dataset(self):
+        """`xarray.Dataset` representation of this `xsar.SentinelDataset` object"""
+        return self._dataset
 
     @timing
     def _lazy_load_luts(self, luts_names):
@@ -1456,28 +1448,6 @@ class SentinelDataset:
         if astype is not None:
             dataarr = dataarr.astype(astype)
         return dataarr.to_dataset(name=name)
-
-    @timing
-    def _remove_pol_dim(self, ds):
-        """
-        remove 'pol' dim from `ds`, by renaming vars with polarisation name
-        Returns
-        -------
-        xarray.Dataset
-            dataset with 'pol' dimension removed, and correponding variables renamed
-
-        """
-        ds_no_pol = xr.Dataset()
-        ds_no_pol.attrs = ds.attrs
-        for var in ds:
-            if 'pol' in ds[var].dims:
-                for pol in list(ds.pol.data):
-                    ds_no_pol = ds_no_pol.merge(
-                        ds[var].sel(pol=pol).to_dataset(name='%s_%s' % (var, pol.lower())).drop('pol'))
-            else:
-                # no pol dim : simple copy
-                ds_no_pol = ds_no_pol.merge(ds[var])
-        return ds_no_pol
 
     def _add_denoised(self, ds, clip=True, vars=None):
         """add denoised vars to dataset

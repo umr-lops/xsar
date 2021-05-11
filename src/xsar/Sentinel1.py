@@ -132,10 +132,6 @@ class SentinelMeta:
     name: str
         path or gdal identifier like `'SENTINEL1_DS:%s:WV_001' % path`
 
-    Returns
-    -------
-    `xsar.SentinelMeta`
-
     """
 
     def __init__(self, name, xml_parser=None, driver='GTiff'):
@@ -176,11 +172,14 @@ class SentinelMeta:
         datasets_names = list(self.safe_files['dsid'].sort_index().unique())
         if self.name.endswith(':') and len(datasets_names) == 1:
             self.name = datasets_names[0]
+        self.dsid = self.name.split(':')[-1]
+        """Dataset identifier (like 'WV_001', 'IW1', 'IW'), or empty string for multidataset"""
+        if self.short_name.endswith(':'):
+            self.short_name = self.short_name + self.dsid
         if self.files.empty:
             self.subdatasets = datasets_names
             self.multidataset = True
-        self.dsid = self.name.split(':')[2]
-        """Dataset identifier (like 'WV_001', 'IW1', 'IW'), or empty string for multidataset"""
+
         self.platform = self.manifest_attrs['mission'] + self.manifest_attrs['satellite']
         """Mission platform"""
         self._gcps = None
@@ -191,6 +190,21 @@ class SentinelMeta:
         self.set_mask_feature('land', cartopy.feature.LAND)
         self._orbit_pass = None
         self._platform_heading = None
+
+    def have_child(self, name):
+        """
+        Check if dataset `name` belong to this SentinelMeta object.
+
+        Parameters
+        ----------
+        name: str
+            dataset name
+
+        Returns
+        -------
+        bool
+        """
+        return name == self.name or name in self.subdatasets
 
     def _get_gcps(self):
         rio_gcps, crs = self.rio.get_gcps()
@@ -277,8 +291,8 @@ class SentinelMeta:
         rio = self.rio
         pix_xtrack_meters = acq_xtrack_meters / rio.width
         pix_atrack_meters = acq_atrack_meters / rio.height
-        attrs['coverage'] = "%dkm * %dkm (xtrack * atrack )" % (
-            acq_xtrack_meters / 1000, acq_atrack_meters / 1000)
+        attrs['coverage'] = "%dkm * %dkm (atrack * xtrack )" % (
+            acq_atrack_meters / 1000, acq_xtrack_meters / 1000)
         attrs['pixel_xtrack_m'] = int(np.round(pix_xtrack_meters * 10)) / 10
         attrs['pixel_atrack_m'] = int(np.round(pix_atrack_meters * 10)) / 10
 
@@ -525,7 +539,7 @@ class SentinelMeta:
 
     @property
     def pixel_atrack_m(self):
-        """pixel atrack size, in meters (at sensor level)"""
+        """pixel atrack spacing, in meters (at sensor level)"""
         k = '%s_%s' % (self.swath, self.product)
         if k in _sensor_pixel_spacing:
             return _sensor_pixel_spacing[k][0]
@@ -536,7 +550,7 @@ class SentinelMeta:
 
     @property
     def pixel_xtrack_m(self):
-        """pixel xtrack size, in meters (at sensor level)"""
+        """pixel xtrack spacing, in meters (at sensor level)"""
         k = '%s_%s' % (self.swath, self.product)
         if k in _sensor_pixel_spacing:
             return _sensor_pixel_spacing[k][1]
@@ -587,8 +601,8 @@ class SentinelMeta:
         return " ".join(self.manifest_attrs['polarizations'])
 
     @property
-    def cross_antimeridian(self):
-        """True if footprint cross antimeridian"""
+    def cross_antemeridian(self):
+        """True if footprint cross antemeridian"""
         return (np.max(self.gcps['longitude']) - np.min(self.gcps['longitude'])) > 180
 
     @property
@@ -605,11 +619,11 @@ class SentinelMeta:
             ```
         Notes:
         ------
-            if self.cross_antimeridian is True, 'longitude' will be in range [0, 360]
+            if self.cross_antemeridian is True, 'longitude' will be in range [0, 360]
         """
         resdict = {}
         gcps = self.gcps
-        if self.cross_antimeridian:
+        if self.cross_antemeridian:
             gcps['longitude'] = gcps['longitude'] % 360
 
         idx_xtrack = np.array(gcps.xtrack)
@@ -655,6 +669,7 @@ class SentinelMeta:
         See Also
         --------
         xsar.SentinelMeta.ll2coords
+        xsar.SentinelDataset.ll2coords
 
         """
 
@@ -675,29 +690,28 @@ class SentinelMeta:
             lon = dict_coords2ll['longitude'].ev(atracks, xtracks)
             lat = dict_coords2ll['latitude'].ev(atracks, xtracks)
 
-        if self.cross_antimeridian:
+        if self.cross_antemeridian:
             lon = to_lon180(lon)
 
         if scalar and hasattr(lon, '__iter__'):
             lon = lon.item()
             lat = lat.item()
 
+        if hasattr(lon, '__iter__') and type(lon) is not type(atracks):
+            lon = type(atracks)(lon)
+            lat = type(atracks)(lat)
+
         return lon, lat
 
     def ll2coords(self, *args, dataset=None):
         """
         Get `(atracks, xtracks)` from `(lon, lat)`,
-        or convert a lon/lat shapely shapely object to atrack/xtrack coordinates
+        or convert a lon/lat shapely shapely object to atrack/xtrack coordinates.
 
         Parameters
         ----------
         *args: lon, lat or shapely object
             lon and lat might be iterables or scalars
-
-        dataset: xsar dataset, or None (default)
-            if a dataset is provided, it must be derived from the same meta object.
-            (atracks, xtracks) will be the existing nearest coordinates in dataset, or np.nan if out of bounds
-
 
         Returns
         -------
@@ -711,23 +725,15 @@ class SentinelMeta:
             >>> (atrack, xtrack)
             (9752.766349989339, 17852.571322887554)
 
-            same as above, but with bounds checks, and nearest coordinates in dataset
-            (note that dataset and meta must have the same identifier)
-
-            >>> (atrack, xtrack) = meta.ll2coords(84.81, 21.32, dataset=dataset) # (lon, lat)
-            >>> (atrack, xtrack)
-            (9752.5, 17852.5)  # those coordinates exists in dataset
-
-        Notes
-        ------
-            if dataset is provided, and only one coordinate is out of bounds,
-            **all** coordinates will be set to np.nan.
-
         See Also
         --------
         xsar.SentinelMeta.coords2ll
+        xsar.SentinelDataset.coords2ll
 
         """
+
+        if dataset is not None:
+            warnings.warn("dataset kw is deprecated. See xsar.SentinelDataset.ll2coords")
 
         if isinstance(args[0], shapely.geometry.base.BaseGeometry):
             return self._ll2coords_shapely(args[0])
@@ -748,6 +754,7 @@ class SentinelMeta:
         atrack = atrack_approx - atrack_error
         xtrack = xtrack_approx - xtrack_error
 
+        ### FIXME remove deprecation
         if hasattr(lon, '__iter__'):
             scalar = False
         else:
@@ -756,7 +763,7 @@ class SentinelMeta:
         if dataset is not None:
             # xtrack, atrack are float coordinates.
             # try to convert them to the nearest coordinates in dataset
-            if dataset.attrs['name'] != self.name:
+            if not self.have_child(dataset.attrs['name']):
                 raise ValueError("dataset %s is not a child of meta %s" % (dataset.attrs['name'], self.name))
             tolerance = np.max([np.percentile(np.diff(dataset[c].values), 90) / 2 for c in ['atrack', 'xtrack']]) + 1
             try:
@@ -1087,11 +1094,151 @@ class SentinelDataset:
                 logger.debug("Skipping variable '%s' ('%s' lut is missing)" % (var_name, lut_name))
 
         self._dataset = self._add_denoised(self._dataset)
+        self._dataset.attrs = self._recompute_attrs()
+
+        self.coords2ll = self.s1meta.coords2ll
+        """
+        Alias for `xsar.SentinelMeta.coords2ll`
+        
+        See Also
+        --------
+        xsar.SentinelMeta.coords2ll
+        """
 
     @property
     def dataset(self):
-        """`xarray.Dataset` representation of this `xsar.SentinelDataset` object"""
+        """
+        `xarray.Dataset` representation of this `xsar.SentinelDataset` object.
+        This property can be set with a new dataset, if the dataset was computed from the original dataset.
+        """
         return self._dataset
+
+    @dataset.setter
+    def dataset(self, ds):
+        if self.s1meta.have_child(ds.attrs['name']):
+            self._dataset = ds
+            self._dataset.attrs = self._recompute_attrs()
+        else:
+            raise ValueError("dataset must be same kind as original one.")
+
+    @property
+    def _bbox_coords(self):
+        """
+        Dataset bounding box, in atrack/xtrack coordinates
+        """
+        adiff, xdiff = [ np.percentile(np.diff(self.dataset[d]),90) for d in ['atrack', 'xtrack'] ]
+        bbox_norm = [(0, 0), (0, -1), (-1, -1), (-1, 0)]
+        apad = (-adiff/2, adiff/2)
+        xpad = (-xdiff/2, xdiff/2)
+        # use apad and xpad to get surrounding box
+        bbox_ext = [
+            (
+                self.dataset.atrack[a].values.item() + apad[a],
+                self.dataset.xtrack[x].values.item() + xpad[x]
+            ) for a, x in bbox_norm
+        ]
+        return bbox_ext
+
+    @property
+    def _bbox_ll(self):
+        """Dataset bounding box, lon/lat"""
+        return self.s1meta.coords2ll(*zip(*self._bbox_coords))
+
+    @property
+    def geometry(self):
+        """
+        geometry of this dataset, as a `shapely.geometry.Polygon` (lon/lat coordinates)
+        """
+        return Polygon(zip(*self._bbox_ll))
+
+    @property
+    def footprint(self):
+        """alias for `xsar.SentinelDataset.geometry`"""
+        return self.geometry
+
+    def ll2coords(self, *args):
+        """
+        Get `(atracks, xtracks)` from `(lon, lat)`,
+        or convert a lon/lat shapely shapely object to atrack/xtrack coordinates.
+
+        Parameters
+        ----------
+        *args: lon, lat or shapely object
+            lon and lat might be iterables or scalars
+
+        Returns
+        -------
+        tuple of np.array or tuple of float (atracks, xtracks) , or a shapely object
+
+        Notes
+        -----
+        The difference with `xsar.SentinelMeta.ll2coords` is that coordinates are rounded to the nearest dataset coordinates.
+
+        See Also
+        --------
+        xsar.SentinelMeta.ll2coords
+
+        """
+        if isinstance(args[0], shapely.geometry.base.BaseGeometry):
+            return self.s1meta.ll2coords_shapely(args[0].intersection(self.geometry))
+
+        atrack, xtrack = self.s1meta.ll2coords(*args)
+
+        if hasattr(args[0], '__iter__'):
+            scalar = False
+        else:
+            scalar = True
+
+        tolerance = np.max([np.percentile(np.diff(self.dataset[c].values), 90) / 2 for c in ['atrack', 'xtrack']]) + 1
+        try:
+            # select the nearest valid pixel in ds
+            ds_nearest = self.dataset.sel(atrack=atrack, xtrack=xtrack, method='nearest', tolerance=tolerance)
+            if scalar:
+                (atrack, xtrack) = (ds_nearest.atrack.values.item(), ds_nearest.xtrack.values.item())
+            else:
+                (atrack, xtrack) = (ds_nearest.atrack.values, ds_nearest.xtrack.values)
+        except KeyError:
+            # out of bounds, because of `tolerance` keyword
+            (atrack, xtrack) = (atrack * np.nan, xtrack * np.nan)
+
+        return atrack, xtrack
+
+    @property
+    def len_atrack_m(self):
+        """atrack length, in meters"""
+        bbox_ll = list(zip(*self._bbox_ll))
+        len_m, _ = haversine(*bbox_ll[1], *bbox_ll[2])
+        return len_m
+
+    @property
+    def len_xtrack_m(self):
+        """xtrack length, in meters """
+        bbox_ll = list(zip(*self._bbox_ll))
+        len_m, _ = haversine(*bbox_ll[0], *bbox_ll[1])
+        return len_m
+
+    @property
+    def pixel_atrack_m(self):
+        """atrack pixel spacing, in meters (relative to dataset)"""
+        return self.len_atrack_m / self.dataset.atrack.size
+
+    @property
+    def pixel_xtrack_m(self):
+        """xtrack pixel spacing, in meters (relative to dataset)"""
+        return self.len_xtrack_m / self.dataset.xtrack.size
+
+    @property
+    def coverage(self):
+        """coverage string"""
+        return "%dkm * %dkm (atrack * xtrack )" % ( self.len_atrack_m / 1000, self.len_xtrack_m / 1000)
+
+    def _recompute_attrs(self):
+        attrs = self._dataset.attrs
+        attrs['pixel_xtrack_m'] = self.pixel_xtrack_m
+        attrs['pixel_atrack_m'] = self.pixel_atrack_m
+        attrs['coverage'] = self.coverage
+        attrs['footprint'] = self.footprint
+        return attrs
 
     @timing
     def _lazy_load_luts(self, luts_names):
@@ -1232,7 +1379,7 @@ class SentinelDataset:
                                 dask.delayed(rioread)(f, out_shape_pol, winsize, resampling=resampling),
                                 out_shape_pol, dtype=np.dtype(rio.dtypes[0])
                             ),
-                            dims = tuple(map_dims.keys()), coords = {'pol': [pol]}
+                            dims=tuple(map_dims.keys()), coords={'pol': [pol]}
                         ) for f, pol in
                         zip(self.s1meta.files['measurement'], self.s1meta.manifest_attrs['polarizations'])
                     ]

@@ -18,6 +18,7 @@ from numpy import asarray
 from affine import Affine
 from functools import partial
 from .sentinel1_meta import SentinelMeta
+from .ipython_backends import repr_mimebundle
 
 logger = logging.getLogger('xsar.sentinel1_dataset')
 logger.addHandler(logging.NullHandler())
@@ -752,69 +753,4 @@ class SentinelDataset:
         return "%s SentinelDataset object" % intro
 
     def _repr_mimebundle_(self, include=None, exclude=None):
-        """html output for notebook"""
-        try:
-            import jinja2
-            import holoviews as hv
-        except ModuleNotFoundError as e:
-            return {'text/html': str(self)}
-        hv.extension('bokeh', logo=False)
-
-        template = jinja2.Template(
-            """
-            <div align="left">
-                <h5>{{ intro }}</h5>
-                <table style="width:100%">
-                    <thead>
-                        <tr>
-                            <th colspan="2">{{ short_name }}</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td>
-                                <table>
-                                    {% for key, value in properties.items() %}
-                                     <tr>
-                                         <th> {{ key }} </th>
-                                         <td> {{ value }} </td>
-                                     </tr>
-                                    {% endfor %}
-                                </table>
-                            </td>
-                            <td>{{ location }}</td>
-                        </tr>
-                    </tbody>
-                </table>
-
-            </div>
-
-            """
-        )
-
-        grid = (hv.Path(Polygon(self._bbox_coords_ori)).opts(color='blue') * hv.Polygons(
-            Polygon(self._bbox_coords)).opts(color='blue', fill_color='cyan')).opts(xlabel='atrack', ylabel='xtrack')
-
-        data, metadata = grid._repr_mimebundle_(include=include, exclude=exclude)
-
-        properties = {}
-        if self.pixel_atrack_m is not None:
-            properties['pixel size'] = "%.1f * %.1f meters (atrack * xtrack)" % (
-                self.pixel_atrack_m, self.pixel_xtrack_m)
-        properties['coverage'] = self.coverage
-        properties = {k: v for k, v in properties.items() if v is not None}
-
-        if self.sliced:
-            intro = "dataset slice"
-        else:
-            intro = "full dataset coverage"
-
-        if 'text/html' in data:
-            data['text/html'] = template.render(
-                intro=intro,
-                short_name=self.s1meta.short_name,
-                properties=properties,
-                location=data['text/html']
-            )
-
-        return data, metadata
+        return repr_mimebundle(self, include=include, exclude=exclude)

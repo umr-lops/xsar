@@ -20,7 +20,7 @@ import xsar
 
 project = 'xsar'
 copyright = '2021, Ifremer LOPS/SIAM'
-author = 'Olivier Archer, Alexandre Levieux'
+author = 'Olivier Archer'
 version = xsar.xsar.__version__
 
 # -- General configuration ---------------------------------------------------
@@ -89,6 +89,8 @@ html_theme_options = {
 
 # If true, links to the reST sources are added to the pages.
 html_show_sourcelink = False
+
+nbsphinx_allow_errors = False
 
 nbsphinx_execute = 'always'
 

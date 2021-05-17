@@ -832,10 +832,13 @@ class SentinelMeta:
 
     def _repr_mimebundle_(self, include=None, exclude=None):
         """html output for notebook"""
-        import cartopy
-        import geoviews as gv
-        import geoviews.feature as gf
-        import jinja2
+        try:
+            import cartopy
+            import geoviews as gv
+            import geoviews.feature as gf
+            import jinja2
+        except ModuleNotFoundError as e:
+            return {'text/html': str(self)}
         gv.extension('bokeh', logo=False)
 
         template = jinja2.Template(

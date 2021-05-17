@@ -8,7 +8,6 @@ __version__ = version('xsar')
 
 import logging
 from .utils import timing
-import rasterio
 import numpy as np
 import os
 import numbers
@@ -18,6 +17,10 @@ from pathlib import Path
 import fsspec
 import aiohttp
 import zipfile
+from . import sentinel1_xml_mappings
+from .xml_parser import XmlParser
+import pandas as pd
+import geopandas as gpd
 
 
 def _load_config():
@@ -43,7 +46,8 @@ def _load_config():
 
 config = _load_config()
 
-from .Sentinel1 import SentinelDataset, SentinelMeta, product_info
+from .sentinel1_meta import SentinelMeta
+from .sentinel1_dataset import SentinelDataset
 
 logger = logging.getLogger('xsar')
 """
@@ -142,6 +146,83 @@ def apply_cf_convention(dataset):
                 dataset[key].attrs[key_attr] = value
 
     return dataset
+
+def product_info(path, columns='minimal', include_multi=False, driver='GTiff', _xml_parser=None):
+    """
+
+    Parameters
+    ----------
+    path: str or iterable of str
+        path or gdal url.
+    columns: list of str or str, optional
+        'minimal' by default: only include columns from attributes found in manifest.safe.
+        Use 'spatial' to have 'time_range' and 'geometry'.
+        Might be a list of properties from `xsar.SentinelMeta`
+    include_multi: bool, optional
+        False by default: don't include multi datasets
+
+    Returns
+    -------
+    geopandas.GeoDataFrame
+      One dataset per lines, with info as columns
+
+    See Also
+    --------
+    xsar.SentinelMeta
+
+    """
+
+    info_keys = {
+        'minimal': ['name', 'ipf', 'platform', 'swath', 'product', 'pols', 'meta']
+    }
+    info_keys['spatial'] = info_keys['minimal'] + ['time_range', 'geometry']
+
+    if isinstance(columns, str):
+        columns = info_keys[columns]
+
+    # 'meta' column is not a SentinelMeta attribute
+    real_cols = [c for c in columns if c != 'meta']
+    add_cols = []
+    if 'path' not in real_cols:
+        add_cols.append('path')
+    if 'dsid' not in real_cols:
+        add_cols.append('dsid')
+
+    def _meta2df(meta):
+        df = pd.Series(data=meta.to_dict(add_cols + real_cols)).to_frame().T
+        if 'meta' in columns:
+            df['meta'] = meta
+        return df
+
+    if isinstance(path, str):
+        path = [path]
+
+    if _xml_parser is None:
+        _xml_parser = XmlParser(
+            xpath_mappings=sentinel1_xml_mappings.xpath_mappings,
+            compounds_vars=sentinel1_xml_mappings.compounds_vars,
+            namespaces=sentinel1_xml_mappings.namespaces)
+
+    df_list = []
+    for p in path:
+        s1meta = SentinelMeta(p, driver=driver)
+        if s1meta.multidataset and include_multi:
+            df_list.append(_meta2df(s1meta))
+        elif not s1meta.multidataset:
+            df_list.append(_meta2df(s1meta))
+        if s1meta.multidataset:
+            for n in s1meta.subdatasets:
+                s1meta = SentinelMeta(n, driver=driver)
+                df_list.append(_meta2df(s1meta))
+    df = pd.concat(df_list).reset_index(drop=True)
+    if 'geometry' in df:
+        df = gpd.GeoDataFrame(df).set_crs(epsg=4326)
+
+    df = df.set_index(['path', 'dsid'], drop=False)
+    if add_cols:
+        df = df.drop(columns=add_cols)
+
+    return df
 
 
 def get_test_file(fname):

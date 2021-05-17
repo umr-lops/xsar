@@ -33,6 +33,9 @@ setup(
         'fsspec',
         'aiohttp',
     ],
+    entry_points={
+        "xarray.backends": ["xsar=xsar.xarray_backends:XsarXarrayBackend"]
+    },
     license='MIT',
     author='Olivier Archer, Alexandre Levieux',
     author_email='Olivier.Archer@ifremer.fr, Alexandre.Levieux@ifremer.fr',

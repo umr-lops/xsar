@@ -172,7 +172,9 @@ def repr_mimebundle_SentinelDataset(self, include=None, exclude=None):
 
 repr_mimebundle_wrapper = {
     'Sentinel1Meta': repr_mimebundle_SentinelMeta,
-    'Sentinel1Dataset': repr_mimebundle_SentinelDataset
+    'SentinelMeta': repr_mimebundle_SentinelMeta,
+    'Sentinel1Dataset': repr_mimebundle_SentinelDataset,
+    'SentinelDataset': repr_mimebundle_SentinelDataset
 }
 
 

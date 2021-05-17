@@ -1,2 +1,1 @@
-# FIXME 'docutils>=0.16' with nbsphinx give  "WARNING: Line 710 exceeds the line-length-limit." when converting ipynb to html
-conda install -c conda-forge rasterio gdal dask[array] dask[distributed] jupyterlab geoviews cartopy holoviews datashader nbsphinx pandoc jq 'docutils<0.16' pip fiona git lxml
+conda install -c conda-forge rasterio gdal dask[array] dask[distributed] jupyterlab geoviews cartopy holoviews datashader nbsphinx pandoc jq docutils pip fiona git lxml

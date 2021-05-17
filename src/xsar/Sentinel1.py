@@ -1247,7 +1247,13 @@ class SentinelDataset:
         """coverage string"""
         return "%dkm * %dkm (atrack * xtrack )" % ( self.len_atrack_m / 1000, self.len_xtrack_m / 1000)
 
+    @property
+    def _regularly_spaced(self):
+        return max([ np.unique(np.diff(self._dataset[dim].values)).size for dim in ['atrack', 'xtrack'] ]) == 1
+
     def _recompute_attrs(self):
+        if not self._regularly_spaced:
+            warnings.warn("Irregularly spaced dataset (probably multiple selection). Some attributes will be incorrect.")
         attrs = self._dataset.attrs
         attrs['pixel_xtrack_m'] = self.pixel_xtrack_m
         attrs['pixel_atrack_m'] = self.pixel_atrack_m

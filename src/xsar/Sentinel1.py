@@ -910,8 +910,8 @@ class SentinelMeta:
         properties = self.to_dict()
         properties['orbit_pass'] = self.orbit_pass
         if self.pixel_atrack_m is not None:
-            properties['pixel size'] = "%.1f * %.1f meters (xtrack * atrack)" % (
-                self.pixel_xtrack_m, self.pixel_atrack_m)
+            properties['pixel size'] = "%.1f * %.1f meters (atrack * xtrack)" % (
+                self.pixel_atrack_m, self.pixel_xtrack_m)
         properties['coverage'] = self.coverage
         properties['start_date'] = self.start_date
         properties['stop_date'] = self.stop_date
@@ -1105,6 +1105,15 @@ class SentinelDataset:
         xsar.SentinelMeta.coords2ll
         """
 
+        self.sliced = False
+        """True if dataset is a slice of original L1 dataset"""
+
+        self.resampled= resolution is not None
+        """True if dataset is not a sensor resolution"""
+
+        # save original bbox
+        self._bbox_coords_ori = self._bbox_coords
+
     @property
     def dataset(self):
         """
@@ -1115,7 +1124,10 @@ class SentinelDataset:
 
     @dataset.setter
     def dataset(self, ds):
-        if self.s1meta.have_child(ds.attrs['name']):
+        if self.s1meta.name == ds.attrs['name']:
+            # check if new ds has changed coordinates
+            if not self.sliced:
+                self.sliced = any([ list(ds[d].values) != list(self._dataset[d].values) for d in ['atrack', 'xtrack', 'pol']])
             self._dataset = ds
             self._dataset.attrs = self._recompute_attrs()
         else:
@@ -1632,3 +1644,78 @@ class SentinelDataset:
                     denoised = denoised.clip(min=0)
                 ds[varname] = denoised
         return ds
+
+    def __str__(self):
+        if self.sliced:
+            intro = "sliced"
+        else:
+            intro = "full covevage"
+        return "%s SentinelDataset object" % intro
+
+    def _repr_mimebundle_(self, include=None, exclude=None):
+        """html output for notebook"""
+        try:
+            import jinja2
+            import holoviews as hv
+        except ModuleNotFoundError as e:
+            return {'text/html' : str(self)}
+        hv.extension('bokeh', logo=False)
+
+        template = jinja2.Template(
+            """
+            <div align="left">
+                <h5>{{ intro }}</h5>
+                <table style="width:100%">
+                    <thead>
+                        <tr>
+                            <th colspan="2">{{ short_name }}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>
+                                <table>
+                                    {% for key, value in properties.items() %}
+                                     <tr>
+                                         <th> {{ key }} </th>
+                                         <td> {{ value }} </td>
+                                     </tr>
+                                    {% endfor %}
+                                </table>
+                            </td>
+                            <td>{{ location }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+            </div>
+
+            """
+        )
+
+        grid = (hv.Path(Polygon(self._bbox_coords_ori)).opts(color='blue') * hv.Polygons(
+            Polygon(self._bbox_coords)).opts(color='blue', fill_color='cyan')).opts(xlabel='atrack', ylabel='xtrack')
+
+        data, metadata = grid._repr_mimebundle_(include=include, exclude=exclude)
+
+        properties = {}
+        if self.pixel_atrack_m is not None:
+            properties['pixel size'] = "%.1f * %.1f meters (atrack * xtrack)" % (
+                self.pixel_atrack_m, self.pixel_xtrack_m)
+        properties['coverage'] = self.coverage
+        properties = {k: v for k, v in properties.items() if v is not None}
+
+        if self.sliced:
+            intro = "dataset slice"
+        else:
+            intro = "full dataset coverage"
+
+        if 'text/html' in data:
+            data['text/html'] = template.render(
+                intro=intro,
+                short_name=self.s1meta.short_name,
+                properties=properties,
+                location=data['text/html']
+            )
+
+        return data, metadata

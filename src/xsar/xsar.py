@@ -46,8 +46,8 @@ def _load_config():
 
 config = _load_config()
 
-from .sentinel1_meta import SentinelMeta
-from .sentinel1_dataset import SentinelDataset
+from .sentinel1_meta import Sentinel1Meta, SentinelMeta
+from .sentinel1_dataset import Sentinel1Dataset, SentinelDataset
 
 logger = logging.getLogger('xsar')
 """
@@ -76,16 +76,16 @@ def open_dataset(*args, **kwargs):
     -----
     xsar.open_dataset` is a simple wrapper to `xsar.SentinelDataset` that directly returns the `xarray.Dataset` object.
 
-    >>> xsar.SentinelDataset(*args, **kwargs).dataset
+    >>> xsar.Sentinel1Dataset(*args, **kwargs).dataset
 
     See Also
     --------
-    xsar.SentinelDataset
+    xsar.Sentinel1Dataset
     """
     dataset_id = args[0]
     # TODO: check product type (S1, RS2), and call specific reader
-    if isinstance(dataset_id, SentinelMeta) or isinstance(dataset_id, str) and ".SAFE" in dataset_id:
-        sar_obj = SentinelDataset(*args, **kwargs)
+    if isinstance(dataset_id, Sentinel1Meta) or isinstance(dataset_id, str) and ".SAFE" in dataset_id:
+        sar_obj = Sentinel1Dataset(*args, **kwargs)
     else:
         raise TypeError("Unknown dataset type from %s" % str(dataset_id))
 
@@ -157,7 +157,7 @@ def product_info(path, columns='minimal', include_multi=False, driver='GTiff', _
     columns: list of str or str, optional
         'minimal' by default: only include columns from attributes found in manifest.safe.
         Use 'spatial' to have 'time_range' and 'geometry'.
-        Might be a list of properties from `xsar.SentinelMeta`
+        Might be a list of properties from `xsar.Sentinel1Meta`
     include_multi: bool, optional
         False by default: don't include multi datasets
 
@@ -168,7 +168,7 @@ def product_info(path, columns='minimal', include_multi=False, driver='GTiff', _
 
     See Also
     --------
-    xsar.SentinelMeta
+    xsar.Sentinel1Meta
 
     """
 
@@ -180,7 +180,7 @@ def product_info(path, columns='minimal', include_multi=False, driver='GTiff', _
     if isinstance(columns, str):
         columns = info_keys[columns]
 
-    # 'meta' column is not a SentinelMeta attribute
+    # 'meta' column is not a Sentinel1Meta attribute
     real_cols = [c for c in columns if c != 'meta']
     add_cols = []
     if 'path' not in real_cols:
@@ -205,14 +205,14 @@ def product_info(path, columns='minimal', include_multi=False, driver='GTiff', _
 
     df_list = []
     for p in path:
-        s1meta = SentinelMeta(p, driver=driver)
+        s1meta = Sentinel1Meta(p, driver=driver)
         if s1meta.multidataset and include_multi:
             df_list.append(_meta2df(s1meta))
         elif not s1meta.multidataset:
             df_list.append(_meta2df(s1meta))
         if s1meta.multidataset:
             for n in s1meta.subdatasets:
-                s1meta = SentinelMeta(n, driver=driver)
+                s1meta = Sentinel1Meta(n, driver=driver)
                 df_list.append(_meta2df(s1meta))
     df = pd.concat(df_list).reset_index(drop=True)
     if 'geometry' in df:

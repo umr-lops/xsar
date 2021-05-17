@@ -18,14 +18,14 @@ from affine import Affine
 import os
 from .ipython_backends import repr_mimebundle
 
-logger = logging.getLogger('xsar.sentinel_meta')
+logger = logging.getLogger('xsar.sentinel1_meta')
 logger.addHandler(logging.NullHandler())
 
 
-class SentinelMeta:
+class Sentinel1Meta:
     """
     Handle dataset metadata.
-    A `xsar.SentinelMeta` object can be used with `xsar.open_dataset`,
+    A `xsar.Sentinel1Meta` object can be used with `xsar.open_dataset`,
     but it can be used as itself: it contain usefull attributes and methods.
 
     Parameters
@@ -94,7 +94,7 @@ class SentinelMeta:
 
     def have_child(self, name):
         """
-        Check if dataset `name` belong to this SentinelMeta object.
+        Check if dataset `name` belong to this Sentinel1Meta object.
 
         Parameters
         ----------
@@ -225,7 +225,7 @@ class SentinelMeta:
             elif k in self.manifest_attrs.keys():
                 res_dict[k] = self.manifest_attrs[k]
             else:
-                raise KeyError('Unable to find key/attr "%s" in SentinelMeta' % k)
+                raise KeyError('Unable to find key/attr "%s" in Sentinel1Meta' % k)
         return res_dict
 
     @property
@@ -294,7 +294,7 @@ class SentinelMeta:
 
         See Also
         --------
-        xsar.SentinelMeta.files
+        xsar.Sentinel1Meta.files
 
         """
         if self._safe_files is None:
@@ -320,7 +320,7 @@ class SentinelMeta:
 
         See Also
         --------
-        xsar.SentinelMeta.safe_files
+        xsar.Sentinel1Meta.safe_files
         """
         return self.safe_files[self.safe_files['dsid'] == self.name]
 
@@ -376,7 +376,7 @@ class SentinelMeta:
 
         See Also
         --------
-        xsar.SentinelMeta.get_mask
+        xsar.Sentinel1Meta.get_mask
         """
         if isinstance(feature, str):
             # feature is a shapefile.
@@ -566,8 +566,8 @@ class SentinelMeta:
 
         See Also
         --------
-        xsar.SentinelMeta.ll2coords
-        xsar.SentinelDataset.ll2coords
+        xsar.Sentinel1Meta.ll2coords
+        xsar.Sentinel1Dataset.ll2coords
 
         """
 
@@ -625,13 +625,13 @@ class SentinelMeta:
 
         See Also
         --------
-        xsar.SentinelMeta.coords2ll
-        xsar.SentinelDataset.coords2ll
+        xsar.Sentinel1Meta.coords2ll
+        xsar.Sentinel1Dataset.coords2ll
 
         """
 
         if dataset is not None:
-            warnings.warn("dataset kw is deprecated. See xsar.SentinelDataset.ll2coords")
+            warnings.warn("dataset kw is deprecated. See xsar.Sentinel1Dataset.ll2coords")
 
         if isinstance(args[0], shapely.geometry.base.BaseGeometry):
             return self._ll2coords_shapely(args[0])
@@ -708,7 +708,7 @@ class SentinelMeta:
 
         This is an inaccurate transform, with errors up to 600 meters.
         But it's fast, and may fit some needs, because the error is stable localy.
-        See `xsar.SentinelMeta.coords2ll` `xsar.SentinelMeta.ll2coords` for accurate methods.
+        See `xsar.Sentinel1Meta.coords2ll` `xsar.Sentinel1Meta.ll2coords` for accurate methods.
 
         Examples
         --------
@@ -722,8 +722,8 @@ class SentinelMeta:
 
         See Also
         --------
-        xsar.SentinelMeta.coords2ll
-        xsar.SentinelMeta.ll2coords`
+        xsar.Sentinel1Meta.coords2ll
+        xsar.Sentinel1Meta.ll2coords`
 
         """
         return self.gcps.attrs['approx_transform']
@@ -733,9 +733,13 @@ class SentinelMeta:
             meta_type = "multi (%d)" % len(self.subdatasets)
         else:
             meta_type = "single"
-        return "%s SentinelMeta object" % meta_type
+        return "%s Sentinel1Meta object" % meta_type
 
     def _repr_mimebundle_(self, include=None, exclude=None):
         return repr_mimebundle(self, include=include, exclude=exclude)
 
 
+class SentinelMeta(Sentinel1Meta):
+    def __init__(self, *args, **kwargs):
+        warnings.warn("'SentinelMeta' is deprecated. Please update your code to use 'Sentinel1Meta'")
+        super().__init__(*args, **kwargs)

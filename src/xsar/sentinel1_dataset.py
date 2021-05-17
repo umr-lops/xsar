@@ -17,7 +17,7 @@ from .xml_parser import XmlParser
 from numpy import asarray
 from affine import Affine
 from functools import partial
-from .sentinel1_meta import SentinelMeta
+from .sentinel1_meta import Sentinel1Meta
 from .ipython_backends import repr_mimebundle
 
 logger = logging.getLogger('xsar.sentinel1_dataset')
@@ -28,7 +28,7 @@ warnings.filterwarnings("ignore", category=rasterio.errors.NotGeoreferencedWarni
 
 
 
-class SentinelDataset:
+class Sentinel1Dataset:
     """
     Handle a SAFE subdataset.
     A dataset might contain several tiff files (multiples polarizations), but all tiff files must share the same footprint.
@@ -37,7 +37,7 @@ class SentinelDataset:
 
     Parameters
     ----------
-    dataset_id: str or SentinelMeta object
+    dataset_id: str or Sentinel1Meta object
         if str, it can be a path, or a gdal dataset identifier like `'SENTINEL1_DS:%s:WV_001' % filename`)
     resolution: dict, optional
         resampling dict like `{'atrack': 20, 'xtrack': 20}` where 20 is in pixels.
@@ -87,20 +87,20 @@ class SentinelDataset:
         self._default_meta = asarray([], dtype='f8')
 
         self.s1meta = None
-        """`xsar.SentinelMeta` object"""
+        """`xsar.Sentinel1Meta` object"""
 
-        if not isinstance(dataset_id, SentinelMeta):
+        if not isinstance(dataset_id, Sentinel1Meta):
             xml_parser = XmlParser(
                 xpath_mappings=sentinel1_xml_mappings.xpath_mappings,
                 compounds_vars=sentinel1_xml_mappings.compounds_vars,
                 namespaces=sentinel1_xml_mappings.namespaces)
-            self.s1meta = SentinelMeta(dataset_id, xml_parser=xml_parser)
+            self.s1meta = Sentinel1Meta(dataset_id, xml_parser=xml_parser)
         else:
             self.s1meta = dataset_id
 
         if self.s1meta.multidataset:
             raise IndexError(
-                """Can't open an multi-dataset. Use `xsar.SentinelMeta('%s').subdatasets` to show availables ones""" % self.s1meta.path
+                """Can't open an multi-dataset. Use `xsar.Sentinel1Meta('%s').subdatasets` to show availables ones""" % self.s1meta.path
             )
 
         self._dataset = self._load_digital_number(resolution=resolution, resampling=resampling, chunks=chunks)
@@ -190,11 +190,11 @@ class SentinelDataset:
 
         self.coords2ll = self.s1meta.coords2ll
         """
-        Alias for `xsar.SentinelMeta.coords2ll`
+        Alias for `xsar.Sentinel1Meta.coords2ll`
 
         See Also
         --------
-        xsar.SentinelMeta.coords2ll
+        xsar.Sentinel1Meta.coords2ll
         """
 
         self.sliced = False
@@ -209,7 +209,7 @@ class SentinelDataset:
     @property
     def dataset(self):
         """
-        `xarray.Dataset` representation of this `xsar.SentinelDataset` object.
+        `xarray.Dataset` representation of this `xsar.Sentinel1Dataset` object.
         This property can be set with a new dataset, if the dataset was computed from the original dataset.
         """
         return self._dataset
@@ -258,7 +258,7 @@ class SentinelDataset:
 
     @property
     def footprint(self):
-        """alias for `xsar.SentinelDataset.geometry`"""
+        """alias for `xsar.Sentinel1Dataset.geometry`"""
         return self.geometry
 
     def ll2coords(self, *args):
@@ -277,11 +277,11 @@ class SentinelDataset:
 
         Notes
         -----
-        The difference with `xsar.SentinelMeta.ll2coords` is that coordinates are rounded to the nearest dataset coordinates.
+        The difference with `xsar.Sentinel1Meta.ll2coords` is that coordinates are rounded to the nearest dataset coordinates.
 
         See Also
         --------
-        xsar.SentinelMeta.ll2coords
+        xsar.Sentinel1Meta.ll2coords
 
         """
         if isinstance(args[0], shapely.geometry.base.BaseGeometry):
@@ -750,7 +750,13 @@ class SentinelDataset:
             intro = "sliced"
         else:
             intro = "full covevage"
-        return "%s SentinelDataset object" % intro
+        return "%s Sentinel1Dataset object" % intro
 
     def _repr_mimebundle_(self, include=None, exclude=None):
         return repr_mimebundle(self, include=include, exclude=exclude)
+
+
+class SentinelDataset(Sentinel1Dataset):
+    def __init__(self, *args, **kwargs):
+        warnings.warn("SentinelDataset is deprecated. Please update your code to use 'Sentinel1Dataset'")
+        super().__init__(*args, **kwargs)

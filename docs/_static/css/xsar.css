@@ -3,3 +3,8 @@
 .wy-nav-content {
 	max-width: 1000px !important;
 }
+dl.py.property {
+	all: initial;
+	display: block !important;
+}
+

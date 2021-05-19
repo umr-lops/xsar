@@ -331,3 +331,29 @@ def rioread_fromfunction(subdataset, bands, atracks, xtracks, resampling=None, r
     winsize = (bounds[0], bounds[1], bounds[2] - bounds[0], bounds[3] - bounds[1])
 
     return rioread(subdataset, bands.shape, winsize, resampling=resampling)
+
+
+def bbox_coords(xs,ys, pad='extends'):
+    """
+    [(xs[0]-padx, ys[0]-pady), (xs[0]-padx, ys[-1]+pady), (xs[-1]+padx, ys[-1]+pady), (xs[-1]+padx, ys[0]-pady)]
+    where padx and pady are xs and ys spacing/2
+    """
+    bbox_norm = [(0, 0), (0, -1), (-1, -1), (-1, 0)]
+    if pad == 'extends':
+        xdiff, ydiff = [np.unique(np.diff(d))[0] for d in (xs, ys)]
+        xpad = (-xdiff / 2, xdiff / 2)
+        ypad = (-ydiff / 2, ydiff / 2)
+    elif pad is None:
+        xpad = (0,0)
+        ypad = (0,0)
+    else:
+        xpad = (-pad[0], pad[0])
+        ypad = (-pad[1], pad[1])
+    # use apad and xpad to get surrounding box
+    bbox_ext = [
+        (
+            xs[x] + xpad[x],
+            ys[y] + ypad[y]
+        ) for x, y in bbox_norm
+    ]
+    return bbox_ext

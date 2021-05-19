@@ -11,7 +11,7 @@ from scipy.interpolate import RectBivariateSpline
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 import shapely
-from .utils import to_lon180, haversine
+from .utils import to_lon180, haversine, timing
 from . import sentinel1_xml_mappings
 from .xml_parser import XmlParser
 from affine import Affine
@@ -35,6 +35,7 @@ class Sentinel1Meta:
 
     """
 
+    @timing
     def __init__(self, name, xml_parser=None, driver='GTiff'):
         if xml_parser is None:
             xml_parser = XmlParser(
@@ -43,7 +44,7 @@ class Sentinel1Meta:
                 namespaces=sentinel1_xml_mappings.namespaces)
         self.xml_parser = xml_parser
         self.driver = driver
-        """GDAL driver used. ('auto' for SENTINEL1, or 'tiff')"""
+        """GDAL driver used. ('auto' for SENTINEL1, or 'GTiff')"""
         if not name.startswith('SENTINEL1_DS:'):
             name = 'SENTINEL1_DS:%s:' % name
         self.name = name
@@ -88,7 +89,7 @@ class Sentinel1Meta:
         self._mask_features = {}
         self._mask_intersecting_geometries = {}
         self._mask_geometry = {}
-        self.set_mask_feature('land', cartopy.feature.LAND)
+        self.set_mask_feature('land', cartopy.feature.NaturalEarthFeature('physical', 'land', '10m'))
         self._orbit_pass = None
         self._platform_heading = None
 

@@ -7,11 +7,12 @@ import xarray as xr
 import pandas as pd
 import dask
 import rasterio
+import rasterio.features
 import re
 from scipy.interpolate import interp1d
 from shapely.geometry import Polygon
 import shapely
-from .utils import timing, haversine, map_blocks_coords, rioread, rioread_fromfunction
+from .utils import timing, haversine, map_blocks_coords, rioread, rioread_fromfunction, bbox_coords
 from . import sentinel1_xml_mappings
 from .xml_parser import XmlParser
 from numpy import asarray
@@ -168,8 +169,10 @@ class Sentinel1Dataset:
 
         lon_lat = self._load_lon_lat()
 
-        ds_merge_list = [self._dataset, lon_lat] + [self._luts[v] for v in self._luts.keys() if
-                                                    v not in self._hidden_vars]
+        self._raster_masks = self._load_raster_masks()
+
+        ds_merge_list = [self._dataset, lon_lat, self._raster_masks,self._luts.drop_vars(self._hidden_vars,errors='ignore') ]
+
         if luts:
             ds_merge_list.append(self._luts[self._hidden_vars])
         attrs = self._dataset.attrs
@@ -231,17 +234,7 @@ class Sentinel1Dataset:
         """
         Dataset bounding box, in atrack/xtrack coordinates
         """
-        adiff, xdiff = [np.percentile(np.diff(self.dataset[d]), 90) for d in ['atrack', 'xtrack']]
-        bbox_norm = [(0, 0), (0, -1), (-1, -1), (-1, 0)]
-        apad = (-adiff / 2, adiff / 2)
-        xpad = (-xdiff / 2, xdiff / 2)
-        # use apad and xpad to get surrounding box
-        bbox_ext = [
-            (
-                self.dataset.atrack[a].values.item() + apad[a],
-                self.dataset.xtrack[x].values.item() + xpad[x]
-            ) for a, x in bbox_norm
-        ]
+        bbox_ext = bbox_coords(self.dataset.atrack.values, self.dataset.xtrack.values)
         return bbox_ext
 
     @property
@@ -585,6 +578,43 @@ class Sentinel1Dataset:
         ll_ds = xr.merge([ll_ds.sel(ll=ll).drop('ll').rename(ll) for ll in ll_coords])
 
         return ll_ds
+
+    @timing
+    def _load_raster_masks(self):
+        def _rasterize_mask_by_chunks(atrack, xtrack, mask='land'):
+            chunk_coords = bbox_coords(atrack, xtrack, pad=None)
+            # chunk footprint polygon, in dataset coordinates (with buffer, to enlarge a little the footprint)
+            chunk_footprint_coords = Polygon(chunk_coords).buffer(10)
+            # chunk footprint polygon, in lon/lat
+            chunk_footprint_ll = self.s1meta.coords2ll(chunk_footprint_coords)
+
+            # get vector mask over chunk
+            vector_mask_ll = self.s1meta.get_mask(mask).intersection(
+                chunk_footprint_ll)  # FIXME: speedud if get_mask is first called outside worker
+
+            if vector_mask_ll.is_empty:
+                # no intersection with mask, return zeros
+                return np.zeros((atrack.size, xtrack.size))
+
+                # vector mask, in atrack/xtrack coordinates
+            vector_mask_coords = self.s1meta.ll2coords(vector_mask_ll)
+
+            raster_mask = rasterio.features.rasterize(
+                [vector_mask_coords],
+                out_shape=(xtrack.size, atrack.size),
+                all_touched=False,
+                transform=Affine.translation(*chunk_coords[0])
+            ).T
+            return raster_mask
+
+        da_list = [
+            map_blocks_coords(
+                self._da_tmpl,
+                _rasterize_mask_by_chunks,
+                func_kwargs={'mask': mask}
+            ).to_dataset(name='%s_mask' % mask) for mask in self.s1meta._mask_features.keys()
+        ]
+        return xr.merge(da_list)
 
     def _get_lut(self, var_name):
         """

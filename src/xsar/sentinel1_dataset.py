@@ -12,7 +12,7 @@ import re
 from scipy.interpolate import interp1d
 from shapely.geometry import Polygon
 import shapely
-from .utils import timing, haversine, map_blocks_coords, rioread, rioread_fromfunction, bbox_coords
+from .utils import timing, haversine, map_blocks_coords, rioread, rioread_fromfunction, bbox_coords, bind
 from . import sentinel1_xml_mappings
 from .xml_parser import XmlParser
 from numpy import asarray
@@ -26,7 +26,6 @@ logger.addHandler(logging.NullHandler())
 
 # we know tiff as no geotransform : ignore warning
 warnings.filterwarnings("ignore", category=rasterio.errors.NotGeoreferencedWarning)
-
 
 
 class Sentinel1Dataset:
@@ -68,6 +67,7 @@ class Sentinel1Dataset:
             'longitude': 'f4',
             'incidence': 'f4',
             'elevation': 'f4',
+            'ground_heading': 'f4',
             'nesz': None,
             'negz': None,
             'sigma0_raw': None,
@@ -171,7 +171,8 @@ class Sentinel1Dataset:
 
         self._raster_masks = self._load_raster_masks()
 
-        ds_merge_list = [self._dataset, lon_lat, self._raster_masks,self._luts.drop_vars(self._hidden_vars,errors='ignore') ]
+        ds_merge_list = [self._dataset, lon_lat, self._raster_masks, self._load_ground_heading(),
+                         self._luts.drop_vars(self._hidden_vars, errors='ignore')]
 
         if luts:
             ds_merge_list.append(self._luts[self._hidden_vars])
@@ -578,6 +579,13 @@ class Sentinel1Dataset:
         ll_ds = xr.merge([ll_ds.sel(ll=ll).drop('ll').rename(ll) for ll in ll_coords])
 
         return ll_ds
+
+    @timing
+    def _load_ground_heading(self):
+        coords2heading = bind(self.s1meta.coords2heading, ..., ..., to_grid=True)
+        gh = map_blocks_coords(self._da_tmpl.astype(self._dtypes['ground_heading']), coords2heading,
+                               name='ground_heading')
+        return gh.to_dataset(name='ground_heading')
 
     @timing
     def _load_raster_masks(self):

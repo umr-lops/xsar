@@ -576,13 +576,13 @@ class Sentinel1Dataset:
         ll_tmpl = self._da_tmpl.expand_dims({'ll': 2}).assign_coords(ll=ll_coords).astype(self._dtypes['longitude'])
         ll_ds = map_blocks_coords(ll_tmpl, coords2ll, name='blocks_lonlat')
         # remove ll_coords to have two separate variables longitude and latitude
-        ll_ds = xr.merge([ll_ds.sel(ll=ll).drop('ll').rename(ll) for ll in ll_coords])
+        ll_ds = xr.merge([ll_ds.sel(ll=ll).drop_vars(['ll']).rename(ll) for ll in ll_coords])
 
         return ll_ds
 
     @timing
     def _load_ground_heading(self):
-        coords2heading = bind(self.s1meta.coords2heading, ..., ..., to_grid=True)
+        coords2heading = bind(self.s1meta.coords2heading, ..., ..., to_grid=True, approx=False)
         gh = map_blocks_coords(self._da_tmpl.astype(self._dtypes['ground_heading']), coords2heading,
                                name='ground_heading')
         return gh.to_dataset(name='ground_heading')

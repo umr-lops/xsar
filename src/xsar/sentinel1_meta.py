@@ -547,7 +547,7 @@ class Sentinel1Meta:
         else:
             return shapely.ops.transform(self.ll2coords, shape)
 
-    def coords2ll(self, *args, to_grid=False):
+    def coords2ll(self, *args, to_grid=False, approx=False):
         """
         convert `atracks`, `xtracks` arrays to `longitude` and `latitude` arrays.
         or a shapely object in `atracks`, `xtracks` coordinates to `longitude` and `latitude`.
@@ -581,13 +581,21 @@ class Sentinel1Meta:
         if hasattr(atracks, '__iter__'):
             scalar = False
 
-        dict_coords2ll = self._dict_coords2ll
-        if to_grid:
-            lon = dict_coords2ll['longitude'](atracks, xtracks)
-            lat = dict_coords2ll['latitude'](atracks, xtracks)
+        if approx:
+            if to_grid:
+                xtracks2D, atracks2D = np.meshgrid(xtracks, atracks)
+                lon, lat = self.approx_transform * (atracks2D, xtracks2D)
+                pass
+            else:
+                lon, lat = self.approx_transform * (atracks, xtracks)
         else:
-            lon = dict_coords2ll['longitude'].ev(atracks, xtracks)
-            lat = dict_coords2ll['latitude'].ev(atracks, xtracks)
+            dict_coords2ll = self._dict_coords2ll
+            if to_grid:
+                lon = dict_coords2ll['longitude'](atracks, xtracks)
+                lat = dict_coords2ll['latitude'](atracks, xtracks)
+            else:
+                lon = dict_coords2ll['longitude'].ev(atracks, xtracks)
+                lat = dict_coords2ll['latitude'].ev(atracks, xtracks)
 
         if self.cross_antemeridian:
             lon = to_lon180(lon)
@@ -632,6 +640,7 @@ class Sentinel1Meta:
         """
 
         if dataset is not None:
+            ### FIXME remove deprecation
             warnings.warn("dataset kw is deprecated. See xsar.Sentinel1Dataset.ll2coords")
 
         if isinstance(args[0], shapely.geometry.base.BaseGeometry):
@@ -653,7 +662,6 @@ class Sentinel1Meta:
         atrack = atrack_approx - atrack_error
         xtrack = xtrack_approx - xtrack_error
 
-        ### FIXME remove deprecation
         if hasattr(lon, '__iter__'):
             scalar = False
         else:
@@ -679,7 +687,7 @@ class Sentinel1Meta:
 
         return atrack, xtrack
 
-    def coords2heading(self, atracks, xtracks, to_grid=False):
+    def coords2heading(self, atracks, xtracks, to_grid=False, approx=True):
         """
         Get image heading (atracks increasing direction) at coords `atracks`, `xtracks`.
 
@@ -696,9 +704,9 @@ class Sentinel1Meta:
             `heading` , with shape depending on `to_grid` keyword.
 
         """
-        # FIXME use approx_transform (faster)
-        lon1, lat1 = self.coords2ll(atracks - 1, xtracks, to_grid=to_grid)
-        lon2, lat2 = self.coords2ll(atracks + 1, xtracks, to_grid=to_grid)
+
+        lon1, lat1 = self.coords2ll(atracks - 1, xtracks, to_grid=to_grid, approx=approx)
+        lon2, lat2 = self.coords2ll(atracks + 1, xtracks, to_grid=to_grid, approx=approx)
         _, heading = haversine(lon1, lat1, lon2, lat2)
         return heading
 
@@ -715,11 +723,11 @@ class Sentinel1Meta:
         --------
             get `longitude` and `latitude` from tuple `(atrack, xtrack)`:
 
-            >>> longitude, latitude = self.transform * (atrack, xtrack)
+            >>> longitude, latitude = self.approx_transform * (atrack, xtrack)
 
             get `atrack` and `xtrack` from tuple `(longitude, latitude)`
 
-            >>> atrack, xtrack = ~self.transform * (longitude, latitude)
+            >>> atrack, xtrack = ~self.approx_transform * (longitude, latitude)
 
         See Also
         --------

@@ -597,21 +597,21 @@ class Sentinel1Dataset:
             chunk_footprint_ll = self.s1meta.coords2ll(chunk_footprint_coords)
 
             # get vector mask over chunk
-            vector_mask_ll = self.s1meta.get_mask(mask).intersection(
-                chunk_footprint_ll)  # FIXME: speedud if get_mask is first called outside worker
+            # FIXME: speedup if get_mask is first called outside worker
+            vector_mask_ll = self.s1meta.get_mask(mask).intersection(chunk_footprint_ll)
 
             if vector_mask_ll.is_empty:
                 # no intersection with mask, return zeros
                 return np.zeros((atrack.size, xtrack.size))
 
-                # vector mask, in atrack/xtrack coordinates
+            # vector mask, in atrack/xtrack coordinates
             vector_mask_coords = self.s1meta.ll2coords(vector_mask_ll)
 
             raster_mask = rasterio.features.rasterize(
                 [vector_mask_coords],
                 out_shape=(xtrack.size, atrack.size),
                 all_touched=False,
-                transform=Affine.translation(*chunk_coords[0])
+                transform=Affine.translation(*chunk_coords[0]) * Affine.scale(*[np.unique(np.diff(c)).item() for c in [xtrack,atrack]])
             ).T
             return raster_mask
 

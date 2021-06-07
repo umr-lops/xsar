@@ -252,7 +252,7 @@ def noise_lut_azi(atrack_azi, atrack_azi_start,
             self.xtracks = np.arange(x_start, x_stop + 1)
             self.area = box(max(0, a_start - 0.5), max(0, x_start - 0.5), a_stop + 0.5, x_stop + 0.5)
             if len(lut) > 1:
-                self.lut_f = interp1d(a, lut, kind='linear', fill_value=np.nan, assume_sorted=True, bounds_error=False)
+                self.lut_f = interp1d(a, lut, kind='linear', fill_value='extrapolate', assume_sorted=True, bounds_error=False)
             else:
                 # not enought values to do interpolation
                 # noise will be constant on this box!

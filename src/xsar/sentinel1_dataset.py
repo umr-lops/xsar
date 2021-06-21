@@ -81,7 +81,6 @@ class Sentinel1Dataset:
         }
         if dtypes is not None:
             self._dtypes.update(dtypes)
-
         # default meta for map_blocks output.
         # as asarray is imported from numpy, it's a numpy array.
         # but if later we decide to import asarray from cupy, il will be a cupy.array (gpu)

@@ -433,7 +433,11 @@ class Sentinel1Dataset:
         # sort chunks keys like map_dims
         chunks = dict(sorted(chunks.items(), key=lambda pair: list(map_dims.keys()).index(pair[0])))
         chunks_rio = {map_dims[d]: chunks[d] for d in map_dims.keys()}
-
+        riot_dtyp = rio.dtypes[0]
+        if riot_dtyp == 'complex_int16' :
+            riot_dtyp = np.complex_
+        else :
+            pass
         if resolution is None:
             if self.s1meta.driver == 'auto':
                 # using sentinel1 driver: all pols are read in one shot
@@ -479,11 +483,13 @@ class Sentinel1Dataset:
                            rio.height // resolution['atrack'] * resolution['atrack'])
 
                 if self.s1meta.driver == 'GTiff':
+                    logging.info('rio dtypes zero: %s',rio.dtypes[0])
+
                     resampled = [
                         xr.DataArray(
                             dask.array.from_delayed(
                                 dask.delayed(rioread)(f, out_shape_pol, winsize, resampling=resampling),
-                                out_shape_pol, dtype=np.dtype(rio.dtypes[0])
+                                out_shape_pol, dtype=np.dtype(riot_dtyp)
                             ),
                             dims=tuple(map_dims.keys()), coords={'pol': [pol]}
                         ) for f, pol in
@@ -493,7 +499,7 @@ class Sentinel1Dataset:
                 else:
                     resampled = dask.array.from_delayed(
                         dask.delayed(rioread)(self.s1meta.name, out_shape_pol, winsize, resampling=resampling),
-                        out_shape_pol, dtype=np.dtype(rio.dtypes[0]))
+                        out_shape_pol, dtype=np.dtype(riot_dtyp))
                     dn = xr.DataArray(resampled, dims=tuple(map_dims.keys())).chunk(chunks)
             else:
                 # read resampled array chunk by chunk
@@ -505,7 +511,7 @@ class Sentinel1Dataset:
                                 partial(rioread_fromfunction, f),
                                 shape=out_shape_pol,
                                 chunks=tuple(chunks.values()),
-                                dtype=np.dtype(rio.dtypes[0]),
+                                dtype=np.dtype(riot_dtyp),
                                 resolution=resolution, resampling=resampling
                             ),
                             dims=tuple(map_dims.keys()), coords={'pol': [pol]}
@@ -519,7 +525,7 @@ class Sentinel1Dataset:
                         partial(rioread_fromfunction, self.s1meta.name),
                         shape=out_shape_pol,
                         chunks=tuple(chunks.values()),
-                        dtype=np.dtype(rio.dtypes[0]),
+                        dtype=np.dtype(riot_dtyp),
                         resolution=resolution, resampling=resampling)
                     dn = xr.DataArray(resampled.rechunk({0: 1}), dims=tuple(map_dims.keys()))
 

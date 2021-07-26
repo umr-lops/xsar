@@ -1,0 +1,31 @@
+name: Check xsar conda environementinstallation use official gdal 3.3
+
+on: [push]
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -l {0}
+    name: Xsar on Ubuntu
+    steps:
+      - uses: actions/checkout@v2
+      - name: Setup conda and create environment
+        uses: conda-incubator/setup-miniconda@v2
+        with:
+          auto-update-conda: true
+          activate-environment: xsar
+      - name: Install xsar dependencies
+        run: conda install rasterio gdal=3.3 cartopy dask[array]
+      - name: Install xsar
+        run: |
+          pip install -e .
+          pip install -r requirements.txt
+      - name: Check xsar environment
+        run: |
+          conda info
+          python -V
+          gdalinfo --version
+      - name: Testing xsar
+        run: python test/test_xsar.py

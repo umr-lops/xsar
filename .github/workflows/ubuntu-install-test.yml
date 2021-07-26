@@ -1,0 +1,36 @@
+name: Ubuntu install test
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: [3.6, 3.7, 3.8, 3.9]
+    defaults:
+      run:
+        shell: bash -l {0}
+    name: Xsar with python ${{ matrix.python-version }} on Ubuntu
+    steps:
+      - uses: actions/checkout@v2
+      - name: Setup conda and create environment
+        uses: conda-incubator/setup-miniconda@v2
+        with:
+          auto-update-conda: true
+          activate-environment: xsar
+          python-version: ${{ matrix.python-version }}
+      - name: Install xsar dependencies
+        run: conda install -c conda-forge rasterio gdal cartopy dask[array]
+      - name: Install xsar
+        run: |
+          pip install -e .
+          pip install -r requirements.txt
+      - name: Check xsar environment
+        run: |
+          conda info
+          python -V
+      - name: Testing xsar
+        run: python test/test_xsar.py
+

@@ -2,9 +2,12 @@
 TODO: this docstring is the main xsar module documentation shown to the user. It's should be updated with some examples.
 """
 import warnings
-from importlib.metadata import version
 
-__version__ = version('xsar')
+try:
+    from importlib import metadata
+except ImportError: # for Python<3.8
+    import importlib_metadata as metadata
+__version__ = metadata.version('xsar')
 
 import logging
 from .utils import timing

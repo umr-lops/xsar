@@ -1,4 +1,4 @@
-git clone https://github.com/oarcher/xsar
+git clone https://github.com/umr-lops/xsar
 cd xsar
 # this is needed to register git filters
 git config --local include.path ../.gitconfig

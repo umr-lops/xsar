@@ -105,6 +105,7 @@ def repr_mimebundle_SentinelDataset(self, include=None, exclude=None):
     try:
         import jinja2
         import holoviews as hv
+        import geoviews as gv
         from shapely.geometry import Polygon
     except ModuleNotFoundError as e:
         return {'text/html': str(self)}

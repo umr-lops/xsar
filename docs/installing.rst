@@ -18,6 +18,11 @@ First, create and activate a conda environment:
 
 You can either install recommended packages or minimal packages.
 
+.. note::
+    for macOS with python<3.9 you must install tbb package with conda install
+
+.. note::
+    for windows you must install fiona package with conda install
 
 recommended packages
 ....................

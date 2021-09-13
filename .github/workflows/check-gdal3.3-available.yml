@@ -17,7 +17,7 @@ jobs:
           auto-update-conda: true
           activate-environment: xsar
       - name: Install xsar dependencies
-        run: conda install rasterio gdal=3.3 cartopy dask[array]
+        run: conda install rasterio gdal=3.3 cartopy_offlinedata dask[array]
       - name: Install xsar
         run: |
           pip install -e .

@@ -1,1 +1,1 @@
-conda install -c conda-forge rasterio">=1.2.6" gdal cartopy dask[array]
+conda install -c conda-forge rasterio">=1.2.6" gdal cartopy_offlinedata dask[array]

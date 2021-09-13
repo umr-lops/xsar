@@ -6,7 +6,7 @@ setup(
     package_dir={'': 'src'},
     packages=find_packages('src'),
     scripts=glob.glob('src/scripts/*.py'),
-    url='https://github.com/oarcher/xsar',
+    url='https://github.com/umr-lops/xsar',
     use_scm_version=True,
     setup_requires=['setuptools_scm'],
     include_package_data=True,
@@ -17,7 +17,7 @@ setup(
         'xarray',
         'affine',
         'rasterio',
-        'cartopy',
+        'cartopy_offlinedata',
         'fiona',
         'pyproj',
         'jinja2',
@@ -38,6 +38,6 @@ setup(
     },
     license='MIT',
     author='Olivier Archer, Alexandre Levieux',
-    author_email='Olivier.Archer@ifremer.fr, Alexandre.Levieux@ifremer.fr',
+    author_email='Olivier.Archer@ifremer.fr, Alexandre.Levieux@gmail.com',
     description='xarray/dask distributed L1 sar file reader'
 )

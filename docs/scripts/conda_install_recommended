@@ -1,1 +1,1 @@
-conda install -c conda-forge rasterio gdal dask[array] dask[distributed] jupyterlab geoviews cartopy holoviews datashader nbsphinx pandoc jq docutils pip fiona git lxml
+conda install -c conda-forge rasterio gdal dask[array] dask[distributed] jupyterlab geoviews cartopy_offlinedata holoviews datashader nbsphinx pandoc jq docutils pip fiona git lxml

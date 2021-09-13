@@ -1,8 +1,8 @@
-import os
 from lxml import objectify
 import jmespath
 import logging
 from collections.abc import Iterable
+from functools import lru_cache
 
 logger = logging.getLogger('xsar.xml_parser')
 logger.addHandler(logging.NullHandler())
@@ -32,49 +32,28 @@ class XmlParser:
     """
 
     def __init__(self, xpath_mappings={}, compounds_vars={}, namespaces={}):
-        self._xml_roots = {}
-        self._xpath_cache = {}
-        self._var_cache = {}
-        self._compounds_vars_cache = {}
         self._namespaces = namespaces
         self._xpath_mappings = xpath_mappings
         self._compounds_vars = compounds_vars
 
+    @lru_cache
+    def getroot(self, xml_file):
+        """return xml root object from xml_file. (also update self._namespaces with fetched ones)"""
+        xml_root = objectify.parse(xml_file).getroot()
+        self._namespaces.update(xml_root.nsmap)
+        return xml_root
+
+    @lru_cache
     def xpath(self, xml_file, path):
         """
-        get path from xml_file, with object caching.
-
-        Parameters
-        ----------
-        xml_file: str
-            xml filename
-        path: str
-            xpath expression
-
-        Returns
-        -------
-        list
-            same list as lxml.xpath
-
+        get path from xml_file. this is a simple wrapper for `objectify.parse(xml_file).getroot().xpath(path)`
         """
-        if xml_file not in self._xml_roots:
-            xml_root = objectify.parse(xml_file).getroot()
-            self._namespaces.update(xml_root.nsmap)
-            self._xml_roots[xml_file] = xml_root
 
-        if xml_file not in self._xpath_cache:
-            self._xpath_cache[xml_file] = {}
+        xml_root = self.getroot(xml_file)
+        result = [ getattr(e, 'pyval', e) for e in xml_root.xpath(path, namespaces=self._namespaces) ]
+        return result
 
-        if path not in self._xpath_cache[xml_file]:
-            logger.debug("xpath no cache hit for '%s' on file %s" % (path, os.path.basename(xml_file)))
-            xml_root = self._xml_roots[xml_file]
-            result = xml_root.xpath(path, namespaces=self._namespaces)
-            self._xpath_cache[xml_file][path] = [getattr(e, 'pyval', e) for e in result]
-        else:
-            logger.debug("xpath cache hit for '%s' on file %s" % (path, os.path.basename(xml_file)))
-
-        return self._xpath_cache[xml_file][path]
-
+    @lru_cache
     def get_var(self, xml_file, jpath):
         """
         get simple variable in xml_file.
@@ -92,11 +71,6 @@ class XmlParser:
             xpath list, or decoded object, if a conversion function was specified in xpath_mappings
         """
 
-        if (xml_file, jpath) in self._var_cache:
-            logger.debug("get_var cache hit for jpath '%s' on file %s" % (jpath, os.path.basename(xml_file)))
-            return self._var_cache[(xml_file, jpath)]
-
-        logger.debug("get_var no cache hit for jpath '%s' on file %s" % (jpath, os.path.basename(xml_file)))
         func = None
         xpath = jmespath.search(jpath, self._xpath_mappings)
         if xpath is None:
@@ -112,10 +86,9 @@ class XmlParser:
         if func is not None:
             result = func(result)
 
-        self._var_cache[(xml_file, jpath)] = result
-
         return result
 
+    @lru_cache
     def get_compound_var(self, xml_file, var_name):
         """
 
@@ -132,12 +105,7 @@ class XmlParser:
 
         """
 
-        if (xml_file, var_name) in self._compounds_vars_cache:
-            logger.debug("get_compound_var cache hit for '%s' on file %s" % (var_name, os.path.basename(xml_file)))
-            return self._compounds_vars_cache[(xml_file, var_name)]
-
         var_object = self._compounds_vars[var_name]
-        logger.debug("get_compound_var no cache hit for '%s' on file %s" % (var_name, os.path.basename(xml_file)))
 
         func = None
         if isinstance(var_object,dict) and 'func' in var_object and callable(var_object['func']):
@@ -164,6 +132,4 @@ class XmlParser:
             # apply converter
             result = func(*result)
 
-        # store result in cache for subsequent call
-        self._compounds_vars_cache[(xml_file, var_name)] = result
         return result

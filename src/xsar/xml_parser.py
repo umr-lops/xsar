@@ -36,14 +36,14 @@ class XmlParser:
         self._xpath_mappings = xpath_mappings
         self._compounds_vars = compounds_vars
 
-    @lru_cache
+    @lru_cache(128)
     def getroot(self, xml_file):
         """return xml root object from xml_file. (also update self._namespaces with fetched ones)"""
         xml_root = objectify.parse(xml_file).getroot()
         self._namespaces.update(xml_root.nsmap)
         return xml_root
 
-    @lru_cache
+    @lru_cache(128)
     def xpath(self, xml_file, path):
         """
         get path from xml_file. this is a simple wrapper for `objectify.parse(xml_file).getroot().xpath(path)`
@@ -53,7 +53,7 @@ class XmlParser:
         result = [ getattr(e, 'pyval', e) for e in xml_root.xpath(path, namespaces=self._namespaces) ]
         return result
 
-    @lru_cache
+    @lru_cache(128)
     def get_var(self, xml_file, jpath):
         """
         get simple variable in xml_file.
@@ -88,7 +88,7 @@ class XmlParser:
 
         return result
 
-    @lru_cache
+    @lru_cache(128)
     def get_compound_var(self, xml_file, var_name):
         """
 

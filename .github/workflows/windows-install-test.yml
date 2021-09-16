@@ -3,7 +3,7 @@ name: Windows install test
 on:
   push:
   schedule:
-    - '* 6 * * 0'
+    - cron: '0 6 * * 0'
 
 jobs:
   build:

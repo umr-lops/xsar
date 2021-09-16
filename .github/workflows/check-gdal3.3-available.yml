@@ -1,7 +1,9 @@
 name: Check xsar conda environementinstallation use official gdal 3.3
 
-on: [push]
-
+on:
+  push:
+  schedule:
+    - '* 6 * * 0'
 jobs:
   build-linux:
     runs-on: ubuntu-latest

@@ -1,6 +1,9 @@
 name: MacOS install test
 
-on: [push]
+on:
+  push:
+  schedule:
+    - '* 6 * * 0'
 
 jobs:
   build:

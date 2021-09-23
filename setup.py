@@ -17,7 +17,7 @@ setup(
         'xarray',
         'affine',
         'rasterio',
-        'cartopy_offlinedata',
+        'cartopy',
         'fiona',
         'pyproj',
         'jinja2',

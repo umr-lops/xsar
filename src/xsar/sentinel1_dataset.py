@@ -43,7 +43,7 @@ class Sentinel1Dataset:
         resampling dict like `{'atrack': 20, 'xtrack': 20}` where 20 is in pixels.
     resampling: rasterio.enums.Resampling or str, optional
         Only used if `resolution` is not None.
-        ` rasterio.enums.Resampling.average` by default. `rasterio.enums.Resampling.nearest` (decimation) is fastest.
+        ` rasterio.enums.Resampling.rms` by default. `rasterio.enums.Resampling.nearest` (decimation) is fastest.
     luts: bool, optional
         if `True` return also luts as variables (ie `sigma0_lut`, `gamma0_lut`, etc...). False by default.
     chunks: dict, optional
@@ -57,7 +57,7 @@ class Sentinel1Dataset:
     """
 
     def __init__(self, dataset_id, resolution=None,
-                 resampling=rasterio.enums.Resampling.average,
+                 resampling=rasterio.enums.Resampling.rms,
                  luts=False, chunks={'atrack': 5000, 'xtrack': 5000},
                  dtypes=None):
 

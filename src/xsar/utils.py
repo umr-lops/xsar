@@ -310,7 +310,7 @@ def map_blocks_coords(da, func,  func_kwargs={}, **kwargs):
                            )
     return dataarr
 
-def rioread(subdataset, out_shape, winsize, resampling=rasterio.enums.Resampling.average):
+def rioread(subdataset, out_shape, winsize, resampling=rasterio.enums.Resampling.rms):
     """
     wrapper around rasterio.read, to replace self.rio.read and
     avoid 'TypeError: self._hds cannot be converted to a Python object for pickling'

@@ -95,7 +95,7 @@ def compress_safe(safe_path, out_dir_prefix, constant=None, smooth=0, rasterio_k
             reduced = xr.DataArray(
                 src.read(
                     1, out_shape=(src.height // smooth, src.width // smooth),
-                    resampling=rasterio.enums.Resampling.average))
+                    resampling=rasterio.enums.Resampling.rms))
             mean = reduced.mean().item()
             if not isinstance(mean,complex) and mean < 1:
                 raise RuntimeError('rasterio returned empty band. Try to use smallest smooth size')

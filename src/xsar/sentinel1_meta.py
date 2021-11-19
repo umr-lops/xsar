@@ -411,6 +411,7 @@ class Sentinel1Meta:
         self._mask_intersecting_geometries[name] = None
         self._mask_geometry[name] = None
 
+    @timing
     def get_mask(self, name):
         """
         Get mask from `name` (e.g. 'land') as a shapely Polygon.

@@ -47,8 +47,6 @@ def _load_config():
     return config
 
 
-config = _load_config()
-
 from .sentinel1_meta import Sentinel1Meta, SentinelMeta
 from .sentinel1_dataset import Sentinel1Dataset, SentinelDataset
 
@@ -244,7 +242,7 @@ def get_test_file(fname):
         path to file, relative to `config['data_dir']`
 
     """
-
+    config = _load_config()
     res_path = config['data_dir']
     base_url = 'https://cyclobs.ifremer.fr/static/sarwing_datarmor/xsardata'
     file_url = '%s/%s.zip' % (base_url, fname)

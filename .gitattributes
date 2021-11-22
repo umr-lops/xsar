@@ -1,2 +1,5 @@
 # see http://timstaley.co.uk/posts/making-git-and-jupyter-notebooks-play-nice/
 *.ipynb filter=nbstrip_full
+
+# for setuptools_scm in conda-forge see https://pypi.org/project/setuptools-scm-git-archive/
+.git_archival.txt  export-subst

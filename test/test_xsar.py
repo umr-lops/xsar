@@ -13,7 +13,7 @@ logger = logging.getLogger('xsar_test')
 logger.setLevel(logging.DEBUG)
 
 
-logger.info('using %s as test_dir' % xsar.config['data_dir'])
+# logger.info('using %s as test_dir' % xsar.config['data_dir'])
 
 
 meta = xsar.Sentinel1Meta(

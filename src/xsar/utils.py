@@ -10,6 +10,8 @@ import xarray as xr
 import dask
 from functools import reduce, partial
 import rasterio
+import shutil
+import glob
 
 logger = logging.getLogger('xsar.utils')
 logger.addHandler(logging.NullHandler())
@@ -22,16 +24,19 @@ except ImportError:
     logger.warning("psutil module not found. Disabling memory monitor")
     mem_monitor = False
 
+
 class bind(partial):
     """
     An improved version of partial which accepts Ellipsis (...) as a placeholder
     https://stackoverflow.com/a/66274908
     """
+
     def __call__(self, *args, **keywords):
         keywords = {**self.keywords, **keywords}
         iargs = iter(args)
         args = (next(iargs) if arg is ... else arg for arg in self.args)
         return self.func(*args, *iargs, **keywords)
+
 
 def timing(f):
     """provide a @timing decorator for functions, that log time spent in it"""
@@ -227,7 +232,7 @@ def gdal_rms(filename, out_shape, winsize=None):
     return dn_arr
 
 
-def map_blocks_coords(da, func,  func_kwargs={}, **kwargs):
+def map_blocks_coords(da, func, func_kwargs={}, **kwargs):
     """
     like `dask.map_blocks`, but `func` parameters are dimensions coordinates belonging to the block.
 
@@ -269,7 +274,7 @@ def map_blocks_coords(da, func,  func_kwargs={}, **kwargs):
 
         Notes
         -----
-        block values are note used.
+        block values are not used.
         Unless manualy providing block_info,
         this function should be called from 'xarray.DataArray.map_blocks' with coords preset with functools.partial
         """
@@ -293,8 +298,7 @@ def map_blocks_coords(da, func,  func_kwargs={}, **kwargs):
 
         return result
 
-
-    coords = { c: da[c].values for c in da.dims }
+    coords = {c: da[c].values for c in da.dims}
     if 'name' not in kwargs:
         kwargs['name'] = dask.utils.funcname(func)
 
@@ -309,6 +313,7 @@ def map_blocks_coords(da, func,  func_kwargs={}, **kwargs):
                            coords=coords
                            )
     return dataarr
+
 
 def rioread(subdataset, out_shape, winsize, resampling=rasterio.enums.Resampling.rms):
     """
@@ -333,7 +338,7 @@ def rioread_fromfunction(subdataset, bands, atracks, xtracks, resampling=None, r
     return rioread(subdataset, bands.shape, winsize, resampling=resampling)
 
 
-def bbox_coords(xs,ys, pad='extends'):
+def bbox_coords(xs, ys, pad='extends'):
     """
     [(xs[0]-padx, ys[0]-pady), (xs[0]-padx, ys[-1]+pady), (xs[-1]+padx, ys[-1]+pady), (xs[-1]+padx, ys[0]-pady)]
     where padx and pady are xs and ys spacing/2
@@ -344,8 +349,8 @@ def bbox_coords(xs,ys, pad='extends'):
         xpad = (-xdiff / 2, xdiff / 2)
         ypad = (-ydiff / 2, ydiff / 2)
     elif pad is None:
-        xpad = (0,0)
-        ypad = (0,0)
+        xpad = (0, 0)
+        ypad = (0, 0)
     else:
         xpad = (-pad[0], pad[0])
         ypad = (-pad[1], pad[1])
@@ -357,3 +362,75 @@ def bbox_coords(xs,ys, pad='extends'):
         ) for x, y in bbox_norm
     ]
     return bbox_ext
+
+
+def compress_safe(safe_path_in, safe_path_out, smooth=0, rasterio_kwargs={'compress': 'zstd'}):
+    """
+
+    Parameters
+    ----------
+    safe_path_in: str
+        input SAFE path
+    safe_path_out: str
+        output SAFE path (be warned to keep good nomenclature)
+    rasterio_kwargs: dict
+        passed to rasterio.open
+
+    Returns
+    -------
+    str
+        wrotten output path
+
+    """
+
+    safe_path_out_tmp = safe_path_out + '.tmp'
+    if os.path.exists(safe_path_out):
+        raise FileExistsError("%s already exists" % safe_path_out)
+    try:
+        shutil.rmtree(safe_path_out_tmp)
+    except:
+        pass
+    os.mkdir(safe_path_out_tmp)
+
+    shutil.copytree(safe_path_in + "/annotation", safe_path_out_tmp + "/annotation")
+    shutil.copyfile(safe_path_in + "/manifest.safe", safe_path_out_tmp + "/manifest.safe")
+
+    os.mkdir(safe_path_out_tmp + "/measurement")
+    for tiff_file in glob.glob(os.path.join(safe_path_in, 'measurement', '*.tiff')):
+        src = rasterio.open(tiff_file)
+        open_kwargs = src.profile
+        open_kwargs.update(rasterio_kwargs)
+        gcps, crs = src.gcps
+        open_kwargs['gcps'] = gcps
+        open_kwargs['crs'] = crs
+        if smooth > 1:
+            reduced = xr.DataArray(
+                src.read(
+                    1, out_shape=(src.height // smooth, src.width // smooth),
+                    resampling=rasterio.enums.Resampling.rms))
+            mean = reduced.mean().item()
+            if not isinstance(mean, complex) and mean < 1:
+                raise RuntimeError('rasterio returned empty band. Try to use smallest smooth size')
+            reduced = reduced.assign_coords(
+                dim_0=reduced.dim_0 * smooth + smooth / 2,
+                dim_1=reduced.dim_1 * smooth + smooth / 2)
+            band = reduced.interp(
+                dim_0=np.arange(src.height),
+                dim_1=np.arange(src.width),
+                method='nearest').values.astype(src.dtypes[0])
+        else:
+            band = src.read(1)
+
+        # if constant is not None:
+        #    band = src.read(1)
+        #    band[band >= 0] = int(constant)
+        with rasterio.open(
+                safe_path_out_tmp + "/measurement/" + os.path.basename(tiff_file),
+                'w',
+                **open_kwargs
+        ) as dst:
+            dst.write(band, 1)
+
+    os.rename(safe_path_out_tmp, safe_path_out)
+
+    return safe_path_out

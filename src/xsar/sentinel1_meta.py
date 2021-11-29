@@ -2,6 +2,7 @@
 import cartopy.feature
 import logging
 import warnings
+import copy
 import numpy as np
 import xarray as xr
 import pandas as pd
@@ -92,6 +93,10 @@ class Sentinel1Meta:
         self.set_mask_feature('land', cartopy.feature.NaturalEarthFeature('physical', 'land', '10m'))
         self._orbit_pass = None
         self._platform_heading = None
+
+    def __del__(self):
+        logger.debug('__del__')
+    #    self.rio.close()
 
     def have_child(self, name):
         """
@@ -747,6 +752,48 @@ class Sentinel1Meta:
 
     def _repr_mimebundle_(self, include=None, exclude=None):
         return repr_mimebundle(self, include=include, exclude=exclude)
+
+    def __copy__(self):
+        newone = type(self)(self.name)
+        newone.__dict__.update(self.__dict__)
+        newone.xml_parser = XmlParser(
+            xpath_mappings=self.xml_parser._xpath_mappings,
+            compounds_vars=self.xml_parser._compounds_vars,
+            namespaces=self.xml_parser._namespaces)
+        return newone
+
+    @property
+    def dict(self):
+        # return a minimal dictionary that can be used with Sentinel1Meta.from_dict()
+        # to reconstruct an other instance of self
+        minidict =  {
+            'name': self.name,
+            '_mask_features': self._mask_features,
+            '_mask_intersecting_geometries': {},
+            '_mask_geometry': {},
+            '_namespaces': self.xml_parser._namespaces,
+            '_xpath_mappings': self.xml_parser._xpath_mappings,
+            '_compounds_vars': self.xml_parser._compounds_vars
+        }
+        for name in minidict['_mask_features'].keys():
+            minidict['_mask_intersecting_geometries'][name] = None
+            minidict['_mask_geometry'][name] = None
+        return minidict
+
+
+    @classmethod
+    def from_dict(cls, minidict):
+        # like copy constructor, but take a dict from Sentinel1Meta.dict
+        # https://github.com/umr-lops/xsar/issues/23
+        minidict = copy.copy(minidict)
+        xml_parser = XmlParser(
+            xpath_mappings=minidict.pop('_xpath_mappings'),
+            compounds_vars=minidict.pop('_compounds_vars'),
+            namespaces=minidict.pop('_namespaces')
+        )
+        new = cls(minidict['name'], xml_parser=xml_parser)
+        new.__dict__.update(minidict)
+        return new
 
 
 class SentinelMeta(Sentinel1Meta):

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-import cartopy.feature
+import copy
+import sys
 import logging
 import warnings
 import numpy as np
@@ -91,13 +92,10 @@ class Sentinel1Dataset:
         """`xsar.Sentinel1Meta` object"""
 
         if not isinstance(dataset_id, Sentinel1Meta):
-            xml_parser = XmlParser(
-                xpath_mappings=sentinel1_xml_mappings.xpath_mappings,
-                compounds_vars=sentinel1_xml_mappings.compounds_vars,
-                namespaces=sentinel1_xml_mappings.namespaces)
-            self.s1meta = Sentinel1Meta(dataset_id, xml_parser=xml_parser)
+            self.s1meta = Sentinel1Meta(dataset_id)
         else:
             self.s1meta = dataset_id
+        del dataset_id
 
         if self.s1meta.multidataset:
             raise IndexError(
@@ -167,12 +165,22 @@ class Sentinel1Dataset:
         if 'noise_lut_range' in self._luts.keys() and 'noise_lut_azi' in self._luts.keys():
             self._luts = self._luts.assign(noise_lut=self._luts.noise_lut_range * self._luts.noise_lut_azi)
 
+        self.coords2ll = self.s1meta.coords2ll
+        """
+         Alias for `xsar.Sentinel1Meta.coords2ll`
+        
+         See Also
+         --------
+         xsar.Sentinel1Meta.coords2ll
+        """
+
         lon_lat = self._load_lon_lat()
 
         self._raster_masks = self._load_raster_masks()
 
         ds_merge_list = [self._dataset, lon_lat, self._raster_masks, self._load_ground_heading(),
                          self._luts.drop_vars(self._hidden_vars, errors='ignore')]
+        #ds_merge_list = [self._dataset, lon_lat, self._raster_masks, self._load_ground_heading()]
 
         if luts:
             ds_merge_list.append(self._luts[self._hidden_vars])
@@ -192,15 +200,6 @@ class Sentinel1Dataset:
         self._dataset = self._add_denoised(self._dataset)
         self._dataset.attrs = self._recompute_attrs()
 
-        self.coords2ll = self.s1meta.coords2ll
-        """
-        Alias for `xsar.Sentinel1Meta.coords2ll`
-
-        See Also
-        --------
-        xsar.Sentinel1Meta.coords2ll
-        """
-
         self.sliced = False
         """True if dataset is a slice of original L1 dataset"""
 
@@ -209,6 +208,9 @@ class Sentinel1Dataset:
 
         # save original bbox
         self._bbox_coords_ori = self._bbox_coords
+
+    def __del__(self):
+        logger.debug('__del__')
 
     @property
     def dataset(self):
@@ -229,6 +231,10 @@ class Sentinel1Dataset:
             self._dataset.attrs = self._recompute_attrs()
         else:
             raise ValueError("dataset must be same kind as original one.")
+
+    @dataset.deleter
+    def dataset(self):
+        logger.debug('deleter dataset')
 
     @property
     def _bbox_coords(self):
@@ -566,10 +572,12 @@ class Sentinel1Dataset:
             xarray.Dataset:
                 dataset with `longitude` and `latitude` variables, with same shape as mono-pol digital_number.
         """
+        # WARNING: not use self.s1meta on worker. have to reinstantiate it (https://github.com/umr-lops/xsar/issues/23)
+        s1meta_data = self.s1meta.dict
 
         def coords2ll(*args):
             # *args[1:] to skip dummy 'll' dimension
-            return np.stack(self.s1meta.coords2ll(*args[1:], to_grid=True))
+            return np.stack(Sentinel1Meta.from_dict(s1meta_data).coords2ll(*args[1:], to_grid=True))
 
         ll_coords = ['longitude', 'latitude']
         # ll_tmpl is like self._da_tmpl stacked 2 times (for both longitude and latitude)
@@ -582,36 +590,55 @@ class Sentinel1Dataset:
 
     @timing
     def _load_ground_heading(self):
-        coords2heading = bind(self.s1meta.coords2heading, ..., ..., to_grid=True, approx=False)
+        # WARNING: not use self.s1meta on worker. have to reinstantiate it (https://github.com/umr-lops/xsar/issues/23)
+        s1meta_data = self.s1meta.dict
+
+        def coords2heading(atracks, xtracks):
+            s1meta = Sentinel1Meta.from_dict(s1meta_data)
+            return s1meta.coords2heading(atracks, xtracks, to_grid=True, approx=False)
+
+        #coords2heading = bind(Sentinel1Meta.from_dict(s1meta_data).coords2heading, ..., ..., to_grid=True, approx=False)
         gh = map_blocks_coords(self._da_tmpl.astype(self._dtypes['ground_heading']), coords2heading,
                                name='ground_heading')
         return gh.to_dataset(name='ground_heading')
 
+    def _debug_memleaks(self):
+        # WARNING: not use self.s1meta on worker. have to reinstantiate it (https://github.com/umr-lops/xsar/issues/23)
+        s1meta_data = self.s1meta.dict
+        d = map_blocks_coords(self._da_tmpl.astype(self._dtypes['ground_heading']),
+                              lambda x: x + int(Sentinel1Meta.from_dict(s1meta_data).multidataset),
+                              name='debug_memleaks')
+        return d
+
     @timing
     def _load_raster_masks(self):
+        # WARNING: not use self.s1meta on worker. have to reinstantiate it (https://github.com/umr-lops/xsar/issues/23)
+        s1meta_data = self.s1meta.dict
         def _rasterize_mask_by_chunks(atrack, xtrack, mask='land'):
+            s1meta_worker = Sentinel1Meta.from_dict(s1meta_data)
             chunk_coords = bbox_coords(atrack, xtrack, pad=None)
             # chunk footprint polygon, in dataset coordinates (with buffer, to enlarge a little the footprint)
             chunk_footprint_coords = Polygon(chunk_coords).buffer(10)
             # chunk footprint polygon, in lon/lat
-            chunk_footprint_ll = self.s1meta.coords2ll(chunk_footprint_coords)
+            chunk_footprint_ll = s1meta_worker.coords2ll(chunk_footprint_coords)
 
             # get vector mask over chunk
             # FIXME: speedup if get_mask is first called outside worker
-            vector_mask_ll = self.s1meta.get_mask(mask).intersection(chunk_footprint_ll)
+            vector_mask_ll = s1meta_worker.get_mask(mask).intersection(chunk_footprint_ll)
 
             if vector_mask_ll.is_empty:
                 # no intersection with mask, return zeros
                 return np.zeros((atrack.size, xtrack.size))
 
             # vector mask, in atrack/xtrack coordinates
-            vector_mask_coords = self.s1meta.ll2coords(vector_mask_ll)
+            vector_mask_coords = s1meta_worker.ll2coords(vector_mask_ll)
 
             raster_mask = rasterio.features.rasterize(
                 [vector_mask_coords],
                 out_shape=(xtrack.size, atrack.size),
                 all_touched=False,
-                transform=Affine.translation(*chunk_coords[0]) * Affine.scale(*[np.unique(np.diff(c)).item() for c in [xtrack,atrack]])
+                transform=Affine.translation(*chunk_coords[0]) * Affine.scale(
+                    *[np.unique(np.diff(c)).item() for c in [xtrack, atrack]])
             ).T
             return raster_mask
 

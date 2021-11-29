@@ -434,3 +434,31 @@ def compress_safe(safe_path_in, safe_path_out, smooth=0, rasterio_kwargs={'compr
     os.rename(safe_path_out_tmp, safe_path_out)
 
     return safe_path_out
+
+
+class Memoize:
+    # inspired from https://code.activestate.com/recipes/577452-a-memoize-decorator-for-instance-methods/
+    # to put cache in obj instance (unlike lru_cache that is global)
+    def __init__(self, func):
+        self.func = func
+        self.memoize = False
+
+    def __get__(self, obj, objtype=None):
+        if obj is None:
+            return self.func
+        return partial(self.__call__, obj)
+
+    def __call__(self, *args, **kwargs):
+        if not self.memoize:
+            return self.func(*args, **kwargs)
+        obj = args[0]
+        try:
+            cache = obj._memoize_cache
+        except AttributeError:
+            cache = obj._memoize_cache = {}
+        key = (self.func, args[1:], frozenset(kwargs.items()))
+        try:
+            res = cache[key]
+        except KeyError:
+            res = cache[key] = self.func(*args, **kwargs)
+        return res

@@ -47,8 +47,8 @@ def _load_config():
     return config
 
 
-from .sentinel1_meta import Sentinel1Meta, SentinelMeta
-from .sentinel1_dataset import Sentinel1Dataset, SentinelDataset
+from .sentinel1_meta import Sentinel1Meta
+from .sentinel1_dataset import Sentinel1Dataset
 
 logger = logging.getLogger('xsar')
 """

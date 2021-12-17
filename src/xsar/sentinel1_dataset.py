@@ -1,6 +1,4 @@
 # -*- coding: utf-8 -*-
-import copy
-import sys
 import logging
 import warnings
 import numpy as np
@@ -9,16 +7,13 @@ import pandas as pd
 import dask
 import rasterio
 import rasterio.features
-import re
+import rioxarray
 from scipy.interpolate import interp1d
 from shapely.geometry import Polygon
 import shapely
-from .utils import timing, haversine, map_blocks_coords, rioread, rioread_fromfunction, bbox_coords, bind
-from . import sentinel1_xml_mappings
-from .xml_parser import XmlParser
+from .utils import timing, haversine, map_blocks_coords, bbox_coords, BlockingActorProxy
 from numpy import asarray
 from affine import Affine
-from functools import partial
 from .sentinel1_meta import Sentinel1Meta
 from .ipython_backends import repr_mimebundle
 
@@ -62,7 +57,7 @@ class Sentinel1Dataset:
                  luts=False, chunks={'atrack': 5000, 'xtrack': 5000},
                  dtypes=None):
 
-        # default dtypes (TODO: find defaults, so science precision is not affected)
+        # default dtypes
         self._dtypes = {
             'latitude': 'f4',
             'longitude': 'f4',
@@ -92,8 +87,13 @@ class Sentinel1Dataset:
         """`xsar.Sentinel1Meta` object"""
 
         if not isinstance(dataset_id, Sentinel1Meta):
-            self.s1meta = Sentinel1Meta(dataset_id)
+            self.s1meta = BlockingActorProxy(Sentinel1Meta, dataset_id)
+            # check serializable
+            #import pickle
+            #s1meta = pickle.loads(pickle.dumps(self.s1meta))
+            #assert isinstance(tuple,s1meta.coords2ll(100, 100))
         else:
+            logger.error('s1meta object previously instantiated. Crash is comming ...')
             self.s1meta = dataset_id
         del dataset_id
 
@@ -124,8 +124,16 @@ class Sentinel1Dataset:
                         'xtrack': self._dataset.digital_number.xtrack}
             )
 
-        self._dataset.attrs.update(self.s1meta.to_dict("all"))
+        # FIXME possible memory leak
+        # when calling a self.s1meta method, an ActorFuture is returned.
+        # But this seems to break __del__ methods from both Sentinel1Meta and XmlParser
+        # Is it a memory leak ?
+        # see https://github.com/dask/distributed/issues/5610
+        # tmp_f = self.s1meta.to_dict("all")
+        # del tmp_f
+        # return
 
+        self._dataset.attrs.update(self.s1meta.to_dict("all"))
         # load subswath geometry
         # self.geometry = self.load_geometry(self.files['noise'].iloc[0])
         # self._dataset.attrs['geometry'] = self.geometry
@@ -165,22 +173,12 @@ class Sentinel1Dataset:
         if 'noise_lut_range' in self._luts.keys() and 'noise_lut_azi' in self._luts.keys():
             self._luts = self._luts.assign(noise_lut=self._luts.noise_lut_range * self._luts.noise_lut_azi)
 
-        self.coords2ll = self.s1meta.coords2ll
-        """
-         Alias for `xsar.Sentinel1Meta.coords2ll`
-        
-         See Also
-         --------
-         xsar.Sentinel1Meta.coords2ll
-        """
-
         lon_lat = self._load_lon_lat()
 
         self._raster_masks = self._load_raster_masks()
 
         ds_merge_list = [self._dataset, lon_lat, self._raster_masks, self._load_ground_heading(),
                          self._luts.drop_vars(self._hidden_vars, errors='ignore')]
-        #ds_merge_list = [self._dataset, lon_lat, self._raster_masks, self._load_ground_heading()]
 
         if luts:
             ds_merge_list.append(self._luts[self._hidden_vars])
@@ -211,6 +209,8 @@ class Sentinel1Dataset:
 
     def __del__(self):
         logger.debug('__del__')
+        # try to limit memory leak while https://github.com/dask/distributed/issues/5610 is not solved
+        #self.s1meta.clear()
 
     @property
     def dataset(self):
@@ -308,6 +308,16 @@ class Sentinel1Dataset:
 
         return atrack, xtrack
 
+    def coords2ll(self, *args, **kwargs):
+        """
+         Alias for `xsar.Sentinel1Meta.coords2ll`
+
+         See Also
+         --------
+         xsar.Sentinel1Meta.coords2ll
+        """
+        return self.s1meta.coords2ll(*args, **kwargs)
+
     @property
     def len_atrack_m(self):
         """atrack length, in meters"""
@@ -389,11 +399,9 @@ class Sentinel1Dataset:
                     name = "%s_%s" % (lut_name, pol)
                 else:
                     name = lut_name
-                lut_f_delayed = dask.delayed(self.s1meta.xml_parser.get_compound_var)(
-                    xml_file, lut_name, dask_key_name="xml_%s-%s" % (name, dask.base.tokenize(xml_file)))
-                # 1s faster, but lut_f will be loaded, even if not used
-                # lut_f_delayed = lut_f_delayed.persist()
 
+                # get the lut function. As it takes some time to parse xml, make it delayed
+                lut_f_delayed = dask.delayed(self.s1meta.xml_parser.get_compound_var)(xml_file, lut_name)
                 lut = map_blocks_coords(self._da_tmpl.astype(self._dtypes[lut_name]), lut_f_delayed,
                                         name='blocks_%s' % name)
 
@@ -413,7 +421,7 @@ class Sentinel1Dataset:
     @timing
     def _load_digital_number(self, resolution=None, chunks=None, resampling=rasterio.enums.Resampling.average):
         """
-        load digital_number from self.s1meta.rio, as an `xarray.Dataset`.
+        load digital_number from self.s1meta.files['measurement'], as an `xarray.Dataset`.
 
         Parameters
         ----------
@@ -434,31 +442,25 @@ class Sentinel1Dataset:
             'xtrack': 'x'
         }
 
-        rio = self.s1meta.rio
+        # arbitrary rio object, to get shape, etc ... (will not be used to read data)
+        rio = rasterio.open(self.s1meta.files['measurement'].iloc[0])
+
         chunks['pol'] = 1
         # sort chunks keys like map_dims
         chunks = dict(sorted(chunks.items(), key=lambda pair: list(map_dims.keys()).index(pair[0])))
         chunks_rio = {map_dims[d]: chunks[d] for d in map_dims.keys()}
 
         if resolution is None:
-            if self.s1meta.driver == 'auto':
-                # using sentinel1 driver: all pols are read in one shot
-                dn = xr.open_rasterio(
-                    self.s1meta.name,
-                    chunks=chunks_rio,
-                    parse_coordinates=False)  # manual coordinates parsing because we're going to pad
-            elif self.s1meta.driver == 'GTiff':
-                # using tiff driver: need to read individual tiff and concat them
-                # self.s1meta.files['measurement'] is ordered like self.s1meta.manifest_attrs['polarizations']
-                dn = xr.concat(
-                    [
-                        xr.open_rasterio(
-                            f, chunks=chunks_rio, parse_coordinates=False
-                        ) for f in self.s1meta.files['measurement']
-                    ], 'band'
-                ).assign_coords(band=np.arange(len(self.s1meta.manifest_attrs['polarizations'])) + 1)
-            else:
-                raise NotImplementedError('Unhandled driver %s' % self.s1meta.driver)
+            # using tiff driver: need to read individual tiff and concat them
+            # riofiles['rio'] is ordered like self.s1meta.manifest_attrs['polarizations']
+
+            dn = xr.concat(
+                [
+                    rioxarray.open_rasterio(
+                        f, chunks=chunks_rio, parse_coordinates=False
+                    ) for f in self.s1meta.files['measurement']
+                ], 'band'
+            ).assign_coords(band=np.arange(len(self.s1meta.manifest_attrs['polarizations'])) + 1)
 
             # set dimensions names
             dn = dn.rename(dict(zip(map_dims.values(), map_dims.keys())))
@@ -472,62 +474,32 @@ class Sentinel1Dataset:
                 rio.height // resolution['atrack'],
                 rio.width // resolution['xtrack']
             )
-            if self.s1meta.driver == 'auto':
-                out_shape_pol = (rio.count,) + out_shape
-            else:
-                out_shape_pol = (1,) + out_shape
-            # both following methods produce same result,
-            # but we can choose one of them by comparing out_shape and chunks size
-            if all([b - s >= 0 for b, s in zip(chunks.values(), out_shape_pol)][1:]):
-                # read resampled array in one chunk, and rechunk
-                # winsize is the maximum full image size that can be divided  by resolution (int)
-                winsize = (0, 0, rio.width // resolution['xtrack'] * resolution['xtrack'],
-                           rio.height // resolution['atrack'] * resolution['atrack'])
+            out_shape_pol = (1,) + out_shape
+            # read resampled array in one chunk, and rechunk
+            # this doesn't optimize memory, but total size remain quite small
+            # winsize is the maximum full image size that can be divided  by resolution (int)
+            winsize = (0, 0, rio.width // resolution['xtrack'] * resolution['xtrack'],
+                       rio.height // resolution['atrack'] * resolution['atrack'])
 
-                if self.s1meta.driver == 'GTiff':
-                    resampled = [
-                        xr.DataArray(
-                            dask.array.from_delayed(
-                                dask.delayed(rioread)(f, out_shape_pol, winsize, resampling=resampling),
-                                out_shape_pol, dtype=np.dtype(rio.dtypes[0])
+            dn = xr.concat(
+                [
+                    xr.DataArray(
+                        dask.array.from_array(
+                            rasterio.open(f).read(
+                                out_shape=out_shape_pol,
+                                resampling=resampling,
+                                window=rasterio.windows.Window(*winsize)
                             ),
-                            dims=tuple(map_dims.keys()), coords={'pol': [pol]}
-                        ) for f, pol in
-                        zip(self.s1meta.files['measurement'], self.s1meta.manifest_attrs['polarizations'])
-                    ]
-                    dn = xr.concat(resampled, 'pol').chunk(chunks)
-                else:
-                    resampled = dask.array.from_delayed(
-                        dask.delayed(rioread)(self.s1meta.name, out_shape_pol, winsize, resampling=resampling),
-                        out_shape_pol, dtype=np.dtype(rio.dtypes[0]))
-                    dn = xr.DataArray(resampled, dims=tuple(map_dims.keys())).chunk(chunks)
-            else:
-                # read resampled array chunk by chunk
-                # TODO: there is no way to specify dask graph name with fromfunction: => open github issue ?
-                if self.s1meta.driver == 'GTiff':
-                    resampled = [
-                        xr.DataArray(
-                            dask.array.fromfunction(
-                                partial(rioread_fromfunction, f),
-                                shape=out_shape_pol,
-                                chunks=tuple(chunks.values()),
-                                dtype=np.dtype(rio.dtypes[0]),
-                                resolution=resolution, resampling=resampling
-                            ),
-                            dims=tuple(map_dims.keys()), coords={'pol': [pol]}
-                        ) for f, pol in
-                        zip(self.s1meta.files['measurement'], self.s1meta.manifest_attrs['polarizations'])
-                    ]
-                    dn = xr.concat(resampled, 'pol')
-                else:
-                    chunks['pol'] = 2
-                    resampled = dask.array.fromfunction(
-                        partial(rioread_fromfunction, self.s1meta.name),
-                        shape=out_shape_pol,
-                        chunks=tuple(chunks.values()),
-                        dtype=np.dtype(rio.dtypes[0]),
-                        resolution=resolution, resampling=resampling)
-                    dn = xr.DataArray(resampled.rechunk({0: 1}), dims=tuple(map_dims.keys()))
+                            chunks=chunks_rio
+                        ),
+                        dims=tuple(map_dims.keys()), coords={'pol': [pol]}
+                    ) for f, pol in
+                    zip(self.s1meta.files['measurement'], self.s1meta.manifest_attrs['polarizations'])
+                ],
+                'pol'
+            )
+
+
 
             # create coordinates at box center (+0.5 for pixel center, -1 because last index not included)
             translate = Affine.translation((resolution['xtrack'] - 1) / 2 + 0.5, (resolution['atrack'] - 1) / 2 + 0.5)
@@ -538,16 +510,6 @@ class Sentinel1Dataset:
             _, atrack = translate * scale * (0, dn.atrack)
             dn = dn.assign_coords({'atrack': atrack, 'xtrack': xtrack})
 
-        if self.s1meta.driver == 'auto':
-            # pols are ordered as self.rio.files,
-            # and we may have to reorder them in the same order as the manifest
-            dn_pols = [
-                self.s1meta.xml_parser.get_var(f, "annotation.polarization")
-                for f in rio.files
-                if re.search(r'annotation.*\.xml', f)]
-            dn = dn.assign_coords(pol=dn_pols)
-            dn = dn.reindex(pol=self.s1meta.manifest_attrs['polarizations'])
-        else:
             # for GTiff driver, pols are already ordered. just rename them
             dn = dn.assign_coords(pol=self.s1meta.manifest_attrs['polarizations'])
 
@@ -572,12 +534,10 @@ class Sentinel1Dataset:
             xarray.Dataset:
                 dataset with `longitude` and `latitude` variables, with same shape as mono-pol digital_number.
         """
-        # WARNING: not use self.s1meta on worker. have to reinstantiate it (https://github.com/umr-lops/xsar/issues/23)
-        s1meta_data = self.s1meta.dict
 
         def coords2ll(*args):
             # *args[1:] to skip dummy 'll' dimension
-            return np.stack(Sentinel1Meta.from_dict(s1meta_data).coords2ll(*args[1:], to_grid=True))
+            return np.stack(self.s1meta.coords2ll(*args[1:], to_grid=True))
 
         ll_coords = ['longitude', 'latitude']
         # ll_tmpl is like self._da_tmpl stacked 2 times (for both longitude and latitude)
@@ -590,48 +550,45 @@ class Sentinel1Dataset:
 
     @timing
     def _load_ground_heading(self):
-        # WARNING: not use self.s1meta on worker. have to reinstantiate it (https://github.com/umr-lops/xsar/issues/23)
-        s1meta_data = self.s1meta.dict
-
         def coords2heading(atracks, xtracks):
-            s1meta = Sentinel1Meta.from_dict(s1meta_data)
-            return s1meta.coords2heading(atracks, xtracks, to_grid=True, approx=False)
+            return self.s1meta.coords2heading(atracks, xtracks, to_grid=True, approx=False)
 
-        #coords2heading = bind(Sentinel1Meta.from_dict(s1meta_data).coords2heading, ..., ..., to_grid=True, approx=False)
         gh = map_blocks_coords(self._da_tmpl.astype(self._dtypes['ground_heading']), coords2heading,
                                name='ground_heading')
         return gh.to_dataset(name='ground_heading')
 
-    def _debug_memleaks(self):
-        # WARNING: not use self.s1meta on worker. have to reinstantiate it (https://github.com/umr-lops/xsar/issues/23)
-        s1meta_data = self.s1meta.dict
-        d = map_blocks_coords(self._da_tmpl.astype(self._dtypes['ground_heading']),
-                              lambda x: x + int(Sentinel1Meta.from_dict(s1meta_data).multidataset),
-                              name='debug_memleaks')
-        return d
 
     @timing
     def _load_raster_masks(self):
-        # WARNING: not use self.s1meta on worker. have to reinstantiate it (https://github.com/umr-lops/xsar/issues/23)
-        s1meta_data = self.s1meta.dict
+        def _test(atrack, xtrack, mask=None):
+            chunk_coords = bbox_coords(atrack, xtrack, pad=None)
+            # chunk footprint polygon, in dataset coordinates (with buffer, to enlarge a little the footprint)
+            chunk_footprint_coords = Polygon(chunk_coords).buffer(10)
+            tmp = self.s1meta.name
+            #vector_mask_ll = s1meta.get_mask(mask) #
+            return np.meshgrid(xtrack, atrack)[0] * 0
+
+        # we want a function, that when evaluated on a block, returns a block of the same size with 0 or 1 (not mask or mask)
+        # this function needs to access self.s1meta methods and properties, but it breaks dask serialization.
+        # so we have to write a wrapper that return a function that doesn't access self.s1meta
         def _rasterize_mask_by_chunks(atrack, xtrack, mask='land'):
-            s1meta_worker = Sentinel1Meta.from_dict(s1meta_data)
+            # WARNING: accessing self.s1meta attr or method will break dask serialization
+            # tmp = self.s1meta.name # distributed.protocol.core - CRITICAL - Failed to Serialize
             chunk_coords = bbox_coords(atrack, xtrack, pad=None)
             # chunk footprint polygon, in dataset coordinates (with buffer, to enlarge a little the footprint)
             chunk_footprint_coords = Polygon(chunk_coords).buffer(10)
             # chunk footprint polygon, in lon/lat
-            chunk_footprint_ll = s1meta_worker.coords2ll(chunk_footprint_coords)
+            chunk_footprint_ll = self.s1meta.coords2ll(chunk_footprint_coords)
 
             # get vector mask over chunk
-            # FIXME: speedup if get_mask is first called outside worker
-            vector_mask_ll = s1meta_worker.get_mask(mask).intersection(chunk_footprint_ll)
+            vector_mask_ll = self.s1meta.get_mask(mask).intersection(chunk_footprint_ll)
 
             if vector_mask_ll.is_empty:
                 # no intersection with mask, return zeros
                 return np.zeros((atrack.size, xtrack.size))
 
             # vector mask, in atrack/xtrack coordinates
-            vector_mask_coords = s1meta_worker.ll2coords(vector_mask_ll)
+            vector_mask_coords = self.s1meta.ll2coords(vector_mask_ll)
 
             raster_mask = rasterio.features.rasterize(
                 [vector_mask_coords],
@@ -647,7 +604,7 @@ class Sentinel1Dataset:
                 self._da_tmpl,
                 _rasterize_mask_by_chunks,
                 func_kwargs={'mask': mask}
-            ).to_dataset(name='%s_mask' % mask) for mask in self.s1meta._mask_features.keys()
+            ).to_dataset(name='%s_mask' % mask) for mask in self.s1meta.mask_names
         ]
         return xr.merge(da_list)
 
@@ -819,9 +776,3 @@ class Sentinel1Dataset:
 
     def _repr_mimebundle_(self, include=None, exclude=None):
         return repr_mimebundle(self, include=include, exclude=exclude)
-
-
-class SentinelDataset(Sentinel1Dataset):
-    def __init__(self, *args, **kwargs):
-        warnings.warn("SentinelDataset is deprecated. Please update your code to use 'Sentinel1Dataset'")
-        super().__init__(*args, **kwargs)

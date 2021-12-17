@@ -27,7 +27,7 @@ class Sentinel1Meta:
     """
     Handle dataset metadata.
     A `xsar.Sentinel1Meta` object can be used with `xsar.open_dataset`,
-    but it can be used as itself: it contain usefull attributes and methods.
+    but it can be used as itself: it contains usefull attributes and methods.
 
     Parameters
     ----------
@@ -36,16 +36,34 @@ class Sentinel1Meta:
 
     """
 
+    # class attributes are needed to fetch instance attribute (ie self.name) with dask actors
+    # ref http://distributed.dask.org/en/stable/actors.html#access-attributes
+    # FIXME: not needed if @property, so it might be a good thing to have getter for those attributes
+    multidataset = None
+    xml_parser = None
+    name = None
+    short_name = None
+    safe = None
+    path = None
+    product = None
+    manifest = None
+    subdatasets = None
+    dsid = None
+    manifest_attrs = None
+
+
     @timing
-    def __init__(self, name, xml_parser=None, driver='GTiff'):
-        if xml_parser is None:
-            xml_parser = XmlParser(
+    def __init__(self, name, _xml_parser=None):
+
+        if _xml_parser is None:
+            self.xml_parser = XmlParser(
                 xpath_mappings=sentinel1_xml_mappings.xpath_mappings,
                 compounds_vars=sentinel1_xml_mappings.compounds_vars,
-                namespaces=sentinel1_xml_mappings.namespaces)
-        self.xml_parser = xml_parser
-        self.driver = driver
-        """GDAL driver used. ('auto' for SENTINEL1, or 'GTiff')"""
+                namespaces=sentinel1_xml_mappings.namespaces
+            )
+        else:
+            self.xml_parser = _xml_parser
+
         if not name.startswith('SENTINEL1_DS:'):
             name = 'SENTINEL1_DS:%s:' % name
         self.name = name
@@ -96,7 +114,6 @@ class Sentinel1Meta:
 
     def __del__(self):
         logger.debug('__del__')
-    #    self.rio.close()
 
     def have_child(self, name):
         """
@@ -114,7 +131,8 @@ class Sentinel1Meta:
         return name == self.name or name in self.subdatasets
 
     def _get_gcps(self):
-        rio_gcps, crs = self.rio.get_gcps()
+        rio = rasterio.open(self.files['measurement'].iloc[0])
+        rio_gcps, crs = rio.get_gcps()
 
         gcps_xtracks, gcps_atracks = [
             np.array(arr) for arr in zip(
@@ -195,7 +213,6 @@ class Sentinel1Meta:
         acq_xtrack_meters, _ = haversine(*corners[0], *corners[1])
         # second vector is on atrack
         acq_atrack_meters, _ = haversine(*corners[1], *corners[2])
-        rio = self.rio
         pix_xtrack_meters = acq_xtrack_meters / rio.width
         pix_atrack_meters = acq_atrack_meters / rio.height
         attrs['coverage'] = "%dkm * %dkm (atrack * xtrack )" % (
@@ -261,23 +278,10 @@ class Sentinel1Meta:
 
     @property
     def rio(self):
-        """
-        get `rasterio.io.DatasetReader` object.
-        This object is usefull to get image height, width, shape, etc...
-        See rasterio doc for more infos.
-
-        See Also
-        --------
-        `rasterio.io.DatasetReader <https://rasterio.readthedocs.io/en/latest/api/rasterio.io.html#rasterio.io.DatasetReader>`_
-        """
-
-        # rio object not stored as self.rio attribute because of pickling problem
-        # (https://github.com/dymaxionlabs/dask-rasterio/issues/3)
-        if self.driver == 'GTiff':
-            name = self.files['measurement'].iloc[0]
-        else:
-            name = self.name
-        return rasterio.open(name)
+        raise DeprecationWarning(
+            'Sentinel1Meta.rio is deprecated. '
+            'Use `rasterio.open` on files in `Sentinel1Meta..files["measurement"] instead`'
+        )
 
     @property
     def safe_files(self):
@@ -333,7 +337,7 @@ class Sentinel1Meta:
     @property
     def gcps(self):
         """
-        get gcps from self.rio
+        get gcps from rasterio.
 
         Returns
         -------
@@ -415,6 +419,17 @@ class Sentinel1Meta:
         # reset variable cache
         self._mask_intersecting_geometries[name] = None
         self._mask_geometry[name] = None
+
+    @property
+    def mask_names(self):
+        """
+
+        Returns
+        -------
+        list of str
+            mask names
+        """
+        return self._mask_features.keys()
 
     @timing
     def get_mask(self, name):
@@ -753,50 +768,40 @@ class Sentinel1Meta:
     def _repr_mimebundle_(self, include=None, exclude=None):
         return repr_mimebundle(self, include=include, exclude=exclude)
 
-    def __copy__(self):
-        newone = type(self)(self.name)
-        newone.__dict__.update(self.__dict__)
-        newone.xml_parser = XmlParser(
-            xpath_mappings=self.xml_parser._xpath_mappings,
-            compounds_vars=self.xml_parser._compounds_vars,
-            namespaces=self.xml_parser._namespaces)
-        return newone
+    def __reduce__(self):
+        # make self serializable with pickle
+        # https://docs.python.org/3/library/pickle.html#object.__reduce__
+
+        return self.__class__, (self.name,), self.dict
 
     @property
     def dict(self):
-        # return a minimal dictionary that can be used with Sentinel1Meta.from_dict()
-        # to reconstruct an other instance of self
-        minidict =  {
+        # return a minimal dictionary that can be used with Sentinel1Meta.from_dict() or pickle (see __reduce__)
+        # to reconstruct another instance of self
+        #
+        # TODO: fix a way to get self.footprint and self.gcps. ( speed optimisation )
+        minidict = {
             'name': self.name,
             '_mask_features': self._mask_features,
             '_mask_intersecting_geometries': {},
             '_mask_geometry': {},
-            '_namespaces': self.xml_parser._namespaces,
-            '_xpath_mappings': self.xml_parser._xpath_mappings,
-            '_compounds_vars': self.xml_parser._compounds_vars
         }
         for name in minidict['_mask_features'].keys():
             minidict['_mask_intersecting_geometries'][name] = None
             minidict['_mask_geometry'][name] = None
         return minidict
 
-
     @classmethod
-    def from_dict(cls, minidict):
+    def from_dict(cls, minidict, client=None):
         # like copy constructor, but take a dict from Sentinel1Meta.dict
         # https://github.com/umr-lops/xsar/issues/23
         minidict = copy.copy(minidict)
-        xml_parser = XmlParser(
-            xpath_mappings=minidict.pop('_xpath_mappings'),
-            compounds_vars=minidict.pop('_compounds_vars'),
-            namespaces=minidict.pop('_namespaces')
-        )
-        new = cls(minidict['name'], xml_parser=xml_parser)
+        if client is not None:
+            # WARNING: minidict['_xml_parser_future'] is a future.
+            # but once passed to __init__, dask seems to get it's result (an actor)
+            new = client.submit(cls, minidict['name'], _xml_parser=minidict['_xml_parser_future'], actors=True)
+        else:
+            new = cls(minidict['name'])
         new.__dict__.update(minidict)
         return new
 
-
-class SentinelMeta(Sentinel1Meta):
-    def __init__(self, *args, **kwargs):
-        warnings.warn("'SentinelMeta' is deprecated. Please update your code to use 'Sentinel1Meta'")
-        super().__init__(*args, **kwargs)

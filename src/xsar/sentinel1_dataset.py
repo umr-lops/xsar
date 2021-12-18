@@ -767,12 +767,12 @@ class Sentinel1Dataset:
                 ds[varname] = denoised
         return ds
 
-    def __str__(self):
+    def __repr__(self):
         if self.sliced:
             intro = "sliced"
         else:
             intro = "full covevage"
-        return "%s Sentinel1Dataset object" % intro
+        return "<Sentinel1Dataset %s object>" % intro
 
     def _repr_mimebundle_(self, include=None, exclude=None):
         return repr_mimebundle(self, include=include, exclude=exclude)

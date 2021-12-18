@@ -1,14 +1,19 @@
-def repr_mimebundle_SentinelMeta(self, include=None, exclude=None):
+
+try:
+    # will fall back to repr if some modules are missing
+    import cartopy
+    import holoviews as hv
+    import geoviews as gv
+    import geoviews.feature as gf
+    import jinja2
+    import geopandas as gpd
+    import holoviews.ipython.display_hooks as display_hooks
+    from shapely.geometry import Polygon
+except ModuleNotFoundError as e:
+    pass
+
+def repr_mimebundle_Sentinel1Meta(self, include=None, exclude=None):
     """html output for notebook"""
-    try:
-        import cartopy
-        import geoviews as gv
-        import geoviews.feature as gf
-        import jinja2
-        import geopandas as gpd
-    except ModuleNotFoundError as e:
-        return {'text/html': str(self)}
-    gv.extension('bokeh', logo=False)
 
     template = jinja2.Template(
         """
@@ -66,11 +71,16 @@ def repr_mimebundle_SentinelMeta(self, include=None, exclude=None):
         }
     )
 
-    footprint = gv.Polygons(footprints_df).opts(projection=crs, xlim=xlim, ylim=ylim, alpha=0.5, tools=['hover'])
+    footprint = gv.Polygons(footprints_df) \
+        .opts(projection=crs, xlim=xlim, ylim=ylim, alpha=0.5) \
+        .opts(tools=['hover'], backend='bokeh')
 
-    location = (world * footprint).opts(width=400, height=400, title='Map')
+    location = (world * footprint) \
+        .opts(title='Map') \
+        .opts(width=400, height=400, backend='bokeh') \
+        .opts(fig_inches=5, backend='matplotlib')
 
-    data, metadata = location._repr_mimebundle_(include=include, exclude=exclude)
+    data, metadata = display_hooks.render(location)
 
     properties = self.to_dict()
     properties['orbit_pass'] = self.orbit_pass
@@ -101,15 +111,7 @@ def repr_mimebundle_SentinelMeta(self, include=None, exclude=None):
     return data, metadata
 
 
-def repr_mimebundle_SentinelDataset(self, include=None, exclude=None):
-    try:
-        import jinja2
-        import holoviews as hv
-        import geoviews as gv
-        from shapely.geometry import Polygon
-    except ModuleNotFoundError as e:
-        return {'text/html': str(self)}
-    hv.extension('bokeh', logo=False)
+def repr_mimebundle_Sentinel1Dataset(self, include=None, exclude=None):
 
     template = jinja2.Template(
         """
@@ -143,11 +145,14 @@ def repr_mimebundle_SentinelDataset(self, include=None, exclude=None):
         """
     )
 
-    grid = (hv.Path(Polygon(self._bbox_coords_ori)).opts(color='blue') * hv.Polygons(
-        Polygon(self._bbox_coords)).opts(color='blue', fill_color='cyan')).opts(xlabel='atrack', ylabel='xtrack')
+    grid = (
+            hv.Path(Polygon(self._bbox_coords_ori)).opts(color='blue') \
+            * hv.Polygons(Polygon(self._bbox_coords)) \
+            .opts(color='blue') \
+            .opts(fill_color='cyan', backend='bokeh')
+    ).opts(xlabel='atrack', ylabel='xtrack')
 
-    data, metadata = grid._repr_mimebundle_(include=include, exclude=exclude)
-
+    data, metadata = display_hooks.render(grid)
     properties = {}
     if self.pixel_atrack_m is not None:
         properties['pixel size'] = "%.1f * %.1f meters (atrack * xtrack)" % (
@@ -172,12 +177,13 @@ def repr_mimebundle_SentinelDataset(self, include=None, exclude=None):
 
 
 repr_mimebundle_wrapper = {
-    'Sentinel1Meta': repr_mimebundle_SentinelMeta,
-    'SentinelMeta': repr_mimebundle_SentinelMeta,
-    'Sentinel1Dataset': repr_mimebundle_SentinelDataset,
-    'SentinelDataset': repr_mimebundle_SentinelDataset
+    'Sentinel1Meta': repr_mimebundle_Sentinel1Meta,
+    'Sentinel1Dataset': repr_mimebundle_Sentinel1Dataset,
 }
 
 
 def repr_mimebundle(obj, include=None, exclude=None):
-    return repr_mimebundle_wrapper[type(obj).__name__](obj, include=include, exclude=exclude)
+    try:
+        return repr_mimebundle_wrapper[type(obj).__name__](obj, include=include, exclude=exclude)
+    except Exception as e:
+        return {'text': repr(obj)}

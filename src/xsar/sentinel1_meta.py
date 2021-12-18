@@ -758,12 +758,12 @@ class Sentinel1Meta:
         """
         return self.gcps.attrs['approx_transform']
 
-    def __str__(self):
+    def __repr__(self):
         if self.multidataset:
             meta_type = "multi (%d)" % len(self.subdatasets)
         else:
             meta_type = "single"
-        return "%s Sentinel1Meta object" % meta_type
+        return "<Sentinel1Meta %s object>" % meta_type
 
     def _repr_mimebundle_(self, include=None, exclude=None):
         return repr_mimebundle(self, include=include, exclude=exclude)

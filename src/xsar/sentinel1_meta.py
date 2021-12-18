@@ -105,6 +105,7 @@ class Sentinel1Meta:
         """Mission platform"""
         self._gcps = None
         self._time_range = None
+        self._mask_features_raw = {}
         self._mask_features = {}
         self._mask_intersecting_geometries = {}
         self._mask_geometry = {}
@@ -375,7 +376,8 @@ class Sentinel1Meta:
         name: str
             mask name
         feature: str or cartopy.feature.Feature
-            if str, feature is a path to a shapefile.
+            if str, feature is a path to a shapefile or whatever file readable with fiona.
+            It is recommended to use str, as the serialization of cartopy feature might be big.
 
         Examples
         --------
@@ -384,41 +386,18 @@ class Sentinel1Meta:
             >>> self.set_mask_feature('ocean', cartopy.feature.OCEAN)
             ```
 
+            High resoltion shapefiles can be found from openstreetmap.
+            It is recommended to use WGS84 with large polygons split from https://osmdata.openstreetmap.de/
+
         See Also
         --------
         xsar.Sentinel1Meta.get_mask
         """
-        if isinstance(feature, str):
-            # feature is a shapefile.
-            # we get the crs from the shapefile to be able to transform the footprint to this crs_in
-            # (so we can use `mask=` in gpd.read_file)
-            import fiona
-            import pyproj
-            from shapely.ops import transform
-            with fiona.open(feature) as fshp:
-                try:
-                    # proj6 give a " FutureWarning: '+init=<authority>:<code>' syntax is deprecated.
-                    # '<authority>:<code>' is the preferred initialization method"
-                    crs_in = fshp.crs['init']
-                except KeyError:
-                    crs_in = fshp.crs
-                crs_in = pyproj.CRS(crs_in)
-            proj_transform = pyproj.Transformer.from_crs(pyproj.CRS('EPSG:4326'), crs_in, always_xy=True).transform
-            footprint_crs = transform(proj_transform, self.footprint)
-
-            with warnings.catch_warnings():
-                # ignore "RuntimeWarning: Sequential read of iterator was interrupted. Resetting iterator."
-                warnings.simplefilter("ignore", RuntimeWarning)
-                feature = cartopy.feature.ShapelyFeature(
-                    gpd.read_file(feature, mask=footprint_crs).to_crs(epsg=4326).geometry,
-                    cartopy.crs.PlateCarree()
-                )
-        if not isinstance(feature, cartopy.feature.Feature):
-            raise TypeError('Expected a cartopy.feature.Feature type')
-        self._mask_features[name] = feature
+        self._mask_features_raw[name] = feature
         # reset variable cache
         self._mask_intersecting_geometries[name] = None
         self._mask_geometry[name] = None
+        self._mask_features[name] = None
 
     @property
     def mask_names(self):
@@ -454,8 +433,45 @@ class Sentinel1Meta:
     def _get_mask_intersecting_geometries(self, name):
         if self._mask_intersecting_geometries[name] is None:
             self._mask_intersecting_geometries[name] = gpd.GeoSeries(
-                self._mask_features[name].intersecting_geometries(self.footprint.bounds))
+                self._get_mask_feature(name).intersecting_geometries(self.footprint.bounds))
         return self._mask_intersecting_geometries[name]
+
+    def _get_mask_feature(self, name):
+        # internal method that returns a cartopy feature from a mask name
+        if self._mask_features[name] is None:
+            feature = self._mask_features_raw[name]
+            if isinstance(feature, str):
+                # feature is a shapefile.
+                # we get the crs from the shapefile to be able to transform the footprint to this crs_in
+                # (so we can use `mask=` in gpd.read_file)
+                import fiona
+                import pyproj
+                from shapely.ops import transform
+                with fiona.open(feature) as fshp:
+                    try:
+                        # proj6 give a " FutureWarning: '+init=<authority>:<code>' syntax is deprecated.
+                        # '<authority>:<code>' is the preferred initialization method"
+                        crs_in = fshp.crs['init']
+                    except KeyError:
+                        crs_in = fshp.crs
+                    crs_in = pyproj.CRS(crs_in)
+                proj_transform = pyproj.Transformer.from_crs(pyproj.CRS('EPSG:4326'), crs_in, always_xy=True).transform
+                footprint_crs = transform(proj_transform, self.footprint)
+
+                with warnings.catch_warnings():
+                    # ignore "RuntimeWarning: Sequential read of iterator was interrupted. Resetting iterator."
+                    warnings.simplefilter("ignore", RuntimeWarning)
+                    feature = cartopy.feature.ShapelyFeature(
+                        gpd.read_file(feature, mask=footprint_crs).to_crs(epsg=4326).geometry,
+                        cartopy.crs.PlateCarree()
+                    )
+            if not isinstance(feature, cartopy.feature.Feature):
+                raise TypeError('Expected a cartopy.feature.Feature type')
+            self._mask_features[name] = feature
+
+        return self._mask_features[name]
+
+
 
     @property
     def coverage(self):
@@ -779,29 +795,26 @@ class Sentinel1Meta:
         # return a minimal dictionary that can be used with Sentinel1Meta.from_dict() or pickle (see __reduce__)
         # to reconstruct another instance of self
         #
-        # TODO: fix a way to get self.footprint and self.gcps. ( speed optimisation )
+        # TODO: find a way to get self.footprint and self.gcps. ( speed optimisation )
         minidict = {
             'name': self.name,
-            '_mask_features': self._mask_features,
+            '_mask_features_raw': self._mask_features_raw,
+            '_mask_features': {},
             '_mask_intersecting_geometries': {},
             '_mask_geometry': {},
         }
-        for name in minidict['_mask_features'].keys():
+        for name in minidict['_mask_features_raw'].keys():
             minidict['_mask_intersecting_geometries'][name] = None
             minidict['_mask_geometry'][name] = None
+            minidict['_mask_features'][name] = None
         return minidict
 
     @classmethod
-    def from_dict(cls, minidict, client=None):
+    def from_dict(cls, minidict):
         # like copy constructor, but take a dict from Sentinel1Meta.dict
         # https://github.com/umr-lops/xsar/issues/23
         minidict = copy.copy(minidict)
-        if client is not None:
-            # WARNING: minidict['_xml_parser_future'] is a future.
-            # but once passed to __init__, dask seems to get it's result (an actor)
-            new = client.submit(cls, minidict['name'], _xml_parser=minidict['_xml_parser_future'], actors=True)
-        else:
-            new = cls(minidict['name'])
+        new = cls(minidict['name'])
         new.__dict__.update(minidict)
         return new
 

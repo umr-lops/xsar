@@ -566,12 +566,7 @@ class Sentinel1Dataset:
             #vector_mask_ll = s1meta.get_mask(mask) #
             return np.meshgrid(xtrack, atrack)[0] * 0
 
-        # we want a function, that when evaluated on a block, returns a block of the same size with 0 or 1 (not mask or mask)
-        # this function needs to access self.s1meta methods and properties, but it breaks dask serialization.
-        # so we have to write a wrapper that return a function that doesn't access self.s1meta
         def _rasterize_mask_by_chunks(atrack, xtrack, mask='land'):
-            # WARNING: accessing self.s1meta attr or method will break dask serialization
-            # tmp = self.s1meta.name # distributed.protocol.core - CRITICAL - Failed to Serialize
             chunk_coords = bbox_coords(atrack, xtrack, pad=None)
             # chunk footprint polygon, in dataset coordinates (with buffer, to enlarge a little the footprint)
             chunk_footprint_coords = Polygon(chunk_coords).buffer(10)

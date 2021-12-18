@@ -55,9 +55,7 @@ def repr_mimebundle_Sentinel1Meta(self, include=None, exclude=None):
     xlim = (center.x - 20, center.x + 20)
     ylim = (center.y - 20, center.y + 20)
 
-    if self.multidataset and \
-            len(self.subdatasets) == len(
-        self._footprints):  # checks len because SAFEs like IW_SLC has only one footprint for 3 subdatasets
+    if self.multidataset and len(self.subdatasets) == len(self._footprints):  # checks len because SAFEs like IW_SLC has only one footprint for 3 subdatasets
         dsid = [s.split(':')[2] for s in self.subdatasets]
         footprint = self._footprints
     else:
@@ -71,14 +69,21 @@ def repr_mimebundle_Sentinel1Meta(self, include=None, exclude=None):
         }
     )
 
+    opts = {
+        'bokeh': dict(tools=['hover'])
+    }
+
     footprint = gv.Polygons(footprints_df) \
         .opts(projection=crs, xlim=xlim, ylim=ylim, alpha=0.5) \
-        .opts(tools=['hover'], backend='bokeh')
+        .opts(**(opts.get(hv.Store.current_backend) or {}), backend=hv.Store.current_backend)
 
+    opts = {
+        'bokeh': dict(width=400, height=400),
+        'matplotlib': dict(fig_inches=5)
+    }
     location = (world * footprint) \
         .opts(title='Map') \
-        .opts(width=400, height=400, backend='bokeh') \
-        .opts(fig_inches=5, backend='matplotlib')
+        .opts(**(opts.get(hv.Store.current_backend) or {}), backend=hv.Store.current_backend) \
 
     data, metadata = display_hooks.render(location)
 
@@ -145,11 +150,14 @@ def repr_mimebundle_Sentinel1Dataset(self, include=None, exclude=None):
         """
     )
 
+    opts = {
+        'bokeh': dict(fill_color='cyan')
+    }
     grid = (
             hv.Path(Polygon(self._bbox_coords_ori)).opts(color='blue') \
             * hv.Polygons(Polygon(self._bbox_coords)) \
             .opts(color='blue') \
-            .opts(fill_color='cyan', backend='bokeh')
+            .opts(**(opts.get(hv.Store.current_backend) or {}), backend=hv.Store.current_backend)
     ).opts(xlabel='atrack', ylabel='xtrack')
 
     data, metadata = display_hooks.render(grid)

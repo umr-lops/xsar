@@ -148,7 +148,7 @@ def apply_cf_convention(dataset):
 
     return dataset
 
-def product_info(path, columns='minimal', include_multi=False, driver='GTiff', _xml_parser=None):
+def product_info(path, columns='minimal', include_multi=False, _xml_parser=None):
     """
 
     Parameters
@@ -206,14 +206,14 @@ def product_info(path, columns='minimal', include_multi=False, driver='GTiff', _
 
     df_list = []
     for p in path:
-        s1meta = Sentinel1Meta(p, driver=driver)
+        s1meta = Sentinel1Meta(p)
         if s1meta.multidataset and include_multi:
             df_list.append(_meta2df(s1meta))
         elif not s1meta.multidataset:
             df_list.append(_meta2df(s1meta))
         if s1meta.multidataset:
             for n in s1meta.subdatasets:
-                s1meta = Sentinel1Meta(n, driver=driver)
+                s1meta = Sentinel1Meta(n)
                 df_list.append(_meta2df(s1meta))
     df = pd.concat(df_list).reset_index(drop=True)
     if 'geometry' in df:

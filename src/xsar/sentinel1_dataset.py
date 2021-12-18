@@ -93,8 +93,8 @@ class Sentinel1Dataset:
             #s1meta = pickle.loads(pickle.dumps(self.s1meta))
             #assert isinstance(tuple,s1meta.coords2ll(100, 100))
         else:
-            logger.error('s1meta object previously instantiated. Crash is comming ...')
-            self.s1meta = dataset_id
+            # we want self.s1meta to be a dask actor on a worker
+            self.s1meta = BlockingActorProxy(Sentinel1Meta.from_dict, dataset_id.dict)
         del dataset_id
 
         if self.s1meta.multidataset:
@@ -209,8 +209,6 @@ class Sentinel1Dataset:
 
     def __del__(self):
         logger.debug('__del__')
-        # try to limit memory leak while https://github.com/dask/distributed/issues/5610 is not solved
-        #self.s1meta.clear()
 
     @property
     def dataset(self):
@@ -510,8 +508,8 @@ class Sentinel1Dataset:
             _, atrack = translate * scale * (0, dn.atrack)
             dn = dn.assign_coords({'atrack': atrack, 'xtrack': xtrack})
 
-            # for GTiff driver, pols are already ordered. just rename them
-            dn = dn.assign_coords(pol=self.s1meta.manifest_attrs['polarizations'])
+        # for GTiff driver, pols are already ordered. just rename them
+        dn = dn.assign_coords(pol=self.s1meta.manifest_attrs['polarizations'])
 
         dn.attrs = {}
         var_name = 'digital_number'

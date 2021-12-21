@@ -220,12 +220,6 @@ def map_blocks_coords(da, func, func_kwargs={}, **kwargs):
 
     from_coords = bind(_evaluate_from_coords, ..., ..., coords.values(), dtype=dtype)
 
-    #try:
-    #    # in func is a future, get it
-    #    func = func.result()
-    #except AttributeError:
-    #    pass
-
     daskarr = meta.map_blocks(from_coords, func, meta=meta, **kwargs)
     dataarr = xr.DataArray(daskarr,
                            dims=da.dims,
@@ -317,9 +311,6 @@ def compress_safe(safe_path_in, safe_path_out, smooth=0, rasterio_kwargs={'compr
         else:
             band = src.read(1)
 
-        # if constant is not None:
-        #    band = src.read(1)
-        #    band[band >= 0] = int(constant)
         with rasterio.open(
                 safe_path_out_tmp + "/measurement/" + os.path.basename(tiff_file),
                 'w',

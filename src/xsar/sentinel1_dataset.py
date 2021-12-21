@@ -134,9 +134,6 @@ class Sentinel1Dataset:
         # return
 
         self._dataset.attrs.update(self.s1meta.to_dict("all"))
-        # load subswath geometry
-        # self.geometry = self.load_geometry(self.files['noise'].iloc[0])
-        # self._dataset.attrs['geometry'] = self.geometry
 
         # dict mapping for variables names to create by applying specified lut on digital_number
         self._map_var_lut = {
@@ -723,7 +720,7 @@ class Sentinel1Dataset:
             dataarr = dataarr.astype(astype)
         return dataarr.to_dataset(name=name)
 
-    def _add_denoised(self, ds, clip=True, vars=None):
+    def _add_denoised(self, ds, clip=False, vars=None):
         """add denoised vars to dataset
 
         Parameters
@@ -731,7 +728,7 @@ class Sentinel1Dataset:
         ds : xarray.DataSet
             dataset with non denoised vars, named `%s_raw`.
         clip : bool, optional
-            If True, negative signal will be clipped to 0. (default to True )
+            If True, negative signal will be clipped to 0. (default to False )
         vars : list, optional
             variables names to add, by default `['sigma0' , 'beta0' , 'gamma0']`
 

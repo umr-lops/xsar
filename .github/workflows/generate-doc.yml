@@ -1,9 +1,8 @@
 name: Generate Xsar Documentation
 
 on:
-  push:
-    tags:
-      -'*'
+  release:
+    types: [ published ]
 
 jobs:
   build:

@@ -350,10 +350,8 @@ class BlockingActorProxy():
 
         if self._dask_client is not None:
             logger.debug('submit new actor')
-            self._actor_future = self._dask_client.submit(self._cls, *args, **kwargs, actors=True)#, workers=[self._dask_client.cluster.workers[0].worker_address])
+            self._actor_future = self._dask_client.submit(self._cls, *args, **kwargs, actors=True)
             self._actor = self._actor_future.result()
-
-            x = 11
         elif self._actor is None:
             # transparent proxy: no future
             self._actor = self._cls(*args, **kwargs)

@@ -34,17 +34,32 @@ class Sentinel1Dataset:
     Parameters
     ----------
     dataset_id: str or Sentinel1Meta object
+
         if str, it can be a path, or a gdal dataset identifier like `'SENTINEL1_DS:%s:WV_001' % filename`)
-    resolution: dict, optional
+
+    resolution: dict, number or string, optional
         resampling dict like `{'atrack': 20, 'xtrack': 20}` where 20 is in pixels.
+
+        if a number, dict will be constructed from `{'atrack': number, 'xtrack': number}`
+
+        if str, it must end with 'm' (meters), like '100m'. dict will be computed from sensor pixel size.
+
     resampling: rasterio.enums.Resampling or str, optional
+
         Only used if `resolution` is not None.
+
         ` rasterio.enums.Resampling.rms` by default. `rasterio.enums.Resampling.nearest` (decimation) is fastest.
+
     luts: bool, optional
+
         if `True` return also luts as variables (ie `sigma0_lut`, `gamma0_lut`, etc...). False by default.
+
     chunks: dict, optional
+
         dict with keys ['pol','atrack','xtrack'] (dask chunks).
+
     dtypes: None or dict, optional
+
         Specify the data type for each variable.
 
     See Also
@@ -264,6 +279,7 @@ class Sentinel1Dataset:
         Parameters
         ----------
         *args: lon, lat or shapely object
+
             lon and lat might be iterables or scalars
 
         Returns
@@ -344,7 +360,7 @@ class Sentinel1Dataset:
 
     @property
     def _regularly_spaced(self):
-        return max([np.unique(np.diff(self._dataset[dim].values)).size for dim in ['atrack', 'xtrack']]) == 1
+        return max([np.unique(np.round(np.diff(self._dataset[dim].values),1)).size for dim in ['atrack', 'xtrack']]) == 1
 
     def _recompute_attrs(self):
         if not self._regularly_spaced:
@@ -420,7 +436,7 @@ class Sentinel1Dataset:
 
         Parameters
         ----------
-        resolution: None or dict
+        resolution: None, number, str or dict
             see `xsar.open_dataset`
         resampling: rasterio.enums.Resampling
             see `xsar.open_dataset`
@@ -464,17 +480,27 @@ class Sentinel1Dataset:
             # 0.5 is for pixel center (geotiff standard)
             dn = dn.assign_coords({'atrack': dn.atrack + 0.5, 'xtrack': dn.xtrack + 0.5})
         else:
+            if not isinstance(resolution, dict):
+                if isinstance(resolution, str) and resolution.endswith('m'):
+                    resolution = float(resolution[:-1])
+                resolution = dict(atrack=resolution / self.s1meta.pixel_atrack_m, xtrack=resolution / self.s1meta.pixel_xtrack_m)
+
             # resample the DN at gdal level, before feeding it to the dataset
             out_shape = (
-                rio.height // resolution['atrack'],
-                rio.width // resolution['xtrack']
+                int(rio.height / resolution['atrack']),
+                int(rio.width / resolution['xtrack'])
             )
             out_shape_pol = (1,) + out_shape
             # read resampled array in one chunk, and rechunk
             # this doesn't optimize memory, but total size remain quite small
-            # winsize is the maximum full image size that can be divided  by resolution (int)
-            winsize = (0, 0, rio.width // resolution['xtrack'] * resolution['xtrack'],
-                       rio.height // resolution['atrack'] * resolution['atrack'])
+
+            if isinstance(resolution['atrack'], int):
+                # legacy behaviour: winsize is the maximum full image size that can be divided  by resolution (int)
+                winsize = (0, 0, rio.width // resolution['xtrack'] * resolution['xtrack'],
+                           rio.height // resolution['atrack'] * resolution['atrack'])
+                window = rasterio.windows.Window(*winsize)
+            else:
+                window = None
 
             dn = xr.concat(
                 [
@@ -483,7 +509,7 @@ class Sentinel1Dataset:
                             rasterio.open(f).read(
                                 out_shape=out_shape_pol,
                                 resampling=resampling,
-                                window=rasterio.windows.Window(*winsize)
+                                window=window
                             ),
                             chunks=chunks_rio
                         ),

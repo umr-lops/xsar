@@ -23,6 +23,8 @@ logger.addHandler(logging.NullHandler())
 # we know tiff as no geotransform : ignore warning
 warnings.filterwarnings("ignore", category=rasterio.errors.NotGeoreferencedWarning)
 
+# allow nan without warnings
+np.errstate(invalid='ignore')
 
 class Sentinel1Dataset:
     """

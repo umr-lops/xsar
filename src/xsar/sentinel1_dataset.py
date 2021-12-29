@@ -106,7 +106,7 @@ class Sentinel1Dataset:
             # check serializable
             #import pickle
             #s1meta = pickle.loads(pickle.dumps(self.s1meta))
-            #assert isinstance(tuple,s1meta.coords2ll(100, 100))
+            #assert isinstance(s1meta.coords2ll(100, 100),tuple)
         else:
             # we want self.s1meta to be a dask actor on a worker
             self.s1meta = BlockingActorProxy(Sentinel1Meta.from_dict, dataset_id.dict)
@@ -596,7 +596,7 @@ class Sentinel1Dataset:
             # chunk footprint polygon, in lon/lat
             chunk_footprint_ll = self.s1meta.coords2ll(chunk_footprint_coords)
 
-            # get vector mask over chunk
+            # get vector mask over chunk, in lon/lat
             vector_mask_ll = self.s1meta.get_mask(mask).intersection(chunk_footprint_ll)
 
             if vector_mask_ll.is_empty:
@@ -606,13 +606,22 @@ class Sentinel1Dataset:
             # vector mask, in atrack/xtrack coordinates
             vector_mask_coords = self.s1meta.ll2coords(vector_mask_ll)
 
+            # shape of the returned chunk
+            out_shape = (atrack.size, xtrack.size)
+
+            # transform * (x, y) -> (atrack, xtrack)
+            # (where (x, y) are index in out_shape)
+            # Affine.permutation() is used because (atrack, xtrack) is transposed from geographic
+
+            transform = Affine.translation(*chunk_coords[0]) * Affine.scale(
+                *[np.unique(np.diff(c))[0] for c in [atrack, xtrack]]) * Affine.permutation()
+
             raster_mask = rasterio.features.rasterize(
                 [vector_mask_coords],
-                out_shape=(xtrack.size, atrack.size),
+                out_shape=out_shape,
                 all_touched=False,
-                transform=Affine.translation(*chunk_coords[0]) * Affine.scale(
-                    *[np.unique(np.diff(c)).item() for c in [xtrack, atrack]])
-            ).T
+                transform=transform
+            )
             return raster_mask
 
         da_list = [

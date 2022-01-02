@@ -2,6 +2,7 @@
 import cartopy.feature
 import logging
 import warnings
+import copy
 import numpy as np
 import xarray as xr
 import pandas as pd
@@ -26,7 +27,7 @@ class Sentinel1Meta:
     """
     Handle dataset metadata.
     A `xsar.Sentinel1Meta` object can be used with `xsar.open_dataset`,
-    but it can be used as itself: it contain usefull attributes and methods.
+    but it can be used as itself: it contains usefull attributes and methods.
 
     Parameters
     ----------
@@ -35,16 +36,34 @@ class Sentinel1Meta:
 
     """
 
+    # class attributes are needed to fetch instance attribute (ie self.name) with dask actors
+    # ref http://distributed.dask.org/en/stable/actors.html#access-attributes
+    # FIXME: not needed if @property, so it might be a good thing to have getter for those attributes
+    multidataset = None
+    xml_parser = None
+    name = None
+    short_name = None
+    safe = None
+    path = None
+    product = None
+    manifest = None
+    subdatasets = None
+    dsid = None
+    manifest_attrs = None
+
+
     @timing
-    def __init__(self, name, xml_parser=None, driver='GTiff'):
-        if xml_parser is None:
-            xml_parser = XmlParser(
+    def __init__(self, name, _xml_parser=None):
+
+        if _xml_parser is None:
+            self.xml_parser = XmlParser(
                 xpath_mappings=sentinel1_xml_mappings.xpath_mappings,
                 compounds_vars=sentinel1_xml_mappings.compounds_vars,
-                namespaces=sentinel1_xml_mappings.namespaces)
-        self.xml_parser = xml_parser
-        self.driver = driver
-        """GDAL driver used. ('auto' for SENTINEL1, or 'GTiff')"""
+                namespaces=sentinel1_xml_mappings.namespaces
+            )
+        else:
+            self.xml_parser = _xml_parser
+
         if not name.startswith('SENTINEL1_DS:'):
             name = 'SENTINEL1_DS:%s:' % name
         self.name = name
@@ -86,12 +105,16 @@ class Sentinel1Meta:
         """Mission platform"""
         self._gcps = None
         self._time_range = None
+        self._mask_features_raw = {}
         self._mask_features = {}
         self._mask_intersecting_geometries = {}
         self._mask_geometry = {}
         self.set_mask_feature('land', cartopy.feature.NaturalEarthFeature('physical', 'land', '10m'))
         self._orbit_pass = None
         self._platform_heading = None
+
+    def __del__(self):
+        logger.debug('__del__')
 
     def have_child(self, name):
         """
@@ -109,7 +132,8 @@ class Sentinel1Meta:
         return name == self.name or name in self.subdatasets
 
     def _get_gcps(self):
-        rio_gcps, crs = self.rio.get_gcps()
+        rio = rasterio.open(self.files['measurement'].iloc[0])
+        rio_gcps, crs = rio.get_gcps()
 
         gcps_xtracks, gcps_atracks = [
             np.array(arr) for arr in zip(
@@ -190,7 +214,6 @@ class Sentinel1Meta:
         acq_xtrack_meters, _ = haversine(*corners[0], *corners[1])
         # second vector is on atrack
         acq_atrack_meters, _ = haversine(*corners[1], *corners[2])
-        rio = self.rio
         pix_xtrack_meters = acq_xtrack_meters / rio.width
         pix_atrack_meters = acq_atrack_meters / rio.height
         attrs['coverage'] = "%dkm * %dkm (atrack * xtrack )" % (
@@ -256,23 +279,10 @@ class Sentinel1Meta:
 
     @property
     def rio(self):
-        """
-        get `rasterio.io.DatasetReader` object.
-        This object is usefull to get image height, width, shape, etc...
-        See rasterio doc for more infos.
-
-        See Also
-        --------
-        `rasterio.io.DatasetReader <https://rasterio.readthedocs.io/en/latest/api/rasterio.io.html#rasterio.io.DatasetReader>`_
-        """
-
-        # rio object not stored as self.rio attribute because of pickling problem
-        # (https://github.com/dymaxionlabs/dask-rasterio/issues/3)
-        if self.driver == 'GTiff':
-            name = self.files['measurement'].iloc[0]
-        else:
-            name = self.name
-        return rasterio.open(name)
+        raise DeprecationWarning(
+            'Sentinel1Meta.rio is deprecated. '
+            'Use `rasterio.open` on files in `Sentinel1Meta..files["measurement"] instead`'
+        )
 
     @property
     def safe_files(self):
@@ -328,7 +338,7 @@ class Sentinel1Meta:
     @property
     def gcps(self):
         """
-        get gcps from self.rio
+        get gcps from rasterio.
 
         Returns
         -------
@@ -366,7 +376,8 @@ class Sentinel1Meta:
         name: str
             mask name
         feature: str or cartopy.feature.Feature
-            if str, feature is a path to a shapefile.
+            if str, feature is a path to a shapefile or whatever file readable with fiona.
+            It is recommended to use str, as the serialization of cartopy feature might be big.
 
         Examples
         --------
@@ -375,41 +386,29 @@ class Sentinel1Meta:
             >>> self.set_mask_feature('ocean', cartopy.feature.OCEAN)
             ```
 
+            High resoltion shapefiles can be found from openstreetmap.
+            It is recommended to use WGS84 with large polygons split from https://osmdata.openstreetmap.de/
+
         See Also
         --------
         xsar.Sentinel1Meta.get_mask
         """
-        if isinstance(feature, str):
-            # feature is a shapefile.
-            # we get the crs from the shapefile to be able to transform the footprint to this crs_in
-            # (so we can use `mask=` in gpd.read_file)
-            import fiona
-            import pyproj
-            from shapely.ops import transform
-            with fiona.open(feature) as fshp:
-                try:
-                    # proj6 give a " FutureWarning: '+init=<authority>:<code>' syntax is deprecated.
-                    # '<authority>:<code>' is the preferred initialization method"
-                    crs_in = fshp.crs['init']
-                except KeyError:
-                    crs_in = fshp.crs
-                crs_in = pyproj.CRS(crs_in)
-            proj_transform = pyproj.Transformer.from_crs(pyproj.CRS('EPSG:4326'), crs_in, always_xy=True).transform
-            footprint_crs = transform(proj_transform, self.footprint)
-
-            with warnings.catch_warnings():
-                # ignore "RuntimeWarning: Sequential read of iterator was interrupted. Resetting iterator."
-                warnings.simplefilter("ignore", RuntimeWarning)
-                feature = cartopy.feature.ShapelyFeature(
-                    gpd.read_file(feature, mask=footprint_crs).to_crs(epsg=4326).geometry,
-                    cartopy.crs.PlateCarree()
-                )
-        if not isinstance(feature, cartopy.feature.Feature):
-            raise TypeError('Expected a cartopy.feature.Feature type')
-        self._mask_features[name] = feature
+        self._mask_features_raw[name] = feature
         # reset variable cache
         self._mask_intersecting_geometries[name] = None
         self._mask_geometry[name] = None
+        self._mask_features[name] = None
+
+    @property
+    def mask_names(self):
+        """
+
+        Returns
+        -------
+        list of str
+            mask names
+        """
+        return self._mask_features.keys()
 
     @timing
     def get_mask(self, name):
@@ -434,8 +433,45 @@ class Sentinel1Meta:
     def _get_mask_intersecting_geometries(self, name):
         if self._mask_intersecting_geometries[name] is None:
             self._mask_intersecting_geometries[name] = gpd.GeoSeries(
-                self._mask_features[name].intersecting_geometries(self.footprint.bounds))
+                self._get_mask_feature(name).intersecting_geometries(self.footprint.bounds))
         return self._mask_intersecting_geometries[name]
+
+    def _get_mask_feature(self, name):
+        # internal method that returns a cartopy feature from a mask name
+        if self._mask_features[name] is None:
+            feature = self._mask_features_raw[name]
+            if isinstance(feature, str):
+                # feature is a shapefile.
+                # we get the crs from the shapefile to be able to transform the footprint to this crs_in
+                # (so we can use `mask=` in gpd.read_file)
+                import fiona
+                import pyproj
+                from shapely.ops import transform
+                with fiona.open(feature) as fshp:
+                    try:
+                        # proj6 give a " FutureWarning: '+init=<authority>:<code>' syntax is deprecated.
+                        # '<authority>:<code>' is the preferred initialization method"
+                        crs_in = fshp.crs['init']
+                    except KeyError:
+                        crs_in = fshp.crs
+                    crs_in = pyproj.CRS(crs_in)
+                proj_transform = pyproj.Transformer.from_crs(pyproj.CRS('EPSG:4326'), crs_in, always_xy=True).transform
+                footprint_crs = transform(proj_transform, self.footprint)
+
+                with warnings.catch_warnings():
+                    # ignore "RuntimeWarning: Sequential read of iterator was interrupted. Resetting iterator."
+                    warnings.simplefilter("ignore", RuntimeWarning)
+                    feature = cartopy.feature.ShapelyFeature(
+                        gpd.read_file(feature, mask=footprint_crs).to_crs(epsg=4326).geometry,
+                        cartopy.crs.PlateCarree()
+                    )
+            if not isinstance(feature, cartopy.feature.Feature):
+                raise TypeError('Expected a cartopy.feature.Feature type')
+            self._mask_features[name] = feature
+
+        return self._mask_features[name]
+
+
 
     @property
     def coverage(self):
@@ -738,18 +774,47 @@ class Sentinel1Meta:
         """
         return self.gcps.attrs['approx_transform']
 
-    def __str__(self):
+    def __repr__(self):
         if self.multidataset:
             meta_type = "multi (%d)" % len(self.subdatasets)
         else:
             meta_type = "single"
-        return "%s Sentinel1Meta object" % meta_type
+        return "<Sentinel1Meta %s object>" % meta_type
 
     def _repr_mimebundle_(self, include=None, exclude=None):
         return repr_mimebundle(self, include=include, exclude=exclude)
 
+    def __reduce__(self):
+        # make self serializable with pickle
+        # https://docs.python.org/3/library/pickle.html#object.__reduce__
 
-class SentinelMeta(Sentinel1Meta):
-    def __init__(self, *args, **kwargs):
-        warnings.warn("'SentinelMeta' is deprecated. Please update your code to use 'Sentinel1Meta'")
-        super().__init__(*args, **kwargs)
+        return self.__class__, (self.name,), self.dict
+
+    @property
+    def dict(self):
+        # return a minimal dictionary that can be used with Sentinel1Meta.from_dict() or pickle (see __reduce__)
+        # to reconstruct another instance of self
+        #
+        # TODO: find a way to get self.footprint and self.gcps. ( speed optimisation )
+        minidict = {
+            'name': self.name,
+            '_mask_features_raw': self._mask_features_raw,
+            '_mask_features': {},
+            '_mask_intersecting_geometries': {},
+            '_mask_geometry': {},
+        }
+        for name in minidict['_mask_features_raw'].keys():
+            minidict['_mask_intersecting_geometries'][name] = None
+            minidict['_mask_geometry'][name] = None
+            minidict['_mask_features'][name] = None
+        return minidict
+
+    @classmethod
+    def from_dict(cls, minidict):
+        # like copy constructor, but take a dict from Sentinel1Meta.dict
+        # https://github.com/umr-lops/xsar/issues/23
+        minidict = copy.copy(minidict)
+        new = cls(minidict['name'])
+        new.__dict__.update(minidict)
+        return new
+

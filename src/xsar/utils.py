@@ -8,8 +8,12 @@ import logging
 from scipy.interpolate import griddata
 import xarray as xr
 import dask
-from functools import reduce, partial
+from dask.distributed import get_client, secede, rejoin
+from functools import wraps, partial
 import rasterio
+import shutil
+import glob
+import gc
 
 logger = logging.getLogger('xsar.utils')
 logger.addHandler(logging.NullHandler())
@@ -22,16 +26,19 @@ except ImportError:
     logger.warning("psutil module not found. Disabling memory monitor")
     mem_monitor = False
 
+
 class bind(partial):
     """
     An improved version of partial which accepts Ellipsis (...) as a placeholder
     https://stackoverflow.com/a/66274908
     """
+
     def __call__(self, *args, **keywords):
         keywords = {**self.keywords, **keywords}
         iargs = iter(args)
         args = (next(iargs) if arg is ... else arg for arg in self.args)
         return self.func(*args, *iargs, **keywords)
+
 
 def timing(f):
     """provide a @timing decorator for functions, that log time spent in it"""
@@ -138,96 +145,7 @@ def minigrid(x, y, z, method='linear', dims=['x', 'y']):
     return xr.DataArray(ngrid, dims=dims, coords={dims[0]: x_u, dims[1]: y_u})
 
 
-@timing
-def gdal_rms(filename, out_shape, winsize=None):
-    """
-    Temporary function, waiting fadjuor a better solution on https://github.com/OSGeo/gdal/issues/3196 (gdal>=3.3)
-    """
-    from osgeo import gdal
-    gdal.UseExceptions()
-    sourcexml = '''
-        <SimpleSource>
-            <SourceFilename>{fname}</SourceFilename>
-            <SourceBand>{band}</SourceBand>
-        </SimpleSource>
-        '''
-
-    ds = gdal.Open(filename, gdal.GA_ReadOnly)
-
-    if winsize is None:
-        xsize = ds.RasterXSize
-        ysize = ds.RasterYSize
-    else:
-        xsize = winsize[2]
-        ysize = winsize[3]
-    count = ds.RasterCount
-
-    prefix = '/vsimem'
-    dn2file = '%s/dn2.vrt' % prefix
-    avgfile = '%s/dn2_avg.vrt' % prefix
-    datfile = '%s/dn2_avd_dat.vrt' % prefix
-
-    vrt_driver = gdal.GetDriverByName("VRT")
-    ds_dn2 = vrt_driver.Create(dn2file, xsize=xsize, ysize=ysize, bands=0)
-
-    # Create square band
-    options = [
-        'subClass=VRTDerivedRasterBand',
-        'PixelFunctionType=intensity',
-        'SourceTransferType=UInt32']
-    for iband in range(1, ds.RasterCount + 1):
-        ds_dn2.AddBand(gdal.GDT_UInt32, options)
-        ds_dn2.GetRasterBand(iband).SetMetadata(
-            {'source_0': sourcexml.format(fname=filename, band=iband)},
-            'vrt_sources')
-
-    ds_dn2.SetProjection(ds.GetProjection())
-
-    ds = None
-
-    ##Set up options for translation
-    gdalTranslateOpts = gdal.TranslateOptions(
-        format='VRT',
-        width=out_shape[0], height=out_shape[1],
-        srcWin=[0, 0, xsize, ysize],
-        resampleAlg=gdal.gdalconst.GRIORA_Average)
-
-    # translate using average
-
-    ds_dn2_average = gdal.Translate(avgfile, ds_dn2, options=gdalTranslateOpts)
-    ds_dn2 = None
-    ds_dn2_average = None
-
-    # Write from memory to VRT using pixel functions
-    ds_dn2_average = gdal.OpenShared(avgfile)
-    ds_dn2_average_data = vrt_driver.Create(datfile, out_shape[0], out_shape[1], 0)
-    ds_dn2_average_data.SetProjection(ds_dn2_average.GetProjection())
-    ds_dn2_average_data.SetGeoTransform(ds_dn2_average.GetGeoTransform())
-
-    options = ['subClass=VRTDerivedRasterBand',
-               'sourceTransferType=UInt32']
-
-    options = ['subClass=VRTDerivedRasterBand',
-               'SourceTransferType=UInt32']
-
-    for iband in range(1, count + 1):
-        ds_dn2_average_data.AddBand(gdal.GDT_UInt32, options)
-        ds_dn2_average_data.GetRasterBand(iband).SetMetadata({'source_0': sourcexml.format(fname=avgfile, band=iband)},
-                                                             'vrt_sources')
-
-    dn2_arr = ds_dn2_average.ReadAsArray()
-
-    dn_arr = dn2_arr ** 0.5
-    ds_dn2_average_data = None
-
-    gdal.Unlink(dn2file)
-    gdal.Unlink(avgfile)
-    gdal.Unlink(datfile)
-
-    return dn_arr
-
-
-def map_blocks_coords(da, func,  func_kwargs={}, **kwargs):
+def map_blocks_coords(da, func, func_kwargs={}, **kwargs):
     """
     like `dask.map_blocks`, but `func` parameters are dimensions coordinates belonging to the block.
 
@@ -235,7 +153,7 @@ def map_blocks_coords(da, func,  func_kwargs={}, **kwargs):
     ----------
     da: xarray.DataArray
         template (meta) of the output dataarray, with dask chunks, dimensions, coordinates and dtype
-    func: function
+    func: function or future
         function that take gridded `numpy.array` atrack and xtrack, and return a `numpy.array`.
         (see `_evaluate_from_coords`)
     kwargs: dict
@@ -269,7 +187,7 @@ def map_blocks_coords(da, func,  func_kwargs={}, **kwargs):
 
         Notes
         -----
-        block values are note used.
+        block values are not used.
         Unless manualy providing block_info,
         this function should be called from 'xarray.DataArray.map_blocks' with coords preset with functools.partial
         """
@@ -293,8 +211,7 @@ def map_blocks_coords(da, func,  func_kwargs={}, **kwargs):
 
         return result
 
-
-    coords = { c: da[c].values for c in da.dims }
+    coords = {c: da[c].values for c in da.dims}
     if 'name' not in kwargs:
         kwargs['name'] = dask.utils.funcname(func)
 
@@ -310,30 +227,8 @@ def map_blocks_coords(da, func,  func_kwargs={}, **kwargs):
                            )
     return dataarr
 
-def rioread(subdataset, out_shape, winsize, resampling=rasterio.enums.Resampling.rms):
-    """
-    wrapper around rasterio.read, to replace self.rio.read and
-    avoid 'TypeError: self._hds cannot be converted to a Python object for pickling'
-    (see https://github.com/mapbox/rasterio/issues/1731)
-    """
-    with rasterio.open(subdataset) as rio:
-        resampled = rio.read(out_shape=out_shape, resampling=resampling,
-                             window=rasterio.windows.Window(*winsize))
-        return resampled
 
-
-def rioread_fromfunction(subdataset, bands, atracks, xtracks, resampling=None, resolution=None):
-    """
-    rioread version for dask.array.fromfunction
-    """
-    bounds = (xtracks.min() * resolution['xtrack'], atracks.min() * resolution['atrack'],
-              (xtracks.max() + 1) * resolution['xtrack'], (atracks.max() + 1) * resolution['atrack'])
-    winsize = (bounds[0], bounds[1], bounds[2] - bounds[0], bounds[3] - bounds[1])
-
-    return rioread(subdataset, bands.shape, winsize, resampling=resampling)
-
-
-def bbox_coords(xs,ys, pad='extends'):
+def bbox_coords(xs, ys, pad='extends'):
     """
     [(xs[0]-padx, ys[0]-pady), (xs[0]-padx, ys[-1]+pady), (xs[-1]+padx, ys[-1]+pady), (xs[-1]+padx, ys[0]-pady)]
     where padx and pady are xs and ys spacing/2
@@ -344,8 +239,8 @@ def bbox_coords(xs,ys, pad='extends'):
         xpad = (-xdiff / 2, xdiff / 2)
         ypad = (-ydiff / 2, ydiff / 2)
     elif pad is None:
-        xpad = (0,0)
-        ypad = (0,0)
+        xpad = (0, 0)
+        ypad = (0, 0)
     else:
         xpad = (-pad[0], pad[0])
         ypad = (-pad[1], pad[1])
@@ -357,3 +252,136 @@ def bbox_coords(xs,ys, pad='extends'):
         ) for x, y in bbox_norm
     ]
     return bbox_ext
+
+
+def compress_safe(safe_path_in, safe_path_out, smooth=0, rasterio_kwargs={'compress': 'zstd'}):
+    """
+
+    Parameters
+    ----------
+    safe_path_in: str
+        input SAFE path
+    safe_path_out: str
+        output SAFE path (be warned to keep good nomenclature)
+    rasterio_kwargs: dict
+        passed to rasterio.open
+
+    Returns
+    -------
+    str
+        wrotten output path
+
+    """
+
+    safe_path_out_tmp = safe_path_out + '.tmp'
+    if os.path.exists(safe_path_out):
+        raise FileExistsError("%s already exists" % safe_path_out)
+    try:
+        shutil.rmtree(safe_path_out_tmp)
+    except:
+        pass
+    os.mkdir(safe_path_out_tmp)
+
+    shutil.copytree(safe_path_in + "/annotation", safe_path_out_tmp + "/annotation")
+    shutil.copyfile(safe_path_in + "/manifest.safe", safe_path_out_tmp + "/manifest.safe")
+
+    os.mkdir(safe_path_out_tmp + "/measurement")
+    for tiff_file in glob.glob(os.path.join(safe_path_in, 'measurement', '*.tiff')):
+        src = rasterio.open(tiff_file)
+        open_kwargs = src.profile
+        open_kwargs.update(rasterio_kwargs)
+        gcps, crs = src.gcps
+        open_kwargs['gcps'] = gcps
+        open_kwargs['crs'] = crs
+        if smooth > 1:
+            reduced = xr.DataArray(
+                src.read(
+                    1, out_shape=(src.height // smooth, src.width // smooth),
+                    resampling=rasterio.enums.Resampling.rms))
+            mean = reduced.mean().item()
+            if not isinstance(mean, complex) and mean < 1:
+                raise RuntimeError('rasterio returned empty band. Try to use smallest smooth size')
+            reduced = reduced.assign_coords(
+                dim_0=reduced.dim_0 * smooth + smooth / 2,
+                dim_1=reduced.dim_1 * smooth + smooth / 2)
+            band = reduced.interp(
+                dim_0=np.arange(src.height),
+                dim_1=np.arange(src.width),
+                method='nearest').values.astype(src.dtypes[0])
+        else:
+            band = src.read(1)
+
+        with rasterio.open(
+                safe_path_out_tmp + "/measurement/" + os.path.basename(tiff_file),
+                'w',
+                **open_kwargs
+        ) as dst:
+            dst.write(band, 1)
+
+    os.rename(safe_path_out_tmp, safe_path_out)
+
+    return safe_path_out
+
+
+class BlockingActorProxy():
+    # http://distributed.dask.org/en/stable/actors.html
+    # like dask Actor, but no need to do .result() on methods
+    # so the resulting instance is usable like the proxied instance
+    def __init__(self, cls, *args, actor=True, **kwargs):
+
+        # the class to be proxied  (ie Sentinel1Meta)
+        self._cls = cls
+        self._actor = None
+
+        # save for unpickling
+        self._args = args
+        self._kwargs = kwargs
+
+        self._dask_client = None
+        if actor is True:
+            try:
+                self._dask_client = get_client()
+            except ValueError:
+                logger.info('BlockingActorProxy: Transparent proxy for %s' % self._cls.__name__)
+        elif isinstance(actor, dask.distributed.actor.Actor):
+            logger.debug('BlockingActorProxy: Reusing existing actor')
+            self._actor = actor
+
+
+        if self._dask_client is not None:
+            logger.debug('submit new actor')
+            self._actor_future = self._dask_client.submit(self._cls, *args, **kwargs, actors=True)
+            self._actor = self._actor_future.result()
+        elif self._actor is None:
+            # transparent proxy: no future
+            self._actor = self._cls(*args, **kwargs)
+
+    def __repr__(self):
+        return f"<BlockingActorProxy: {self._cls.__name__}>"
+
+    def __dir__(self):
+        o = set(dir(type(self)))
+        o.update(attr for attr in dir(self._cls) if not attr.startswith("_"))
+        return sorted(o)
+
+    def __getattr__(self, key):
+        attr = getattr(self._actor, key)
+        if not callable(attr):
+            return attr
+        else:
+            @wraps(attr)
+            def func(*args, **kwargs):
+                res = attr(*args, **kwargs)
+                if isinstance(res, dask.distributed.ActorFuture):
+                    return res.result()
+                else:
+                    # transparent proxy
+                    return res
+            return func
+
+    def __reduce__(self):
+        # make self serializable with pickle
+        # https://docs.python.org/3/library/pickle.html#object.__reduce__
+        kwargs = self._kwargs
+        kwargs['actor'] = self._actor
+        return partial(BlockingActorProxy, **kwargs), (self._cls, *self._args)

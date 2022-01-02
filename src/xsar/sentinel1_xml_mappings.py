@@ -33,8 +33,9 @@ int_1Darray_from_join_strings = lambda x: np.fromstring(" ".join(x), dtype=int, 
 float_1Darray_from_join_strings = lambda x: np.fromstring(" ".join(x), dtype=float, sep=' ')
 int_array = lambda x: np.array(x, dtype=int)
 uniq_sorted = lambda x: np.array(sorted(set(x)))
-ordered_category = lambda x:  pd.Categorical(x).reorder_categories(x,ordered=True)
-normpath = lambda paths: [ os.path.normpath(p) for p in paths ]
+ordered_category = lambda x: pd.Categorical(x).reorder_categories(x, ordered=True)
+normpath = lambda paths: [os.path.normpath(p) for p in paths]
+
 
 def or_ipf28(xpath):
     """change xpath to match ipf <2.8 or >2.9 (for noise range)"""
@@ -43,6 +44,7 @@ def or_ipf28(xpath):
         xpath += " | %s" % xpath28
     return xpath
 
+
 def list_poly_from_list_string_coords(str_coords_list):
     footprints = []
     for gmlpoly in str_coords_list:
@@ -50,6 +52,7 @@ def list_poly_from_list_string_coords(str_coords_list):
             [(float(lon), float(lat)) for lat, lon in [latlon.split(",")
                                                        for latlon in gmlpoly.split(" ")]]))
     return footprints
+
 
 # xpath_mappings:
 # first level key is xml file type
@@ -62,17 +65,24 @@ xpath_mappings = {
     "manifest": {
         'ipf_version': (scalar_float, '//xmlData/safe:processing/safe:facility/safe:software/@version'),
         'swath_type': (scalar, '//s1sarl1:instrumentMode/s1sarl1:mode'),
-        'polarizations': (ordered_category, '//s1sarl1:standAloneProductInformation/s1sarl1:transmitterReceiverPolarisation'),
+        'polarizations': (
+            ordered_category, '//s1sarl1:standAloneProductInformation/s1sarl1:transmitterReceiverPolarisation'),
         'footprints': (list_poly_from_list_string_coords, '//safe:frame/safe:footPrint/gml:coordinates'),
         'product_type': (scalar, '//s1sarl1:standAloneProductInformation/s1sarl1:productType'),
         'mission': (scalar, '//safe:platform/safe:familyName'),
         'satellite': (scalar, '//safe:platform/safe:number'),
         'start_date': (date_converter, '//safe:acquisitionPeriod/safe:startTime'),
         'stop_date': (date_converter, '//safe:acquisitionPeriod/safe:stopTime'),
-        'annotation_files': (normpath, '/xfdu:XFDU/dataObjectSection/*[@repID="s1Level1ProductSchema"]/byteStream/fileLocation/@href'),
-        'measurement_files': (normpath, '/xfdu:XFDU/dataObjectSection/*[@repID="s1Level1MeasurementSchema"]/byteStream/fileLocation/@href'),
-        'noise_files': (normpath, '/xfdu:XFDU/dataObjectSection/*[@repID="s1Level1NoiseSchema"]/byteStream/fileLocation/@href'),
-        'calibration_files': (normpath, '/xfdu:XFDU/dataObjectSection/*[@repID="s1Level1CalibrationSchema"]/byteStream/fileLocation/@href')
+        'annotation_files': (
+            normpath, '/xfdu:XFDU/dataObjectSection/*[@repID="s1Level1ProductSchema"]/byteStream/fileLocation/@href'),
+        'measurement_files': (
+            normpath,
+            '/xfdu:XFDU/dataObjectSection/*[@repID="s1Level1MeasurementSchema"]/byteStream/fileLocation/@href'),
+        'noise_files': (
+            normpath, '/xfdu:XFDU/dataObjectSection/*[@repID="s1Level1NoiseSchema"]/byteStream/fileLocation/@href'),
+        'calibration_files': (
+            normpath,
+            '/xfdu:XFDU/dataObjectSection/*[@repID="s1Level1CalibrationSchema"]/byteStream/fileLocation/@href')
     },
     'calibration': {
         'polarization': (scalar, '/calibration/adsHeader/polarisation'),
@@ -131,7 +141,6 @@ def signal_lut(atrack, xtrack, lut):
     return lut_f
 
 
-
 class _NoiseLut:
     """small internal class that return a lut function(atracks, xtracks) defined on all the image, from blocks in the image"""
 
@@ -168,6 +177,7 @@ class _NoiseLut:
 
         # values returned as np array
         return noise.values
+
 
 def noise_lut_range(atracks, xtracks, noiseLuts):
     """
@@ -252,7 +262,8 @@ def noise_lut_azi(atrack_azi, atrack_azi_start,
             self.xtracks = np.arange(x_start, x_stop + 1)
             self.area = box(max(0, a_start - 0.5), max(0, x_start - 0.5), a_stop + 0.5, x_stop + 0.5)
             if len(lut) > 1:
-                self.lut_f = interp1d(a, lut, kind='linear', fill_value='extrapolate', assume_sorted=True, bounds_error=False)
+                self.lut_f = interp1d(a, lut, kind='linear', fill_value='extrapolate', assume_sorted=True,
+                                      bounds_error=False)
             else:
                 # not enought values to do interpolation
                 # noise will be constant on this box!
@@ -285,20 +296,23 @@ def noise_lut_azi(atrack_azi, atrack_azi_start,
 
     return _NoiseLut(blocks)
 
+
 def annotation_angle(atrack, xtrack, angle):
     lut = angle.reshape(atrack.size, xtrack.size)
     lut_f = RectBivariateSpline(atrack, xtrack, lut, kx=1, ky=1)
     return lut_f
 
+
 def datetime64_array(dates):
     """list of datetime to np.datetime64 array"""
     return np.array([np.datetime64(d) for d in dates])
 
+
 def df_files(annotation_files, measurement_files, noise_files, calibration_files):
     # get polarizations and file number from filename
-    pols = [ os.path.basename(f).split('-')[3].upper() for f in annotation_files ]
-    num = [ int(os.path.splitext(os.path.basename(f))[0].split('-')[8]) for f in annotation_files ]
-    dsid = [ os.path.basename(f).split('-')[1].upper() for f in annotation_files ]
+    pols = [os.path.basename(f).split('-')[3].upper() for f in annotation_files]
+    num = [int(os.path.splitext(os.path.basename(f))[0].split('-')[8]) for f in annotation_files]
+    dsid = [os.path.basename(f).split('-')[1].upper() for f in annotation_files]
 
     # check that dsid are spatialy uniques (i.e. there is only one dsid per geographic position)
     # some SAFES like WV, dsid are not uniques ('WV1' and 'WV2')
@@ -308,7 +322,7 @@ def df_files(annotation_files, measurement_files, noise_files, calibration_files
     dsid_count = len(set(dsid))
     if dsid_count != subds_count:
         dsid_rad = dsid[0][:-1]  # WV
-        dsid = [ "%s_%03d" % (dsid_rad, n) for n in num]
+        dsid = ["%s_%03d" % (dsid_rad, n) for n in num]
         assert len(set(dsid)) == subds_count  # probably an unknown mode we need to handle
 
     df = pd.DataFrame(
@@ -323,6 +337,7 @@ def df_files(annotation_files, measurement_files, noise_files, calibration_files
         index=num
     )
     return df
+
 
 # dict of compounds variables.
 # compounds variables are variables composed of several variables.
@@ -342,7 +357,9 @@ compounds_vars = {
     },
     'files': {
         'func': df_files,
-        'args': ('manifest.annotation_files', 'manifest.measurement_files', 'manifest.noise_files', 'manifest.calibration_files')
+        'args': (
+            'manifest.annotation_files', 'manifest.measurement_files', 'manifest.noise_files',
+            'manifest.calibration_files')
     },
     'sigma0_lut': {
         'func': signal_lut,

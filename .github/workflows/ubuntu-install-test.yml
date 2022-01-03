@@ -44,5 +44,5 @@ jobs:
           conda list cartopy
           conda list dask
       - name: Testing xsar
-        run: python test/test_xsar.py
+        run: pytest
 

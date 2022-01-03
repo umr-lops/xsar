@@ -45,5 +45,5 @@ jobs:
           conda list dask
           conda list fiona
       - name: Testing xsar
-        run: python test/test_xsar.py
+        run: pytest
 

@@ -3,7 +3,9 @@ import rasterio
 import os
 import logging
 import pytest
+import dill
 import pickle
+
 
 logging.basicConfig()
 logging.getLogger('xsar').setLevel(logging.DEBUG)
@@ -32,6 +34,6 @@ def test_open_dataset():
         assert False
 
 
-# def test_serializable_s1_meta():
-#     s1meta = pickle.loads(pickle.dumps(meta))
-#     assert isinstance(tuple, s1meta.coords2ll(100, 100))
+def test_serializable_s1_meta():
+    s1meta = dill.loads(dill.dumps(meta))
+    assert isinstance(s1meta.coords2ll(100, 100), tuple)

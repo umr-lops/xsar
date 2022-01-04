@@ -1,11 +1,12 @@
 name: Generate Xsar Documentation
 
 on:
-#  release:
-#    types: [ published ]
-  push:
-      branches:
-        - develop
+  release:
+    types: [ published ]
+# for testing uncomment trigger in push
+#  push:
+#      branches:
+#        - develop
 
 jobs:
   build:

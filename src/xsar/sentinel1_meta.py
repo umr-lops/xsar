@@ -12,7 +12,7 @@ from scipy.interpolate import RectBivariateSpline
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 import shapely
-from .utils import to_lon180, haversine, timing
+from .utils import to_lon180, haversine, timing, class_or_instancemethod
 from . import sentinel1_xml_mappings
 from .xml_parser import XmlParser
 from affine import Affine
@@ -35,6 +35,11 @@ class Sentinel1Meta:
         path or gdal identifier like `'SENTINEL1_DS:%s:WV_001' % path`
 
     """
+
+    # default mask feature (see self.set_mask_feature and cls.set_mask_feature)
+    _mask_features_raw = {
+        'land': cartopy.feature.NaturalEarthFeature('physical', 'land', '10m')
+    }
 
     # class attributes are needed to fetch instance attribute (ie self.name) with dask actors
     # ref http://distributed.dask.org/en/stable/actors.html#access-attributes
@@ -109,7 +114,10 @@ class Sentinel1Meta:
         self._mask_features = {}
         self._mask_intersecting_geometries = {}
         self._mask_geometry = {}
-        self.set_mask_feature('land', cartopy.feature.NaturalEarthFeature('physical', 'land', '10m'))
+
+        # get defaults masks from class attribute
+        for name, feature in self.__class__._mask_features_raw.items():
+            self.set_mask_feature(name, feature)
         self._orbit_pass = None
         self._platform_heading = None
 
@@ -367,7 +375,8 @@ class Sentinel1Meta:
         """footprints as list. should len 1 for single meta, or len(self.subdatasets) for multi meta"""
         return self.manifest_attrs['footprints']
 
-    def set_mask_feature(self, name, feature):
+    @class_or_instancemethod
+    def set_mask_feature(self_or_cls, name, feature):
         """
         Set a named mask from a shapefile or a cartopy feature.
 
@@ -381,10 +390,16 @@ class Sentinel1Meta:
 
         Examples
         --------
-            Add an 'ocean' mask:
+            Add an 'ocean' mask at class level (ie as default mask):
             ```
-            >>> self.set_mask_feature('ocean', cartopy.feature.OCEAN)
+            >>> xsar.Sentinel1Meta.set_mask_feature('ocean', cartopy.feature.OCEAN)
             ```
+
+            Add an 'ocean' mask at instance level (ie only for this self Sentinel1Meta instance):
+            ```
+            >>> xsar.Sentinel1Meta.set_mask_feature('ocean', cartopy.feature.OCEAN)
+            ```
+
 
             High resoltion shapefiles can be found from openstreetmap.
             It is recommended to use WGS84 with large polygons split from https://osmdata.openstreetmap.de/
@@ -393,11 +408,17 @@ class Sentinel1Meta:
         --------
         xsar.Sentinel1Meta.get_mask
         """
-        self._mask_features_raw[name] = feature
-        # reset variable cache
-        self._mask_intersecting_geometries[name] = None
-        self._mask_geometry[name] = None
-        self._mask_features[name] = None
+
+        # see https://stackoverflow.com/a/28238047/5988771 for self_or_cls
+
+        self_or_cls._mask_features_raw[name] = feature
+
+        if not isinstance(self_or_cls, type):
+            # self (instance, not class)
+            self_or_cls._mask_intersecting_geometries[name] = None
+            self_or_cls._mask_geometry[name] = None
+            self_or_cls._mask_features[name] = None
+
 
     @property
     def mask_names(self):
@@ -432,8 +453,11 @@ class Sentinel1Meta:
 
     def _get_mask_intersecting_geometries(self, name):
         if self._mask_intersecting_geometries[name] is None:
-            self._mask_intersecting_geometries[name] = gpd.GeoSeries(
-                self._get_mask_feature(name).intersecting_geometries(self.footprint.bounds))
+            gseries = gpd.GeoSeries(self._get_mask_feature(name).intersecting_geometries(self.footprint.bounds))
+            if len(gseries) == 0:
+                # no intersection with mask, but we want at least one geometry in the serie (an empty one)
+                gseries = gpd.GeoSeries([Polygon()])
+            self._mask_intersecting_geometries[name] = gseries
         return self._mask_intersecting_geometries[name]
 
     def _get_mask_feature(self, name):
@@ -813,6 +837,9 @@ class Sentinel1Meta:
     def from_dict(cls, minidict):
         # like copy constructor, but take a dict from Sentinel1Meta.dict
         # https://github.com/umr-lops/xsar/issues/23
+        for name in minidict['_mask_features_raw'].keys():
+            assert minidict['_mask_geometry'][name] is None
+            assert minidict['_mask_features'][name] is None
         minidict = copy.copy(minidict)
         new = cls(minidict['name'])
         new.__dict__.update(minidict)

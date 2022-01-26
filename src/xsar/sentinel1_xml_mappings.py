@@ -119,17 +119,29 @@ xpath_mappings = {
     'annotation': {
         'atrack': (uniq_sorted, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/line'),
         'xtrack': (uniq_sorted, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/pixel'),
+        'line':(int_array,'//product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/line'), #same as atrack but return a 10x21 matrix
+        'pixel':(int_array,'//product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/pixel'), #same as atrack but return a 10x21 matrix
         'incidence': (
             np.array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/incidenceAngle'),
         'elevation': (
             np.array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/elevationAngle'),
+        'height':(np.array,'/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/height'),
+        'azimuth_time':(datetime64_array,'/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/azimuthTime'),
+        'slant_range_time':(np.array,'/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/slantRangeTime'),
+        'longitude_lr':(np.array,'/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/longitude'),
+        'latitude_lr':(np.array,'/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/latitude'),
         'polarization': (scalar, '/product/adsHeader/polarisation'),
         'atrack_time_range': (
             datetime64_array, '/product/imageAnnotation/imageInformation/*[contains(name(),"LineUtcTime")]'),
         'denoised': (scalar, '/product/imageAnnotation/processingInformation/thermalNoiseCorrectionPerformed'),
         'pol': (scalar, '/product/adsHeader/polarisation'),
         'pass': (scalar, '/product/generalAnnotation/productInformation/pass'),
-        'platform_heading': (scalar_float, '/product/generalAnnotation/productInformation/platformHeading')
+        'platform_heading': (scalar_float, '/product/generalAnnotation/productInformation/platformHeading'),
+        'number_of_bursts':(scalar,'/product/swathTiming/burstList/@count'),
+        'lines_per_burst':(scalar,'/product/swathTiming/linesPerBurst'),
+        'samples_per_burst':(scalar,'/product/swathTiming/samplesPerBurst'),
+        'azimuth_time_interval':(scalar_float,'/product/imageAnnotation/imageInformation/azimuthTimeInterval'),
+        'npoints_geolocgrid':(scalar,'/product/geolocationGrid/geolocationGridPointList/@count'),
     }
 }
 

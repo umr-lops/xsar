@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+import pdb
+
 import cartopy.feature
 import logging
 import warnings
@@ -112,6 +114,29 @@ class Sentinel1Meta:
         self.set_mask_feature('land', cartopy.feature.NaturalEarthFeature('physical', 'land', '10m'))
         self._orbit_pass = None
         self._platform_heading = None
+        self._number_of_bursts = None
+        self._lines_per_burst = None
+        self._samples_per_burst = None
+        self._azimuth_time_interval = None
+        self._npoints_geolocgrid = None
+        #for vv in ['longitude_lr','atrack','xtrack','latitude_lr','elevation','height','incidence']
+        self.longitude_lr = self.get_low_res_geolocationGrid('longitude_lr')
+        self.latitude_lr = self.get_low_res_geolocationGrid('latitude_lr')
+        self.atrack = self.get_low_res_geolocationGrid('atrack')
+        self.xtrack = self.get_low_res_geolocationGrid('xtrack')
+        self.height = self.get_low_res_geolocationGrid('height')
+        self.slant_range_time = self.get_low_res_geolocationGrid('slant_range_time')
+        self.incidence = self.get_low_res_geolocationGrid('incidence')
+        self.elevation = self.get_low_res_geolocationGrid('elevation')
+        self.azimuth_time = self.get_low_res_geolocationGrid('azimuth_time')
+        #sha = (len(self.get_low_res_geolocationGrid('pixel')),1)
+        #print('sha',sha)
+        self.line = self.get_low_res_geolocationGrid('line')
+        #sha = (len(self.get_low_res_geolocationGrid('line')),1)
+        #print('sha',sha)
+        print('pixel brut',self.get_low_res_geolocationGrid('pixel').shape)
+        print('line brut',self.get_low_res_geolocationGrid('line').shape)
+        self.pixel = self.get_low_res_geolocationGrid('pixel')
 
     def __del__(self):
         logger.debug('__del__')
@@ -263,6 +288,68 @@ class Sentinel1Meta:
         if self._orbit_pass is None:
             self._orbit_pass = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.pass')
         return self._orbit_pass
+
+    @property
+    def number_of_bursts(self):
+        """
+        for instance 9 bursts for a subswath IW
+        """
+
+        if self.multidataset:
+            return None  # not defined for multidataset
+        if self._number_of_bursts is None:
+            self._number_of_bursts = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.number_of_bursts')
+        return self._number_of_bursts
+
+    @property
+    def lines_per_burst(self):
+        """
+        """
+
+        if self.multidataset:
+            return None  # not defined for multidataset
+        if self._lines_per_burst is None:
+            self._lines_per_burst = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.lines_per_burst')
+        return self._lines_per_burst
+
+
+    @property
+    def npoints_geolocgrid(self):
+         
+        """
+        total number of points in the XML geolocation grid from annotation files
+        """
+
+        if self.multidataset:
+            return None  # not defined for multidataset
+        if self._npoints_geolocgrid is None:
+            self._npoints_geolocgrid = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.npoints_geolocgrid')
+            self._npoints_geolocgrid = int(self._npoints_geolocgrid)
+        return self._npoints_geolocgrid
+
+    @property
+    def samples_per_burst(self):
+        """
+        """
+
+        if self.multidataset:
+            return None  # not defined for multidataset
+        if self._samples_per_burst is None:
+            self._samples_per_burst = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.samples_per_burst')
+        return self._samples_per_burst
+
+
+    @property
+    def azimuth_time_interval(self):
+        """
+        """
+
+        if self.multidataset:
+            return None  # not defined for multidataset
+        if self._azimuth_time_interval is None:
+            self._azimuth_time_interval = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.azimuth_time_interval')
+        return self._azimuth_time_interval
+
 
     @property
     def platform_heading(self):
@@ -817,4 +904,24 @@ class Sentinel1Meta:
         new = cls(minidict['name'])
         new.__dict__.update(minidict)
         return new
+
+    def get_low_res_geolocationGrid(self,param):
+        """
+        param (str) in ['longitude_lr','latitude_lr','pixel','line','height','elevation','incidence','azimuthTime','SlantRangeTime']
+        see Table 6-88 Data Type - geolocationGridPointType of Sentinel-1-Product-Specification
+        :param param:
+        :return:
+        """
+
+        nlines = len(self.xml_parser.get_var(self._safe_files['annotation'].iloc[0], 'annotation.atrack'))
+        npixels = len(self.xml_parser.get_var(self._safe_files['annotation'].iloc[0], 'annotation.xtrack'))
+        newshape = (nlines, npixels)
+        #for key in gridkeys:
+        raw_vector = self.xml_parser.get_var(self._safe_files['annotation'].iloc[0], 'annotation.%s'%param)
+        raw_vector = raw_vector.astype(float)
+        if param not in ['atrack','xtrack']:
+            res = np.reshape(raw_vector, newshape)
+        else:
+            res = raw_vector
+        return res
 

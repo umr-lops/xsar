@@ -1,0 +1,44 @@
+name: Generate Xsar Documentation
+
+on:
+  release:
+    types: [ published ]
+# for testing uncomment trigger in push
+#  push:
+#      branches:
+#        - develop
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -l {0}
+    name: Generate Xsar Documentation
+    steps:
+      - uses: actions/checkout@v2
+      - name: Setup conda and create environment
+        uses: conda-incubator/setup-miniconda@v2
+        with:
+          auto-update-conda: true
+          activate-environment: xsar
+      - name: Create Env
+        run: |
+          conda install -c conda-forge rasterio'>=1.2.6' gdal'>=3.3'  dask[array] dask[distributed] rioxarray 'shapely<1.8.0'
+          conda install -c conda-forge  jupyterlab geoviews cartopy_offlinedata holoviews datashader nbsphinx pandoc jq docutils 'shapely<1.8.0'
+      - name: Install xsar
+        run: |
+          pip install -e .
+          pip install -r requirements.txt
+      - name: Generation
+        run: |
+          cd docs
+          make html
+
+#      - name: Sync files
+#        uses: SamKirkland/FTP-Deploy-Action@4.2.0
+#        with:
+#          server: ftp.ifremer.fr
+#          username: ifremerlogin
+#          password: ${{ secrets.password }}
+

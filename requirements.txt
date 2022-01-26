@@ -35,3 +35,5 @@ pyyaml
 fsspec
 aiohttp
 packaging
+pytest
+dill

@@ -1,6 +1,4 @@
 # -*- coding: utf-8 -*-
-import pdb
-
 import cartopy.feature
 import logging
 import warnings

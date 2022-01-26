@@ -40,6 +40,13 @@ class bind(partial):
         return self.func(*args, *iargs, **keywords)
 
 
+class class_or_instancemethod(classmethod):
+    # see https://stackoverflow.com/a/28238047/5988771
+    def __get__(self, instance, type_):
+        descr_get = super().__get__ if instance is None else self.__func__.__get__
+        return descr_get(instance, type_)
+
+
 def timing(f):
     """provide a @timing decorator for functions, that log time spent in it"""
 

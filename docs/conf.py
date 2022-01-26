@@ -94,6 +94,8 @@ nbsphinx_allow_errors = False
 
 nbsphinx_execute = 'always'
 
+nbsphinx_timeout = 300
+
 nbsphinx_prolog = """
 Download this notebook from github_.
 

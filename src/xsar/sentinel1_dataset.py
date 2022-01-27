@@ -25,6 +25,7 @@ logger.addHandler(logging.NullHandler())
 warnings.filterwarnings("ignore", category=rasterio.errors.NotGeoreferencedWarning)
 
 # allow nan without warnings
+# some dask warnings are still non filtered: https://github.com/dask/dask/issues/3245
 np.errstate(invalid='ignore')
 
 class Sentinel1Dataset:

@@ -8,6 +8,7 @@ import dask
 import rasterio
 import rasterio.features
 import rioxarray
+from scipy import interpolate
 from scipy.interpolate import interp1d
 from shapely.geometry import Polygon
 import shapely
@@ -80,6 +81,7 @@ class Sentinel1Dataset:
             'longitude': 'f4',
             'incidence': 'f4',
             'elevation': 'f4',
+            'height': 'f4',
             'ground_heading': 'f4',
             'nesz': None,
             'negz': None,
@@ -165,7 +167,8 @@ class Sentinel1Dataset:
             'noise_lut_range': 'noise',
             'noise_lut_azi': 'noise',
             'incidence': 'annotation',
-            'elevation': 'annotation'
+            'elevation': 'annotation',
+            'height':'annotation',
         }
 
         # dict mapping specifying if the variable has 'pol' dimension
@@ -175,7 +178,8 @@ class Sentinel1Dataset:
             'noise_lut_range': True,
             'noise_lut_azi': True,
             'incidence': False,
-            'elevation': False
+            'elevation': False,
+            'height': False,
         }
 
         # variables not returned to the user (unless luts=True)
@@ -192,6 +196,7 @@ class Sentinel1Dataset:
         self._raster_masks = self._load_raster_masks()
 
         ds_merge_list = [self._dataset, lon_lat, self._raster_masks, self._load_ground_heading(),
+                         self._load_azimuth_time,
                          self._luts.drop_vars(self._hidden_vars, errors='ignore')]
 
         if luts:
@@ -220,6 +225,9 @@ class Sentinel1Dataset:
 
         # save original bbox
         self._bbox_coords_ori = self._bbox_coords
+
+
+    
 
     def __del__(self):
         logger.debug('__del__')
@@ -545,6 +553,81 @@ class Sentinel1Dataset:
             ds = ds.astype(self._dtypes[var_name])
 
         return ds
+    
+    def _load_azimuth_time(self):
+        """
+        load azimuth time from self.s1meta.files['annotation'], as an `xarray.Dataset`.
+
+        Parameters
+        ----------
+
+        Returns
+        -------
+        xarray.Dataset
+            dataset, with basic coords/dims naming convention
+        """
+        # ajout agrouaze
+        #print('dataset_id',self.s1meta,dir(self.s1meta))
+        #print('safes',self.s1meta.safe_files,self.s1meta.safe)
+        #print('test',self.s1meta.safe_files['annotation'].str.contains(self.s1meta.safe))
+        #for ii in self.s1meta.safe_files['annotation']:
+        #    print('yy',ii)
+        #import xml.etree.ElementTree as ET
+        #tree = ET.parse(self.s1meta.safe_files['annotation'].iloc[0]) #TODO fix arbitrary take the first annotation file out of 6 (2 pol x 3 subswath)
+        #pads = tree.getroot()
+        #dce = self._fill_dopplercentroid( pads)
+        #print('dce',dce.keys())
+        #print('azitime',dce['azimuth_time'].shape)
+        zval = self.s1meta.azimuth_time
+        yval = self.s1meta.pixel[0, :]
+        #yval = self._dataset['atrack']
+        slices = [slice(0,len(self.dataset.atrack.values)),slice(0,len(self.dataset.xtrack.values))] # TODO fix
+        yint = np.arange(slices[1].start, slices[1].stop,
+                         slices[1].step, dtype='int32')
+        print('number_of_bursts',self.s1meta.number_of_bursts)
+        #print('meta attrs',self.s1meta.manifest_attrs)
+        import pdb
+
+        if self.s1meta.number_of_bursts == 0:
+            xval = self.s1meta.line[:, 0]
+            #xval = self._dataset['xtrack']
+            xint = np.arange(slices[0].start, slices[0].stop,
+                             slices[0].step, dtype='int32')
+        else:
+            # TOPS SLC: interpolation is performed according to azimuth time
+            # because of overlap
+            npixels = len(np.where(self.s1meta.line == self.s1meta.line[0])[0])
+            xval = self.s1meta.azimuth_time[:, int((npixels - 1) / 2)]
+            line = np.arange(slices[0].start, slices[0].stop,
+                             slices[0].step, dtype='int32')
+            xint = self.s1meta.burst_azitime(line)
+            #print('xint',xint)
+        # Set bbox in case of extrapolation is needed
+        # (may happen with strange TOPS SLC geolocation grids)
+        bbox = []
+        for xyv, xyi in zip([xval, yval], [xint, yint]):
+            if xyi.min() < xyv.min():
+                bbox.append(xyi.min())
+            else:
+                bbox.append(None)
+            if xyi.max() > xyv.max():
+                bbox.append(xyi.max())
+            else:
+                bbox.append(None)
+        print('xval',xval.shape,yval.shape,zval.shape)
+        print('bbox',bbox)
+        #pdb.set_trace()
+        if True:
+            func = interpolate.RectBivariateSpline(xval, yval, zval, bbox=bbox,
+                                               kx=1, ky=1)
+            values = func(xint[:, np.newaxis], yint[np.newaxis, :], grid=False)
+            print('values interpolated',values.shape)
+            tmpda = xr.DataArray(values,dims=['atrack','xtrack']) # ,coords={'atrack_time':yint[np.newaxis, :],'xtrack_time':xint[:, np.newaxis]}
+            self._dataset['azimuth_time'] = tmpda
+        # fin ajout agrouaze
+        res = tmpda.to_dataset()
+        print('res from azimuth time',res)
+        return res
 
     @timing
     def _load_lon_lat(self):
@@ -803,3 +886,6 @@ class Sentinel1Dataset:
 
     def _repr_mimebundle_(self, include=None, exclude=None):
         return repr_mimebundle(self, include=include, exclude=exclude)
+
+
+    

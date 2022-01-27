@@ -402,4 +402,8 @@ compounds_vars = {
         'func': annotation_angle,
         'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.elevation')
     },
+    'height': {
+        'func': annotation_angle,
+        'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.height')
+    },
 }

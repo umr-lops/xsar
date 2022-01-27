@@ -17,6 +17,9 @@ from . import sentinel1_xml_mappings
 from .xml_parser import XmlParser
 from affine import Affine
 import os
+from datetime import datetime
+from collections import OrderedDict
+from netCDF4 import date2num
 from .ipython_backends import repr_mimebundle
 
 logger = logging.getLogger('xsar.sentinel1_meta')
@@ -922,4 +925,174 @@ class Sentinel1Meta:
         else:
             res = raw_vector
         return res
+    
+    #ajout temporaire agrouaze
+    def burst_azitime(self, line):
+        """
+        Get azimuth time for bursts (TOPS SLC).
+        To be used for locations of interpolation since line indices will not handle
+        properly overlap.
+        """
+        ## burst_nlines = self.read_global_attribute('lines_per_burst')
+        ## azi_time_int = self.read_global_attribute('azimuth_time_interval')
+        ## burst_list = self.read_global_attribute('burst_list')
+        ## index_burst = np.floor(line / float(burst_nlines)).astype('int32')
+        ## azitime = burst_list['azimuth_time'][index_burst] + \
+        ##           (line - index_burst * burst_nlines) * azi_time_int
+        # For consistency, azimuth time is derived from the one given in
+        # geolocation grid (the one given in burst_list do not always perfectly
+        # match).
+        print('line',line,type(line))
+        burst_nlines = self.lines_per_burst
+        azi_time_int = self.azimuth_time_interval
+        geoloc = self._get_geolocation_grid()
+        geoloc_line = geoloc['line'][:, int((geoloc['npixels'] - 1) / 2)]
+        print('geoloc_line',geoloc_line)
+        geoloc_iburst = np.floor(geoloc_line / float(burst_nlines)).astype('int32')
+        iburst = np.floor(line / float(burst_nlines)).astype('int32')
+        print('iburst',iburst)
+        ind = np.searchsorted(geoloc_iburst, iburst, side='left')
+        print('ind',ind)
+        print('geoloc["azimuth_time"]',geoloc['azimuth_time'].shape,geoloc['azimuth_time'].dtype)
+        geoloc_azitime = geoloc['azimuth_time'][:, int((geoloc['npixels'] - 1) / 2)]
+        azitime = geoloc_azitime[ind] + (line - geoloc_line[ind]) * azi_time_int
+        print('azitime',azitime)
+        return azitime
+
+    #ajout agrouaze copy paste from cerbere
+    def _get_geolocation_grid(self, ):
+        """
+        """
+        #ads = pads.find('./geolocationGrid/geolocationGridPointList')
+        #points = ads.findall('./geolocationGridPoint')
+        npoints =  self.npoints_geolocgrid
+        geoloc = OrderedDict()
+        geoloc['npoints'] = npoints
+        geoloc['nlines'] = 0
+        geoloc['npixels'] = 0
+        geoloc['azimuth_time'] = self.azimuth_time # np.empty(npoints, dtype='float64')
+        geoloc['slant_range_time'] = self.slant_range_time #np.empty(npoints, dtype='float64')
+        #geoloc['line'] = np.empty(npoints, dtype='int32')
+        geoloc['line'] = self.line
+        #geoloc['pixel'] = np.empty(npoints, dtype='int32')
+        geoloc['pixel'] = self.pixel
+        geoloc['latitude'] = self.latitude_lr #np.empty(npoints, dtype='float32')
+        geoloc['longitude'] = self.longitude_lr #np.empty(npoints, dtype='float32')
+        geoloc['height'] = self.height #np.empty(npoints, dtype='float32')
+        geoloc['incidence_angle'] = self.incidence # np.empty(npoints, dtype='float32')
+        geoloc['elevation_angle'] = self.elevation #np.empty(npoints, dtype='float32')
+        gridkeys = [k for k in geoloc if isinstance(geoloc[k], np.ndarray)]
+        # for ipt, point in enumerate(points):
+        #     strtime = point.find('./azimuthTime').text
+        #     geoloc['azimuth_time'][ipt] = self._strtime2numtime(strtime)
+        #     geoloc['slant_range_time'][ipt] = \
+        #         point.find('./slantRangeTime').text
+        #     geoloc['line'][ipt] = point.find('./line').text
+        #     geoloc['pixel'][ipt] = point.find('./pixel').text
+        #     geoloc['latitude'][ipt] = point.find('./latitude').text
+        #     geoloc['longitude'][ipt] = point.find('./longitude').text
+        #     geoloc['height'][ipt] = point.find('./height').text
+        #     geoloc['incidence_angle'][ipt] = \
+        #         point.find('./incidenceAngle').text
+        #     geoloc['elevation_angle'][ipt] = \
+        #         point.find('./elevationAngle').text
+        # Make grid
+        #lines = geoloc['line']
+        lines = self.line
+        pixels = self.pixel
+        print('lines',lines)
+        geoloc['npixels'] = len(np.where(lines == lines[0,0])[0])
+        #geoloc['npixels'] = len(pixels)
+        #pixels = geoloc['pixel']
+        
+        print('pixels',pixels)
+        geoloc['nlines'] = len(np.where(pixels == pixels[0,0])[0])
+        #geoloc['nlines'] = len(lines)
+        print('npoints,type',type(geoloc['npoints']))
+        if geoloc['nlines']*geoloc['npixels'] != geoloc['npoints']:
+            msg = 'nlines*npixels (%sx%s=%s) != npoints (%s) in geolocation grid'% (geoloc['nlines'],geoloc['npixels'],geoloc['nlines']*geoloc['npixels'],geoloc['npoints'])
+            raise BaseException(msg)
+        newshape = (geoloc['nlines'], geoloc['npixels'])
+        for key in gridkeys:
+            geoloc[key] = np.reshape(geoloc[key], newshape)
+        # Check grid
+        chk = geoloc['line'].min(axis=1) != geoloc['line'].max(axis=1)
+        if chk.any():
+            raise BaseException('geolocation lines do not form a grid')
+        chk = geoloc['pixel'].min(axis=0) != geoloc['pixel'].max(axis=0)
+        if chk.any():
+            raise BaseException('geolocation pixels do not form a grid')
+        linargsort = geoloc['line'][:, 0].argsort()
+        if ((linargsort[1:] - linargsort[0:-1]) != 1).any():
+            warnings.warn('Geolocation lines are not sorted -> do sort')
+            for key in gridkeys:
+                geoloc[key] = geoloc[key][linargsort, :]
+        pixargsort = geoloc['pixel'][0, :].argsort()
+        if ((pixargsort[1:] - pixargsort[0:-1]) != 1).any():
+            warnings.warn('Geolocation pixels are not sorted -> do sort')
+            for key in gridkeys:
+                geoloc[key] = geoloc[key][:, pixargsort]
+        return geoloc
+    
+    def _fill_dopplercentroid(self, pads):
+        """
+        copy pasted from safegeotifffile for cross spectra estimation
+        #TODO put all the 12 attributs red in the xml annotaiton in the xml_mappings.py dict
+        :argument
+            pads : root obj from xml parsing product annotation file
+        """
+        dce = OrderedDict()
+        estimates = pads.findall('./dopplerCentroid/dcEstimateList/dcEstimate')
+        dce['nlines'] = len(estimates)
+        dce['npixels'] = int(estimates[0].find('fineDceList').get('count'))
+        dce['ngeocoeffs'] = \
+            int(estimates[0].find('geometryDcPolynomial').get('count'))
+        dce['ndatacoeffs'] = \
+            int(estimates[0].find('dataDcPolynomial').get('count'))
+        dims = (dce['nlines'], dce['npixels'])
+        dce['azimuth_time'] = np.empty(dims, dtype='float64')
+        dce['t0'] = np.empty(dce['nlines'], dtype='float64')
+        dce['geo_polynom'] = np.empty((dce['nlines'], dce['ngeocoeffs']),
+                                      dtype='float32')
+        dce['data_polynom'] = np.empty((dce['nlines'], dce['ndatacoeffs']),
+                                       dtype='float32')
+        dce['data_rms'] = np.empty(dce['nlines'], dtype='float32')
+        #dce['data_rms_threshold'] =
+        dce['azimuth_time_start'] = np.empty(dce['nlines'], dtype='float64')
+        dce['azimuth_time_stop'] = np.empty(dce['nlines'], dtype='float64')
+        dce['slant_range_time'] = np.empty(dims, dtype='float64')
+        dce['frequency'] = np.empty(dims, dtype='float32')
+        for iline, estimate in enumerate(estimates):
+            strtime = estimate.find('./azimuthTime').text
+            dce['azimuth_time'][iline, :] = self._strtime2numtime(strtime)
+            dce['t0'][iline] = estimate.find('./t0').text
+            dce['geo_polynom'][iline, :] = \
+                estimate.find('./geometryDcPolynomial').text.split()
+            dce['data_polynom'][iline, :] = \
+                estimate.find('./dataDcPolynomial').text.split()
+            dce['data_rms'][iline] = estimate.find('./dataDcRmsError').text
+            #dce['data_rms_threshold'] =
+            strtime = estimate.find('./fineDceAzimuthStartTime').text
+            dce['azimuth_time_start'][iline] = self._strtime2numtime(strtime)
+            strtime = estimate.find('./fineDceAzimuthStopTime').text
+            dce['azimuth_time_stop'][iline] = self._strtime2numtime(strtime)
+            finedces = estimate.findall('./fineDceList/fineDce')
+            for ipixel, finedce in enumerate(finedces):
+                dce['slant_range_time'][iline, ipixel] = \
+                    finedce.find('./slantRangeTime').text
+                dce['frequency'][iline, ipixel] = \
+                    finedce.find('./frequency').text
+        #dic['doppler_centroid_estimates'] = dce
+        return dce
+
+    def _strtime2numtime(self, strtime, fmt='%Y-%m-%dT%H:%M:%S.%f'):
+        """
+        Convert string time to numeric time.
+        """
+        dtime = datetime.strptime(strtime, fmt)
+        #numtime = date2num(dtime, self.read_field('time').units)
+        TIMEUNITS = 'seconds since 1990-01-01T00:00:00'
+        # 'seconds since 2014-01-01 00:00:00'
+        numtime = date2num(dtime,TIMEUNITS )
+        return numtime
 

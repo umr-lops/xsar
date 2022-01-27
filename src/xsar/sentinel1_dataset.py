@@ -190,9 +190,9 @@ class Sentinel1Dataset:
 
         lon_lat = self._load_lon_lat()
 
-        self._raster_masks = self._load_raster_masks()
+        self._rasterized_masks = self._load_rasterized_masks()
 
-        ds_merge_list = [self._dataset, lon_lat, self._raster_masks, self._load_ground_heading(),
+        ds_merge_list = [self._dataset, lon_lat, self._rasterized_masks, self._load_ground_heading(),
                          self._luts.drop_vars(self._hidden_vars, errors='ignore')]
 
         if luts:
@@ -209,6 +209,10 @@ class Sentinel1Dataset:
                 self._dataset = self._dataset.merge(self._get_noise(var_name))
             else:
                 logger.debug("Skipping variable '%s' ('%s' lut is missing)" % (var_name, lut_name))
+
+        rasters = self._load_rasters_vars()
+        if rasters is not None:
+            self._dataset = xr.merge([self._dataset, rasters])
 
         self._dataset = self._add_denoised(self._dataset)
         self._dataset.attrs = self._recompute_attrs()
@@ -583,7 +587,7 @@ class Sentinel1Dataset:
 
 
     @timing
-    def _load_raster_masks(self):
+    def _load_rasterized_masks(self):
         def _test(atrack, xtrack, mask=None):
             chunk_coords = bbox_coords(atrack, xtrack, pad=None)
             # chunk footprint polygon, in dataset coordinates (with buffer, to enlarge a little the footprint)
@@ -635,6 +639,40 @@ class Sentinel1Dataset:
             ).to_dataset(name='%s_mask' % mask) for mask in self.s1meta.mask_names
         ]
         return xr.merge(da_list)
+
+    def _load_rasters_vars(self):
+        # load and map variables from rasterfile (like ecmwf) on dataset
+        if self.s1meta.rasters.empty:
+            return None
+        else:
+            logger.warning('raster variable is experimental')
+
+        for name, infos in self.s1meta.rasters.iterrows():
+            read_function = infos['read_function']
+            resource = infos['resource']
+
+            # TODO: delayed read
+            if read_function is None:
+                raster_ds = xr.open_dataset(resource)
+            else:
+                raster_ds = read_function(resource)
+
+            ds_var_list = []
+
+            for var in raster_ds:
+                varname = '%s_%s' % (name, var)
+                # FIXME: antimed
+                # FIXME: RectBivariateSpline
+                # FIXME: map_blocks
+                raster_ds[var] = raster_ds[var].drop_vars('spatial_ref')
+                interpolated_val = raster_ds[var].interp(longitude=self._dataset.longitude, latitude=self._dataset.latitude)
+                interpolated_val = interpolated_val.drop_vars(['longitude', 'latitude', 'spatial_ref'])
+                interpolated_val = interpolated_val.to_dataset().rename({var: varname})
+                interpolated_val[varname].attrs.update(raster_ds[var].attrs)
+                ds_var_list.append(interpolated_val)
+
+        return xr.merge(ds_var_list)
+
 
     def _get_lut(self, var_name):
         """

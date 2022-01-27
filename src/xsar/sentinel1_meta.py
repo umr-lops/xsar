@@ -118,8 +118,12 @@ class Sentinel1Meta:
         # get defaults masks from class attribute
         for name, feature in self.__class__._mask_features_raw.items():
             self.set_mask_feature(name, feature)
+
         self._orbit_pass = None
         self._platform_heading = None
+
+        self.rasters = pd.DataFrame(columns=['resource', 'read_function'])
+        """pandas dataframe for rasters (see `xsar.Sentinel1Meta.set_raster`)"""
 
     def __del__(self):
         logger.debug('__del__')
@@ -495,7 +499,19 @@ class Sentinel1Meta:
 
         return self._mask_features[name]
 
+    @class_or_instancemethod
+    def set_raster(self_or_cls, name, resource, read_function=None):
+        if isinstance(self_or_cls, type):
+            raise NotImplementedError("cls")
 
+        self_or_cls.rasters = pd.concat(
+            [
+                self_or_cls.rasters,
+                pd.DataFrame({'resource': resource, 'read_function': read_function}, index=[name])
+            ]
+        )
+
+        return
 
     @property
     def coverage(self):
@@ -826,6 +842,7 @@ class Sentinel1Meta:
             '_mask_features': {},
             '_mask_intersecting_geometries': {},
             '_mask_geometry': {},
+            'rasters': self.rasters
         }
         for name in minidict['_mask_features_raw'].keys():
             minidict['_mask_intersecting_geometries'][name] = None

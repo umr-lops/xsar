@@ -42,6 +42,9 @@ class Sentinel1Meta:
         'land': cartopy.feature.NaturalEarthFeature('physical', 'land', '10m')
     }
 
+    rasters = available_rasters.iloc[0:0].copy()
+
+
     # class attributes are needed to fetch instance attribute (ie self.name) with dask actors
     # ref http://distributed.dask.org/en/stable/actors.html#access-attributes
     # FIXME: not needed if @property, so it might be a good thing to have getter for those attributes
@@ -123,7 +126,7 @@ class Sentinel1Meta:
         self._orbit_pass = None
         self._platform_heading = None
 
-        self.rasters = available_rasters.iloc[0:0].copy()
+        self.rasters = self.__class__.rasters.copy()
         """pandas dataframe for rasters (see `xsar.Sentinel1Meta.set_raster`)"""
 
     def __del__(self):
@@ -507,9 +510,6 @@ class Sentinel1Meta:
 
     @class_or_instancemethod
     def set_raster(self_or_cls, name, resource, read_function=None, get_function=None):
-        if isinstance(self_or_cls, type):
-            raise NotImplementedError("cls")
-
         # get defaults if exists
         default = available_rasters.loc[name:name]
 

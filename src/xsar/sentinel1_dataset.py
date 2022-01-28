@@ -640,6 +640,7 @@ class Sentinel1Dataset:
         ]
         return xr.merge(da_list)
 
+    @timing
     def _load_rasters_vars(self):
         # load and map variables from rasterfile (like ecmwf) on dataset
         if self.s1meta.rasters.empty:
@@ -678,7 +679,8 @@ class Sentinel1Dataset:
                 logger.info('adding variable "%s"' % varname)
                 # FIXME: antimed
                 # FIXME: RectBivariateSpline
-                # FIXME: map_blocks
+                if raster_ds[var].chunks is None:
+                    raise ValueError('Using a chunked dataarray is mandatory')
                 raster_ds[var] = raster_ds[var].drop_vars(['spatial_ref', 'crs'], errors='ignore')
                 interpolated_val = raster_ds[var].interp(longitude=self._dataset.longitude, latitude=self._dataset.latitude)
                 interpolated_val = interpolated_val.drop_vars(['longitude', 'latitude', 'spatial_ref', 'crs'], errors='ignore')

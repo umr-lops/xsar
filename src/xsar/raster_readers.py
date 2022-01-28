@@ -49,7 +49,7 @@ def resource_strftime(resource, **kwargs):
 
 def ecmwf_0100_1h(fname):
     """ecmwf 0.1 deg 1h reader (ECMWF_FORECAST_0100_202109091300_10U_10V.nc)"""
-    ecmwf_ds = xr.open_dataset(fname).isel(time=0)
+    ecmwf_ds = xr.open_dataset(fname, chunks={'Longitude': 1000, 'Latitude': 1000}).isel(time=0)
     ecmwf_ds.attrs['time'] = datetime.datetime.fromtimestamp(ecmwf_ds.time.item() // 1000000000)
     ecmwf_ds = ecmwf_ds.drop_vars('time').rename(
         {
@@ -79,19 +79,6 @@ def gebco(gebco_files):
             ).rename(x='longitude', y='latitude').isel(band=0).drop_vars('band') for f in gebco_files
         ]
     )
-
-
-# defaults read_function
-raster_readers = {
-    'ecmwf_0100_1h': ecmwf_0100_1h,
-    'gebco': gebco
-}
-
-# defaults get_function
-raster_getters = {
-    'ecmwf_0100_1h': bind(resource_strftime, ..., step=1),
-    'gebco': glob.glob
-}
 
 # list available rasters as a pandas dataframe
 available_rasters = pd.DataFrame(columns=['resource', 'read_function', 'get_function'])

@@ -2,6 +2,7 @@
 import logging
 import warnings
 import numpy as np
+from scipy.interpolate import RectBivariateSpline
 import xarray as xr
 import pandas as pd
 import dask
@@ -651,6 +652,9 @@ class Sentinel1Dataset:
         if self.s1meta.cross_antemeridian:
             raise NotImplementedError('Antimeridian crossing not yet checked')
 
+        ds_lon = self._dataset.longitude.persist()
+        ds_lat = self._dataset.latitude.persist()
+
         ds_var_list = []
 
         for name, infos in self.s1meta.rasters.iterrows():
@@ -678,24 +682,84 @@ class Sentinel1Dataset:
                 raster_ds = read_function(resource)
 
             if not raster_ds.rio.crs.is_geographic:
+                # FIXME: antimed
                 raise NotImplementedError("Non geographic crs not implemented")
+
+            # ensure dim ordering
+            raster_ds = raster_ds.transpose('y', 'x')
+
+            if np.all(raster_ds.y.diff('y') <= 0):
+                # sort y (lat) ascending
+                raster_ds = raster_ds.reindex(y=raster_ds.y[::-1])
+
+
+
+            # select sub-data from raster_ds usinq s1 lon/lat
+            # extract sub raster from dataset lon/lat
+            lon_range = [ds_lon.min().compute().item(), ds_lon.max().compute().item()]
+            lat_range = [ds_lat.min().compute().item(), ds_lat.max().compute().item()]
+            ilon_range = [
+                np.searchsorted(raster_ds.x.values, lon_range[0], side='right'),
+                np.searchsorted(raster_ds.x.values, lon_range[1], side='left')
+            ]
+            ilat_range = [
+                np.searchsorted(raster_ds.y.values, lat_range[0], side='right'),
+                np.searchsorted(raster_ds.y.values, lat_range[1], side='left')
+            ]
+            raster_ds = raster_ds.isel(x=slice(*ilon_range), y=slice(*ilat_range))
+
+            # 1D array of lons/lats, with approx same spacing as dataset
+            num = (ds_lon.xtrack.size +  ds_lon.atrack.size) // 2
+            lons = np.linspace(*lon_range, num=num)
+            lats = np.linspace(*lat_range, num=num)
+
+            # resample raster_ds at approx xsar dataset resolution
+
+            #raster_ds = raster_ds.interp(
+            #    x = np.linspace(*lon_range, num=ds_lon.xtrack.size),
+            #    y = np.linspace(*lat_range, num=ds_lon.xtrack.size),
+            #)
+
+
 
             for var in raster_ds:
                 varname = '%s_%s' % (name, var)
                 logger.info('adding variable "%s"' % varname)
-                # FIXME: antimed
-                # FIXME: RectBivariateSpline
+
                 if raster_ds[var].chunks is None:
                     raise ValueError('Using a chunked dataarray is mandatory')
                 raster_ds[var] = raster_ds[var].drop_vars(['spatial_ref', 'crs'], errors='ignore')
-                interpolated_val = raster_ds[var].interp(
+
+
+                # We need to interpolate in 2 steps, to prevent hatching
+                # upscale raster resolution approx to xsar dataset,
+                # using RectBivariateSpline on same grid orientation
+                # FIXME: this took cputime at __init__: => delayed
+                interp_f = RectBivariateSpline(
+                    raster_ds[var].y.values,
+                    raster_ds[var].x.values,
+                    raster_ds[var].values)
+
+
+                upscaled_val = xr.DataArray(
+                    interp_f(
+                        *np.meshgrid(lats, lons),
+                        grid=False
+                    ),
+                    coords={'x': lons, 'y': lats}
+                ).chunk(1000).to_dataset(name=varname)
+
+                # reproject upscaled_val on xsar dataset.
+                # there will be no hatching, because upscaled_val if upscaled enough
+                # (.interp will just fill few missing points)
+                reprojected_val = upscaled_val.interp(
                     x=self._dataset.longitude,
                     y=self._dataset.latitude
                 )
-                interpolated_val = interpolated_val.drop_vars(['longitude', 'latitude', 'spatial_ref', 'crs'], errors='ignore')
-                interpolated_val = interpolated_val.to_dataset().rename({var: varname})
-                interpolated_val[varname].attrs.update(raster_ds[var].attrs)
-                ds_var_list.append(interpolated_val)
+
+                reprojected_val = reprojected_val.drop_vars(['x', 'y', 'spatial_ref', 'crs'], errors='ignore')
+                reprojected_val[varname].attrs.update(raster_ds[var].attrs)
+                ds_var_list.append(reprojected_val)
 
         return xr.merge(ds_var_list)
 

@@ -586,7 +586,7 @@ class Sentinel1Meta:
     @property
     def cross_antemeridian(self):
         """True if footprint cross antemeridian"""
-        return (np.max(self.gcps['longitude']) - np.min(self.gcps['longitude'])) > 180
+        return ((np.max(self.gcps['longitude']) - np.min(self.gcps['longitude'])) > 180).item()
 
     @property
     def _dict_coords2ll(self):

@@ -648,6 +648,9 @@ class Sentinel1Dataset:
         else:
             logger.warning('raster variable is experimental')
 
+        if self.s1meta.cross_antemeridian:
+            raise NotImplementedError('Antimeridian crossing not yet checked')
+
         ds_var_list = []
 
         for name, infos in self.s1meta.rasters.iterrows():
@@ -674,6 +677,9 @@ class Sentinel1Dataset:
             else:
                 raster_ds = read_function(resource)
 
+            if not raster_ds.rio.crs.is_geographic:
+                raise NotImplementedError("Non geographic crs not implemented")
+
             for var in raster_ds:
                 varname = '%s_%s' % (name, var)
                 logger.info('adding variable "%s"' % varname)
@@ -682,7 +688,10 @@ class Sentinel1Dataset:
                 if raster_ds[var].chunks is None:
                     raise ValueError('Using a chunked dataarray is mandatory')
                 raster_ds[var] = raster_ds[var].drop_vars(['spatial_ref', 'crs'], errors='ignore')
-                interpolated_val = raster_ds[var].interp(longitude=self._dataset.longitude, latitude=self._dataset.latitude)
+                interpolated_val = raster_ds[var].interp(
+                    x=self._dataset.longitude,
+                    y=self._dataset.latitude
+                )
                 interpolated_val = interpolated_val.drop_vars(['longitude', 'latitude', 'spatial_ref', 'crs'], errors='ignore')
                 interpolated_val = interpolated_val.to_dataset().rename({var: varname})
                 interpolated_val[varname].attrs.update(raster_ds[var].attrs)

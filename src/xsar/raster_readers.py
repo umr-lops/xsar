@@ -47,14 +47,22 @@ def resource_strftime(resource, **kwargs):
     )
     return date.strftime(resource)
 
+
+def _to_lon180(ds):
+    # roll [0, 360] to [-180, 180] on dim x
+    ds = ds.roll(x=-np.searchsorted(ds.x, 180), roll_coords=True)
+    ds['x'] = xr.where(ds['x'] >= 180, ds['x'] - 360, ds['x'])
+    return ds
+
+
 def ecmwf_0100_1h(fname):
     """ecmwf 0.1 deg 1h reader (ECMWF_FORECAST_0100_202109091300_10U_10V.nc)"""
     ecmwf_ds = xr.open_dataset(fname, chunks={'Longitude': 1000, 'Latitude': 1000}).isel(time=0)
     ecmwf_ds.attrs['time'] = datetime.datetime.fromtimestamp(ecmwf_ds.time.item() // 1000000000)
     ecmwf_ds = ecmwf_ds.drop_vars('time').rename(
         {
-            'Longitude': 'longitude',
-            'Latitude': 'latitude',
+            'Longitude': 'x',
+            'Latitude': 'y',
             '10U': 'U10',
             '10V': 'V10'
         }
@@ -63,8 +71,7 @@ def ecmwf_0100_1h(fname):
     ecmwf_ds.attrs = {k: ecmwf_ds.attrs[k] for k in ['title', 'institution', 'time']}
 
     # dataset is lon [0, 360], make it [-180,180]
-    ecmwf_ds = ecmwf_ds.roll(longitude=-ecmwf_ds.longitude.size // 2, roll_coords=True)
-    ecmwf_ds['longitude'] = xr.where(ecmwf_ds['longitude'] >= 180, ecmwf_ds['longitude'] - 360, ecmwf_ds['longitude'])
+    ecmwf_ds = _to_lon180(ecmwf_ds)
 
     ecmwf_ds.rio.write_crs("EPSG:4326", inplace=True)
 
@@ -76,7 +83,7 @@ def gebco(gebco_files):
         [
             xr.open_dataset(
                 f, chunks={'x': 1000, 'y': 1000}
-            ).rename(x='longitude', y='latitude').isel(band=0).drop_vars('band') for f in gebco_files
+            ).isel(band=0).drop_vars('band') for f in gebco_files
         ]
     )
 

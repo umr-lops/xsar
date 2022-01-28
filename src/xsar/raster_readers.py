@@ -3,6 +3,7 @@ import datetime
 import numpy as np
 import glob
 from .utils import bind
+import pandas as pd
 
 
 def resource_strftime(resource, **kwargs):
@@ -91,3 +92,8 @@ raster_getters = {
     'ecmwf_0100_1h': bind(resource_strftime, ..., step=1),
     'gebco': glob.glob
 }
+
+# list available rasters as a pandas dataframe
+available_rasters = pd.DataFrame(columns=['resource', 'read_function', 'get_function'])
+available_rasters.loc['gebco'] = [None, gebco, glob.glob]
+available_rasters.loc['ecmwf_0100_1h'] = [None, ecmwf_0100_1h, bind(resource_strftime, ..., step=1)]

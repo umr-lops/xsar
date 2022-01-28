@@ -13,7 +13,7 @@ from shapely.geometry import Polygon
 from shapely.ops import unary_union
 import shapely
 from .utils import to_lon180, haversine, timing, class_or_instancemethod
-from .raster_readers import raster_readers, raster_getters
+from .raster_readers import available_rasters
 from . import sentinel1_xml_mappings
 from .xml_parser import XmlParser
 from affine import Affine
@@ -123,7 +123,7 @@ class Sentinel1Meta:
         self._orbit_pass = None
         self._platform_heading = None
 
-        self.rasters = pd.DataFrame(columns=['resource', 'read_function', 'get_function'])
+        self.rasters = available_rasters.iloc[0:0].copy()
         """pandas dataframe for rasters (see `xsar.Sentinel1Meta.set_raster`)"""
 
     def __del__(self):
@@ -510,15 +510,13 @@ class Sentinel1Meta:
         if isinstance(self_or_cls, type):
             raise NotImplementedError("cls")
 
-        if read_function is None and name in raster_readers:
-            read_function = raster_readers[name]
+        # get defaults if exists
+        default = available_rasters.loc[name:name]
 
-        if get_function is None and name in raster_getters:
-            get_function = raster_getters[name]
-
-        self_or_cls.rasters.loc[name, 'resource'] = resource
-        self_or_cls.rasters.loc[name, 'read_function'] = read_function
-        self_or_cls.rasters.loc[name, 'get_function'] = get_function
+        # set from params, or from default
+        self_or_cls.rasters.loc[name, 'resource'] = resource or default.loc[name, 'resource']
+        self_or_cls.rasters.loc[name, 'read_function'] = read_function or default.loc[name, 'read_function']
+        self_or_cls.rasters.loc[name, 'get_function'] = get_function or default.loc[name, 'get_function']
 
         return
 

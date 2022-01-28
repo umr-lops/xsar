@@ -13,6 +13,7 @@ from shapely.geometry import Polygon
 from shapely.ops import unary_union
 import shapely
 from .utils import to_lon180, haversine, timing, class_or_instancemethod
+from .raster_readers import raster_readers, raster_getters
 from . import sentinel1_xml_mappings
 from .xml_parser import XmlParser
 from affine import Affine
@@ -122,7 +123,7 @@ class Sentinel1Meta:
         self._orbit_pass = None
         self._platform_heading = None
 
-        self.rasters = pd.DataFrame(columns=['resource', 'read_function'])
+        self.rasters = pd.DataFrame(columns=['resource', 'read_function', 'get_function'])
         """pandas dataframe for rasters (see `xsar.Sentinel1Meta.set_raster`)"""
 
     def __del__(self):
@@ -451,8 +452,13 @@ class Sentinel1Meta:
 
         """
         if self._mask_geometry[name] is None:
-            self._mask_geometry[name] = self._get_mask_intersecting_geometries(name).unary_union.intersection(
-                self.footprint)
+            poly = self._get_mask_intersecting_geometries(name)\
+                .unary_union.intersection(self.footprint)
+
+            if poly.is_empty:
+                poly = Polygon()
+
+            self._mask_geometry[name] = poly
         return self._mask_geometry[name]
 
     def _get_mask_intersecting_geometries(self, name):
@@ -500,16 +506,19 @@ class Sentinel1Meta:
         return self._mask_features[name]
 
     @class_or_instancemethod
-    def set_raster(self_or_cls, name, resource, read_function=None):
+    def set_raster(self_or_cls, name, resource, read_function=None, get_function=None):
         if isinstance(self_or_cls, type):
             raise NotImplementedError("cls")
 
-        self_or_cls.rasters = pd.concat(
-            [
-                self_or_cls.rasters,
-                pd.DataFrame({'resource': resource, 'read_function': read_function}, index=[name])
-            ]
-        )
+        if read_function is None and name in raster_readers:
+            read_function = raster_readers[name]
+
+        if get_function is None and name in raster_getters:
+            get_function = raster_getters[name]
+
+        self_or_cls.rasters.loc[name, 'resource'] = resource
+        self_or_cls.rasters.loc[name, 'read_function'] = read_function
+        self_or_cls.rasters.loc[name, 'get_function'] = get_function
 
         return
 

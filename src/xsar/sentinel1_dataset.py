@@ -647,26 +647,41 @@ class Sentinel1Dataset:
         else:
             logger.warning('raster variable is experimental')
 
+        ds_var_list = []
+
         for name, infos in self.s1meta.rasters.iterrows():
             read_function = infos['read_function']
+            get_function = infos['get_function']
             resource = infos['resource']
 
+            kwargs = {
+                's1meta': self,
+                'date': self.s1meta.start_date,
+                'footprint': self.s1meta.footprint
+            }
+
+            if get_function is not None:
+                try:
+                    resource = get_function(resource, **kwargs)
+                except TypeError:
+                    resource = get_function(resource)
+
+            logger.info('adding raster "%s" from resource "%s"' % (name, str(resource)))
             # TODO: delayed read
             if read_function is None:
                 raster_ds = xr.open_dataset(resource)
             else:
                 raster_ds = read_function(resource)
 
-            ds_var_list = []
-
             for var in raster_ds:
                 varname = '%s_%s' % (name, var)
+                logger.info('adding variable "%s"' % varname)
                 # FIXME: antimed
                 # FIXME: RectBivariateSpline
                 # FIXME: map_blocks
-                raster_ds[var] = raster_ds[var].drop_vars('spatial_ref')
+                raster_ds[var] = raster_ds[var].drop_vars(['spatial_ref', 'crs'], errors='ignore')
                 interpolated_val = raster_ds[var].interp(longitude=self._dataset.longitude, latitude=self._dataset.latitude)
-                interpolated_val = interpolated_val.drop_vars(['longitude', 'latitude', 'spatial_ref'])
+                interpolated_val = interpolated_val.drop_vars(['longitude', 'latitude', 'spatial_ref', 'crs'], errors='ignore')
                 interpolated_val = interpolated_val.to_dataset().rename({var: varname})
                 interpolated_val[varname].attrs.update(raster_ds[var].attrs)
                 ds_var_list.append(interpolated_val)

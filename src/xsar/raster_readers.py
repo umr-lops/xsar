@@ -67,7 +67,6 @@ def ecmwf_0100_1h(fname):
             '10V': 'V10'
         }
     )
-    ecmwf_ds['WSPD'] = np.sqrt(ecmwf_ds.U10**2 + ecmwf_ds.V10**2)
     ecmwf_ds.attrs = {k: ecmwf_ds.attrs[k] for k in ['title', 'institution', 'time']}
 
     # dataset is lon [0, 360], make it [-180,180]

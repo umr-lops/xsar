@@ -13,6 +13,7 @@ from shapely.geometry import Polygon
 from shapely.ops import unary_union
 import shapely
 from .utils import to_lon180, haversine, timing, class_or_instancemethod
+from .raster_readers import available_rasters
 from . import sentinel1_xml_mappings
 from .xml_parser import XmlParser
 from affine import Affine
@@ -40,6 +41,9 @@ class Sentinel1Meta:
     _mask_features_raw = {
         'land': cartopy.feature.NaturalEarthFeature('physical', 'land', '10m')
     }
+
+    rasters = available_rasters.iloc[0:0].copy()
+
 
     # class attributes are needed to fetch instance attribute (ie self.name) with dask actors
     # ref http://distributed.dask.org/en/stable/actors.html#access-attributes
@@ -118,8 +122,12 @@ class Sentinel1Meta:
         # get defaults masks from class attribute
         for name, feature in self.__class__._mask_features_raw.items():
             self.set_mask_feature(name, feature)
+
         self._orbit_pass = None
         self._platform_heading = None
+
+        self.rasters = self.__class__.rasters.copy()
+        """pandas dataframe for rasters (see `xsar.Sentinel1Meta.set_raster`)"""
 
     def __del__(self):
         logger.debug('__del__')
@@ -447,8 +455,13 @@ class Sentinel1Meta:
 
         """
         if self._mask_geometry[name] is None:
-            self._mask_geometry[name] = self._get_mask_intersecting_geometries(name).unary_union.intersection(
-                self.footprint)
+            poly = self._get_mask_intersecting_geometries(name)\
+                .unary_union.intersection(self.footprint)
+
+            if poly.is_empty:
+                poly = Polygon()
+
+            self._mask_geometry[name] = poly
         return self._mask_geometry[name]
 
     def _get_mask_intersecting_geometries(self, name):
@@ -495,7 +508,17 @@ class Sentinel1Meta:
 
         return self._mask_features[name]
 
+    @class_or_instancemethod
+    def set_raster(self_or_cls, name, resource, read_function=None, get_function=None):
+        # get defaults if exists
+        default = available_rasters.loc[name:name]
 
+        # set from params, or from default
+        self_or_cls.rasters.loc[name, 'resource'] = resource or default.loc[name, 'resource']
+        self_or_cls.rasters.loc[name, 'read_function'] = read_function or default.loc[name, 'read_function']
+        self_or_cls.rasters.loc[name, 'get_function'] = get_function or default.loc[name, 'get_function']
+
+        return
 
     @property
     def coverage(self):
@@ -563,7 +586,7 @@ class Sentinel1Meta:
     @property
     def cross_antemeridian(self):
         """True if footprint cross antemeridian"""
-        return (np.max(self.gcps['longitude']) - np.min(self.gcps['longitude'])) > 180
+        return ((np.max(self.gcps['longitude']) - np.min(self.gcps['longitude'])) > 180).item()
 
     @property
     def _dict_coords2ll(self):
@@ -826,6 +849,7 @@ class Sentinel1Meta:
             '_mask_features': {},
             '_mask_intersecting_geometries': {},
             '_mask_geometry': {},
+            'rasters': self.rasters
         }
         for name in minidict['_mask_features_raw'].keys():
             minidict['_mask_intersecting_geometries'][name] = None

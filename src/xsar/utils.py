@@ -14,6 +14,7 @@ import rasterio
 import shutil
 import glob
 import yaml
+import re
 
 logger = logging.getLogger('xsar.utils')
 logger.addHandler(logging.NullHandler())
@@ -401,3 +402,21 @@ def merge_yaml(yaml_strings_list):
             '\n'.join(yaml_strings_list)
         )
     )
+
+def get_glob(strlist):
+    # from list of str, replace diff by '?'
+    def _get_glob(st):
+        stglob = ''.join(
+            [
+                '?' if len(charlist) > 1 else charlist[0]
+                for charlist in [list(set(charset)) for charset in zip(*st)]
+            ]
+        )
+        return re.sub('\?+', '*', stglob)
+
+    strglob = _get_glob(strlist)
+    if strglob.endswith('*'):
+        strglob += _get_glob(s[::-1] for s in strlist)[::-1]
+        strglob = strglob.replace('**', '*')
+
+    return strglob

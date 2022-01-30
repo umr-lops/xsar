@@ -12,7 +12,7 @@ import rioxarray
 from scipy.interpolate import interp1d
 from shapely.geometry import Polygon
 import shapely
-from .utils import timing, haversine, map_blocks_coords, bbox_coords, BlockingActorProxy, merge_yaml
+from .utils import timing, haversine, map_blocks_coords, bbox_coords, BlockingActorProxy, merge_yaml, get_glob
 from numpy import asarray
 from affine import Affine
 from .sentinel1_meta import Sentinel1Meta
@@ -602,7 +602,11 @@ class Sentinel1Dataset:
 
         dn.attrs = {
             'comment': '%s digital number, %s' % (descr, comment),
-            'history': yaml.safe_dump({var_name: [os.path.basename(p) for p in self.s1meta.files['measurement']]})
+            'history': yaml.safe_dump(
+                {
+                    var_name: get_glob([p.replace(self.s1meta.path+'/', '') for p in self.s1meta.files['measurement'] ])
+                }
+            )
         }
         ds = dn.to_dataset(name=var_name)
 
@@ -758,19 +762,23 @@ class Sentinel1Dataset:
             logger.debug('adding raster "%s" from resource "%s"' % (name, str(resource)))
             if get_function is not None:
                 try:
-                    resource = get_function(resource, **kwargs)
+                    resource_dec = get_function(resource, **kwargs)
                 except TypeError:
-                    resource = get_function(resource)
+                    resource_dec = get_function(resource)
+
 
             if read_function is None:
-                raster_ds = xr.open_dataset(resource, chunk=1000)
+                raster_ds = xr.open_dataset(resource_dec, chunk=1000)
             else:
                 # read_function should return a chunked dataset (so it's fast)
-                raster_ds = read_function(resource)
+                raster_ds = read_function(resource_dec)
 
 
             # add globals raster attrs to globals dataset attrs
-            raster_ds.attrs['history'] = yaml.safe_dump({name: resource})
+            hist_res = {'resource': resource}
+            if get_function is not None:
+                hist_res.update({'resource_decoded': resource_dec})
+
 
             if not raster_ds.rio.crs.is_geographic:
                 raise NotImplementedError("Non geographic crs not implemented")
@@ -834,7 +842,7 @@ class Sentinel1Dataset:
                     coords={'atrack': self._da_tmpl.atrack, 'xtrack': self._da_tmpl.xtrack},
                     attrs=raster_ds[var].attrs
                 )
-                da_var.attrs.update(raster_ds.attrs)
+                da_var.attrs['history'] = yaml.safe_dump({var_name: hist_res})
                 logger.debug('adding variable "%s" from raster "%s"' % (var_name, name))
                 da_var_list.append(da_var)
 

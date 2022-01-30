@@ -4,8 +4,8 @@ import logging
 from collections.abc import Iterable
 import os
 import re
-import json
 import yaml
+from .utils import get_glob
 
 logger = logging.getLogger('xsar.xml_parser')
 logger.addHandler(logging.NullHandler())

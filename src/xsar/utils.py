@@ -14,6 +14,7 @@ import rasterio
 import shutil
 import glob
 import yaml
+import re
 
 logger = logging.getLogger('xsar.utils')
 logger.addHandler(logging.NullHandler())
@@ -394,10 +395,31 @@ class BlockingActorProxy():
         return partial(BlockingActorProxy, **kwargs), (self._cls, *self._args)
 
 
-def merge_yaml(yaml_strings_list):
+def merge_yaml(yaml_strings_list,section=None):
     # merge a list of yaml strings in one string
-    return yaml.safe_dump(
-        yaml.safe_load(
+
+    dict_like = yaml.safe_load(
             '\n'.join(yaml_strings_list)
         )
-    )
+    if section is not None:
+        dict_like = {section: dict_like}
+
+    return yaml.safe_dump(dict_like)
+
+def get_glob(strlist):
+    # from list of str, replace diff by '?'
+    def _get_glob(st):
+        stglob = ''.join(
+            [
+                '?' if len(charlist) > 1 else charlist[0]
+                for charlist in [list(set(charset)) for charset in zip(*st)]
+            ]
+        )
+        return re.sub(r'\?+', '*', stglob)
+
+    strglob = _get_glob(strlist)
+    if strglob.endswith('*'):
+        strglob += _get_glob(s[::-1] for s in strlist)[::-1]
+        strglob = strglob.replace('**', '*')
+
+    return strglob

@@ -12,7 +12,7 @@ import rioxarray
 from scipy.interpolate import interp1d
 from shapely.geometry import Polygon
 import shapely
-from .utils import timing, haversine, map_blocks_coords, bbox_coords, BlockingActorProxy, merge_yaml
+from .utils import timing, haversine, map_blocks_coords, bbox_coords, BlockingActorProxy, merge_yaml, get_glob
 from numpy import asarray
 from affine import Affine
 from .sentinel1_meta import Sentinel1Meta
@@ -222,7 +222,10 @@ class Sentinel1Dataset:
         # noise_lut is noise_lut_range * noise_lut_azi
         if 'noise_lut_range' in self._luts.keys() and 'noise_lut_azi' in self._luts.keys():
             self._luts = self._luts.assign(noise_lut=self._luts.noise_lut_range * self._luts.noise_lut_azi)
-            self._luts.noise_lut.attrs['history'] = merge_yaml([self._luts.noise_lut_range.attrs['history'] + self._luts.noise_lut_azi.attrs['history']])
+            self._luts.noise_lut.attrs['history'] = merge_yaml(
+                [self._luts.noise_lut_range.attrs['history'] + self._luts.noise_lut_azi.attrs['history']],
+                section='noise_lut'
+            )
 
         lon_lat = self._load_lon_lat()
 
@@ -602,7 +605,11 @@ class Sentinel1Dataset:
 
         dn.attrs = {
             'comment': '%s digital number, %s' % (descr, comment),
-            'history': yaml.safe_dump({var_name: [os.path.basename(p) for p in self.s1meta.files['measurement']]})
+            'history': yaml.safe_dump(
+                {
+                    var_name: get_glob([p.replace(self.s1meta.path+'/', '') for p in self.s1meta.files['measurement'] ])
+                }
+            )
         }
         ds = dn.to_dataset(name=var_name)
 
@@ -758,19 +765,23 @@ class Sentinel1Dataset:
             logger.debug('adding raster "%s" from resource "%s"' % (name, str(resource)))
             if get_function is not None:
                 try:
-                    resource = get_function(resource, **kwargs)
+                    resource_dec = get_function(resource, **kwargs)
                 except TypeError:
-                    resource = get_function(resource)
+                    resource_dec = get_function(resource)
+
 
             if read_function is None:
-                raster_ds = xr.open_dataset(resource, chunk=1000)
+                raster_ds = xr.open_dataset(resource_dec, chunk=1000)
             else:
                 # read_function should return a chunked dataset (so it's fast)
-                raster_ds = read_function(resource)
+                raster_ds = read_function(resource_dec)
 
 
             # add globals raster attrs to globals dataset attrs
-            raster_ds.attrs['history'] = yaml.safe_dump({name: resource})
+            hist_res = {'resource': resource}
+            if get_function is not None:
+                hist_res.update({'resource_decoded': resource_dec})
+
 
             if not raster_ds.rio.crs.is_geographic:
                 raise NotImplementedError("Non geographic crs not implemented")
@@ -834,7 +845,7 @@ class Sentinel1Dataset:
                     coords={'atrack': self._da_tmpl.atrack, 'xtrack': self._da_tmpl.xtrack},
                     attrs=raster_ds[var].attrs
                 )
-                da_var.attrs.update(raster_ds.attrs)
+                da_var.attrs['history'] = yaml.safe_dump({var_name: hist_res})
                 logger.debug('adding variable "%s" from raster "%s"' % (var_name, name))
                 da_var_list.append(da_var)
 
@@ -888,6 +899,7 @@ class Sentinel1Dataset:
             res = res.astype(astype)
 
         res.attrs.update(lut.attrs)
+        res.attrs['history'] = merge_yaml([lut.attrs['history']], section=var_name)
         res.attrs['references'] = 'https://sentinel.esa.int/web/sentinel/radiometric-calibration-of-level-1-products'
 
         return res.to_dataset(name=var_name)
@@ -965,7 +977,7 @@ class Sentinel1Dataset:
         astype = self._dtypes.get(name)
         if astype is not None:
             dataarr = dataarr.astype(astype)
-        dataarr.attrs['history'] = merge_yaml([lut.attrs['history'], noise_lut.attrs['history']])
+        dataarr.attrs['history'] = merge_yaml([lut.attrs['history'], noise_lut.attrs['history']], section=name)
         return dataarr.to_dataset(name=name)
 
     def _add_denoised(self, ds, clip=False, vars=None):
@@ -1001,7 +1013,8 @@ class Sentinel1Dataset:
             else:
                 denoised = ds[varname_raw] - ds[noise]
                 denoised.attrs['history'] = merge_yaml(
-                    [ds[varname_raw].attrs['history'], ds[noise].attrs['history']]
+                    [ds[varname_raw].attrs['history'], ds[noise].attrs['history']],
+                    section=varname
                 )
                 if clip:
                     denoised = denoised.clip(min=0)

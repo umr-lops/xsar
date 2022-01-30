@@ -222,7 +222,10 @@ class Sentinel1Dataset:
         # noise_lut is noise_lut_range * noise_lut_azi
         if 'noise_lut_range' in self._luts.keys() and 'noise_lut_azi' in self._luts.keys():
             self._luts = self._luts.assign(noise_lut=self._luts.noise_lut_range * self._luts.noise_lut_azi)
-            self._luts.noise_lut.attrs['history'] = merge_yaml([self._luts.noise_lut_range.attrs['history'] + self._luts.noise_lut_azi.attrs['history']])
+            self._luts.noise_lut.attrs['history'] = merge_yaml(
+                [self._luts.noise_lut_range.attrs['history'] + self._luts.noise_lut_azi.attrs['history']],
+                section='noise_lut'
+            )
 
         lon_lat = self._load_lon_lat()
 
@@ -896,6 +899,7 @@ class Sentinel1Dataset:
             res = res.astype(astype)
 
         res.attrs.update(lut.attrs)
+        res.attrs['history'] = merge_yaml([lut.attrs['history']], section=var_name)
         res.attrs['references'] = 'https://sentinel.esa.int/web/sentinel/radiometric-calibration-of-level-1-products'
 
         return res.to_dataset(name=var_name)
@@ -973,7 +977,7 @@ class Sentinel1Dataset:
         astype = self._dtypes.get(name)
         if astype is not None:
             dataarr = dataarr.astype(astype)
-        dataarr.attrs['history'] = merge_yaml([lut.attrs['history'], noise_lut.attrs['history']])
+        dataarr.attrs['history'] = merge_yaml([lut.attrs['history'], noise_lut.attrs['history']], section=name)
         return dataarr.to_dataset(name=name)
 
     def _add_denoised(self, ds, clip=False, vars=None):
@@ -1009,7 +1013,8 @@ class Sentinel1Dataset:
             else:
                 denoised = ds[varname_raw] - ds[noise]
                 denoised.attrs['history'] = merge_yaml(
-                    [ds[varname_raw].attrs['history'], ds[noise].attrs['history']]
+                    [ds[varname_raw].attrs['history'], ds[noise].attrs['history']],
+                    section=varname
                 )
                 if clip:
                     denoised = denoised.clip(min=0)

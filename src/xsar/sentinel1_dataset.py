@@ -12,12 +12,11 @@ import rioxarray
 from scipy.interpolate import interp1d
 from shapely.geometry import Polygon
 import shapely
-from .utils import timing, haversine, map_blocks_coords, bbox_coords, BlockingActorProxy
+from .utils import timing, haversine, map_blocks_coords, bbox_coords, BlockingActorProxy, merge_yaml
 from numpy import asarray
 from affine import Affine
 from .sentinel1_meta import Sentinel1Meta
 from .ipython_backends import repr_mimebundle
-import json
 import yaml
 import os
 
@@ -223,9 +222,7 @@ class Sentinel1Dataset:
         # noise_lut is noise_lut_range * noise_lut_azi
         if 'noise_lut_range' in self._luts.keys() and 'noise_lut_azi' in self._luts.keys():
             self._luts = self._luts.assign(noise_lut=self._luts.noise_lut_range * self._luts.noise_lut_azi)
-            self._luts.noise_lut.attrs['history'] = \
-                self._luts.noise_lut_range.attrs['history'] + '\n' \
-                + self._luts.noise_lut_azi.attrs['history']
+            self._luts.noise_lut.attrs['history'] = merge_yaml([self._luts.noise_lut_range.attrs['history'] + self._luts.noise_lut_azi.attrs['history']])
 
         lon_lat = self._load_lon_lat()
 
@@ -968,7 +965,7 @@ class Sentinel1Dataset:
         astype = self._dtypes.get(name)
         if astype is not None:
             dataarr = dataarr.astype(astype)
-        dataarr.attrs['history'] = noise_lut.attrs['history'] + '\n' + lut.attrs['history']
+        dataarr.attrs['history'] = merge_yaml([lut.attrs['history'], noise_lut.attrs['history']])
         return dataarr.to_dataset(name=name)
 
     def _add_denoised(self, ds, clip=False, vars=None):
@@ -1003,7 +1000,9 @@ class Sentinel1Dataset:
                 raise NotImplementedError("semi denoised products not yet implemented")
             else:
                 denoised = ds[varname_raw] - ds[noise]
-                denoised.attrs['history'] = ds[varname_raw].attrs['history'] + '\n' + ds[noise].attrs['history']
+                denoised.attrs['history'] = merge_yaml(
+                    [ds[varname_raw].attrs['history'], ds[noise].attrs['history']]
+                )
                 if clip:
                     denoised = denoised.clip(min=0)
                     denoised.attrs['comment'] = 'clipped, no values <0'

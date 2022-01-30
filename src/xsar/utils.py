@@ -415,7 +415,7 @@ def get_glob(strlist):
                 for charlist in [list(set(charset)) for charset in zip(*st)]
             ]
         )
-        return re.sub('\?+', '*', stglob)
+        return re.sub(r'\?+', '*', stglob)
 
     strglob = _get_glob(strlist)
     if strglob.endswith('*'):

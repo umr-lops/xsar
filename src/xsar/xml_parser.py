@@ -126,7 +126,7 @@ class XmlParser:
             # keep only informative parts in filename
             # sub SAFE path
             minifile = re.sub('.*SAFE/', '', xml_file)
-            minifile = re.sub('-.*\.xml', '.xml', minifile)
+            minifile = re.sub(r'-.*\.xml', '.xml', minifile)
 
         var_object = self._compounds_vars[var_name]
 

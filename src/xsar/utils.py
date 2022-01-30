@@ -395,13 +395,16 @@ class BlockingActorProxy():
         return partial(BlockingActorProxy, **kwargs), (self._cls, *self._args)
 
 
-def merge_yaml(yaml_strings_list):
+def merge_yaml(yaml_strings_list,section=None):
     # merge a list of yaml strings in one string
-    return yaml.safe_dump(
-        yaml.safe_load(
+
+    dict_like = yaml.safe_load(
             '\n'.join(yaml_strings_list)
         )
-    )
+    if section is not None:
+        dict_like = {section: dict_like}
+
+    return yaml.safe_dump(dict_like)
 
 def get_glob(strlist):
     # from list of str, replace diff by '?'

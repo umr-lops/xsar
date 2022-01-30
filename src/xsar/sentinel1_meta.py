@@ -440,7 +440,7 @@ class Sentinel1Meta:
         return self._mask_features.keys()
 
     @timing
-    def get_mask(self, name):
+    def get_mask(self, name, describe=False):
         """
         Get mask from `name` (e.g. 'land') as a shapely Polygon.
         The resulting polygon is contained in the footprint.
@@ -454,6 +454,17 @@ class Sentinel1Meta:
         shapely.geometry.Polygon
 
         """
+
+        if describe:
+            descr = self._mask_features_raw[name]
+            try:
+                # nice repr for a class (like 'cartopy.feature.NaturalEarthFeature land')
+                descr = '%s.%s %s' % (descr.__module__, descr.__class__.__name__ , descr.name)
+            except AttributeError:
+                pass
+            return descr
+
+
         if self._mask_geometry[name] is None:
             poly = self._get_mask_intersecting_geometries(name)\
                 .unary_union.intersection(self.footprint)

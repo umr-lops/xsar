@@ -13,7 +13,7 @@ from functools import wraps, partial
 import rasterio
 import shutil
 import glob
-import gc
+import yaml
 
 logger = logging.getLogger('xsar.utils')
 logger.addHandler(logging.NullHandler())
@@ -354,7 +354,6 @@ class BlockingActorProxy():
             logger.debug('BlockingActorProxy: Reusing existing actor')
             self._actor = actor
 
-
         if self._dask_client is not None:
             logger.debug('submit new actor')
             self._actor_future = self._dask_client.submit(self._cls, *args, **kwargs, actors=True)
@@ -384,6 +383,7 @@ class BlockingActorProxy():
                 else:
                     # transparent proxy
                     return res
+
             return func
 
     def __reduce__(self):
@@ -392,3 +392,12 @@ class BlockingActorProxy():
         kwargs = self._kwargs
         kwargs['actor'] = self._actor
         return partial(BlockingActorProxy, **kwargs), (self._cls, *self._args)
+
+
+def merge_yaml(yaml_strings_list):
+    # merge a list of yaml strings in one string
+    return yaml.safe_dump(
+        yaml.safe_load(
+            '\n'.join(yaml_strings_list)
+        )
+    )

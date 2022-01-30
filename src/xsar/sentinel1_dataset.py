@@ -18,6 +18,8 @@ from affine import Affine
 from .sentinel1_meta import Sentinel1Meta
 from .ipython_backends import repr_mimebundle
 import json
+import yaml
+import os
 
 logger = logging.getLogger('xsar.sentinel1_dataset')
 logger.addHandler(logging.NullHandler())
@@ -77,6 +79,35 @@ class Sentinel1Dataset:
                  luts=False, chunks={'atrack': 5000, 'xtrack': 5000},
                  dtypes=None):
 
+        # miscellaneous attributes that are not know from xml files
+        attrs_dict = {
+            'pol': {
+                'comment': 'ordered polarizations (copol, crosspol)'
+            },
+            'atrack': {
+                'units': '1',
+                'comment': 'azimuth direction, in pixels from full resolution tiff'
+            },
+            'xtrack': {
+                'units': '1',
+                'comment': 'cross track direction, in pixels from full resolution tiff'
+            },
+            'sigma0_raw': {
+                'units': 'm2/m2'
+            },
+            'gamma0_raw': {
+                'units': 'm2/m2'
+            },
+            'nesz': {
+                'units': 'm2/m2',
+                'comment': 'sigma0 noise'
+            },
+            'negz': {
+                'units': 'm2/m2',
+                'comment': 'beta0 noise'
+            },
+        }
+
         # default dtypes
         self._dtypes = {
             'latitude': 'f4',
@@ -126,10 +157,13 @@ class Sentinel1Dataset:
 
         # set time(atrack) from s1meta.time_range
         time_range = self.s1meta.time_range
-        atrack_time = interp1d(self._dataset.atrack[[0, -1]],
-                               [time_range.left.to_datetime64(), time_range.right.to_datetime64()])(
-            self._dataset.atrack)
+        atrack_time = interp1d(
+            self._dataset.atrack[[0, -1]],
+            [time_range.left.to_datetime64(), time_range.right.to_datetime64()]
+        )(self._dataset.atrack)
+
         self._dataset = self._dataset.assign(time=("atrack", pd.to_datetime(atrack_time)))
+        self._dataset['time'].attrs['comment'] = 'Simple interpolated time between start_date and stop_date'
 
         # dataset no-pol template for function evaluation on coordinates (*no* values used)
         # what's matter here is the shape of the image, not the values.
@@ -189,6 +223,9 @@ class Sentinel1Dataset:
         # noise_lut is noise_lut_range * noise_lut_azi
         if 'noise_lut_range' in self._luts.keys() and 'noise_lut_azi' in self._luts.keys():
             self._luts = self._luts.assign(noise_lut=self._luts.noise_lut_range * self._luts.noise_lut_azi)
+            self._luts.noise_lut.attrs['history'] = \
+                self._luts.noise_lut_range.attrs['history'] + '\n' \
+                + self._luts.noise_lut_azi.attrs['history']
 
         lon_lat = self._load_lon_lat()
 
@@ -218,6 +255,13 @@ class Sentinel1Dataset:
 
         self._dataset = self._add_denoised(self._dataset)
         self._dataset.attrs = self._recompute_attrs()
+
+        # set miscellaneous attrs
+        for var, attrs in attrs_dict.items():
+            try:
+                self._dataset[var].attrs.update(attrs)
+            except KeyError:
+                pass
 
         self.sliced = False
         """True if dataset is a slice of original L1 dataset"""
@@ -398,8 +442,6 @@ class Sentinel1Dataset:
         """
 
         luts_list = []
-        # dask array template from digital_number (no pol)
-        lut_tmpl = self._dataset.digital_number.isel(pol=0)
 
         for lut_name in luts_names:
             xml_type = self._map_lut_files[lut_name]
@@ -422,12 +464,18 @@ class Sentinel1Dataset:
 
                 # get the lut function. As it takes some time to parse xml, make it delayed
                 lut_f_delayed = dask.delayed(self.s1meta.xml_parser.get_compound_var)(xml_file, lut_name)
-                lut = map_blocks_coords(self._da_tmpl.astype(self._dtypes[lut_name]), lut_f_delayed,
-                                        name='blocks_%s' % name)
+                lut = map_blocks_coords(
+                    self._da_tmpl.astype(self._dtypes[lut_name]),
+                    lut_f_delayed,
+                    name='blocks_%s' % name
+                )
 
                 # needs to add pol dim ?
                 if self._vars_with_pol[lut_name]:
                     lut = lut.assign_coords(pol_code=pol_code).expand_dims('pol_code')
+
+                # set xml file and xpath used as history
+                lut.attrs['history'] = self.s1meta.xml_parser.get_compound_var(xml_file, lut_name, describe=True)
 
                 lut = lut.to_dataset(name=lut_name)
                 luts_list.append(lut)
@@ -439,7 +487,7 @@ class Sentinel1Dataset:
         return luts
 
     @timing
-    def _load_digital_number(self, resolution=None, chunks=None, resampling=rasterio.enums.Resampling.average):
+    def _load_digital_number(self, resolution=None, chunks=None, resampling=rasterio.enums.Resampling.rms):
         """
         load digital_number from self.s1meta.files['measurement'], as an `xarray.Dataset`.
 
@@ -461,6 +509,11 @@ class Sentinel1Dataset:
             'atrack': 'y',
             'xtrack': 'x'
         }
+
+        if resolution is not None:
+            comment = 'resampled at "%s" with %s.%s.%s' % (resolution, resampling.__module__, resampling.__class__.__name__, resampling.name)
+        else:
+            comment = 'read at full resolution'
 
         # arbitrary rio object, to get shape, etc ... (will not be used to read data)
         rio = rasterio.open(self.s1meta.files['measurement'].iloc[0])
@@ -488,6 +541,7 @@ class Sentinel1Dataset:
             # create coordinates from dimension index (because of parse_coordinates=False)
             # 0.5 is for pixel center (geotiff standard)
             dn = dn.assign_coords({'atrack': dn.atrack + 0.5, 'xtrack': dn.xtrack + 0.5})
+            dn = dn.drop_vars('spatial_ref', errors='ignore')
         else:
             if not isinstance(resolution, dict):
                 if isinstance(resolution, str) and resolution.endswith('m'):
@@ -543,8 +597,16 @@ class Sentinel1Dataset:
         # for GTiff driver, pols are already ordered. just rename them
         dn = dn.assign_coords(pol=self.s1meta.manifest_attrs['polarizations'])
 
-        dn.attrs = {}
+        if not all(self.s1meta.denoised.values()):
+            descr = 'denoised'
+        else:
+            descr = 'not denoised'
         var_name = 'digital_number'
+
+        dn.attrs = {
+            'comment': '%s digital number, %s' % (descr, comment),
+            'history': yaml.safe_dump({var_name: [os.path.basename(p) for p in self.s1meta.files['measurement']]})
+        }
         ds = dn.to_dataset(name=var_name)
 
         astype = self._dtypes.get(var_name)
@@ -576,6 +638,17 @@ class Sentinel1Dataset:
         # remove ll_coords to have two separate variables longitude and latitude
         ll_ds = xr.merge([ll_ds.sel(ll=ll).drop_vars(['ll']).rename(ll) for ll in ll_coords])
 
+        ll_ds.longitude.attrs = {
+            'long_name': 'longitude',
+            'units': 'degrees_east',
+            'standard_name': 'longitude'
+        }
+
+        ll_ds.latitude.attrs = {
+            'long_name': 'latitude',
+            'units': 'degrees_north',
+            'standard_name': 'latitude'
+        }
         return ll_ds
 
     @timing
@@ -583,8 +656,16 @@ class Sentinel1Dataset:
         def coords2heading(atracks, xtracks):
             return self.s1meta.coords2heading(atracks, xtracks, to_grid=True, approx=False)
 
-        gh = map_blocks_coords(self._da_tmpl.astype(self._dtypes['ground_heading']), coords2heading,
-                               name='ground_heading')
+        gh = map_blocks_coords(
+            self._da_tmpl.astype(self._dtypes['ground_heading']),
+            coords2heading,
+            name='ground_heading'
+        )
+
+        gh.attrs = {
+            'comment': 'at ground level, computed from lon/lat in atrack direction'
+        }
+
         return gh.to_dataset(name='ground_heading')
 
 
@@ -633,13 +714,17 @@ class Sentinel1Dataset:
             )
             return raster_mask
 
-        da_list = [
-            map_blocks_coords(
+        da_list = []
+        for mask in self.s1meta.mask_names:
+            da_mask = map_blocks_coords(
                 self._da_tmpl,
                 _rasterize_mask_by_chunks,
                 func_kwargs={'mask': mask}
-            ).to_dataset(name='%s_mask' % mask) for mask in self.s1meta.mask_names
-        ]
+            )
+            name = '%s_mask' % mask
+            da_mask.attrs['history'] = yaml.safe_dump({name: self.s1meta.get_mask(mask, describe=True)})
+            da_list.append(da_mask.to_dataset(name=name))
+
         return xr.merge(da_list)
 
     @timing
@@ -688,8 +773,7 @@ class Sentinel1Dataset:
 
 
             # add globals raster attrs to globals dataset attrs
-            raster_ds.attrs['resource'] = resource
-            self._dataset.attrs[name] = json.dumps(raster_ds.attrs, indent=2, sort_keys=True, default=str)
+            raster_ds.attrs['history'] = yaml.safe_dump({name: resource})
 
             if not raster_ds.rio.crs.is_geographic:
                 raise NotImplementedError("Non geographic crs not implemented")
@@ -753,6 +837,7 @@ class Sentinel1Dataset:
                     coords={'atrack': self._da_tmpl.atrack, 'xtrack': self._da_tmpl.xtrack},
                     attrs=raster_ds[var].attrs
                 )
+                da_var.attrs.update(raster_ds.attrs)
                 logger.debug('adding variable "%s" from raster "%s"' % (var_name, name))
                 da_var_list.append(da_var)
 
@@ -804,6 +889,10 @@ class Sentinel1Dataset:
         astype = self._dtypes.get(var_name)
         if astype is not None:
             res = res.astype(astype)
+
+        res.attrs.update(lut.attrs)
+        res.attrs['references'] = 'https://sentinel.esa.int/web/sentinel/radiometric-calibration-of-level-1-products'
+
         return res.to_dataset(name=var_name)
 
     def reverse_calibration_lut(self, ds_var):
@@ -879,6 +968,7 @@ class Sentinel1Dataset:
         astype = self._dtypes.get(name)
         if astype is not None:
             dataarr = dataarr.astype(astype)
+        dataarr.attrs['history'] = noise_lut.attrs['history'] + '\n' + lut.attrs['history']
         return dataarr.to_dataset(name=name)
 
     def _add_denoised(self, ds, clip=False, vars=None):
@@ -913,8 +1003,12 @@ class Sentinel1Dataset:
                 raise NotImplementedError("semi denoised products not yet implemented")
             else:
                 denoised = ds[varname_raw] - ds[noise]
+                denoised.attrs['history'] = ds[varname_raw].attrs['history'] + '\n' + ds[noise].attrs['history']
                 if clip:
                     denoised = denoised.clip(min=0)
+                    denoised.attrs['comment'] = 'clipped, no values <0'
+                else:
+                    denoised.attrs['comment'] = 'not clipped, some values can be <0'
                 ds[varname] = denoised
         return ds
 

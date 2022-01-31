@@ -124,28 +124,37 @@ class Sentinel1Meta:
         self._orbit_pass = None
         self._platform_heading = None
         self._number_of_bursts = None
+        self._number_of_lines = None
+        self._number_of_samples = None
         self._lines_per_burst = None
         self._samples_per_burst = None
+        self._radar_frequency = None
         self._azimuth_time_interval = None
         self._npoints_geolocgrid = None
+        self._orbit_state_vectors = None
+        self._geoloc = None
+        self._ground_spacing = None
+        self._swathtiming = None
+        self._nb_state_vector = None
+        self._nb_dcestimate = None
+        self._nb_dataDcPoly = None
+        self._nb_geoDcPoly = None
+        self._azimuth_steering_rate = None
+        self._nb_fineDce = None
+        self._dopplercentroid = None
+        self._range_sampling_rate = None
+        self._azimuthfmrate = None
+        self._nb_fmrate = None
+        self._slant_range_time = None
+        self._rangePixelSpacing = None # redundant with pixel_xtrack_m from gcp but could be up to 1.5m different!! -> huge consequence
+        self._azimuthPixelSpacing = None # same remark
         #for vv in ['longitude_lr','atrack','xtrack','latitude_lr','elevation','height','incidence']
-        self.longitude_lr = self.get_low_res_geolocationGrid('longitude_lr')
-        self.latitude_lr = self.get_low_res_geolocationGrid('latitude_lr')
-        self.atrack = self.get_low_res_geolocationGrid('atrack')
-        self.xtrack = self.get_low_res_geolocationGrid('xtrack')
-        self.height = self.get_low_res_geolocationGrid('height')
-        self.slant_range_time = self.get_low_res_geolocationGrid('slant_range_time')
-        self.incidence = self.get_low_res_geolocationGrid('incidence')
-        self.elevation = self.get_low_res_geolocationGrid('elevation')
-        self.azimuth_time = self.get_low_res_geolocationGrid('azimuth_time')
-        #sha = (len(self.get_low_res_geolocationGrid('pixel')),1)
-        #print('sha',sha)
-        self.line = self.get_low_res_geolocationGrid('line')
-        #sha = (len(self.get_low_res_geolocationGrid('line')),1)
-        #print('sha',sha)
-        print('pixel brut',self.get_low_res_geolocationGrid('pixel').shape)
-        print('line brut',self.get_low_res_geolocationGrid('line').shape)
-        self.pixel = self.get_low_res_geolocationGrid('pixel')
+        #self.longitude_lr = self.get_low_res_geolocationGrid('longitude_lr') #useless
+        #self.latitude_lr = self.get_low_res_geolocationGrid('latitude_lr')
+        #self.atrack = self.get_low_res_geolocationGrid('atrack')
+        #self.xtrack = self.get_low_res_geolocationGrid('xtrack')
+        #self.height = self.get_low_res_geolocationGrid('height')
+
 
     def __del__(self):
         logger.debug('__del__')
@@ -308,6 +317,7 @@ class Sentinel1Meta:
             return None  # not defined for multidataset
         if self._number_of_bursts is None:
             self._number_of_bursts = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.number_of_bursts')
+        logger.debug('number of bursts %s %s',self._number_of_bursts,type(self._number_of_bursts))
         return self._number_of_bursts
 
     @property
@@ -321,6 +331,171 @@ class Sentinel1Meta:
             self._lines_per_burst = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.lines_per_burst')
         return self._lines_per_burst
 
+
+    @property
+    def nb_geoDcPoly(self):
+        """
+        """
+
+        if self.multidataset:
+            return None  # not defined for multidataset
+        if self._nb_geoDcPoly is None:
+            self._nb_geoDcPoly = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.nb_geoDcPoly')
+        return self._nb_geoDcPoly
+
+
+    @property
+    def nb_dataDcPoly(self):
+        """
+        """
+        if self.multidataset:
+            return None  # not defined for multidataset
+        if self._nb_dataDcPoly is None:
+            self._nb_dataDcPoly = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.nb_dataDcPoly')
+        return self._nb_dataDcPoly
+
+    @property
+    def nb_fineDce(self):
+        """
+        """
+
+        if self.multidataset:
+            return None  # not defined for multidataset
+        if self._nb_fineDce is None:
+            self._nb_fineDce = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.nb_fineDce')
+        return self._nb_fineDce
+
+
+    @property
+    def azimuth_steering_rate(self):
+        """
+        """
+
+        if self.multidataset:
+            return None  # not defined for multidataset
+        if self._azimuth_steering_rate is None:
+            self._azimuth_steering_rate = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.azimuth_steering_rate')
+        return self._azimuth_steering_rate
+
+    @property
+    def rangePixelSpacing(self):
+        """
+        """
+
+        if self.multidataset:
+            return None  # not defined for multidataset
+        if self._rangePixelSpacing is None:
+            self._rangePixelSpacing = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.rangePixelSpacing')
+        return self._rangePixelSpacing
+
+    @property
+    def azimuthPixelSpacing(self):
+        """
+        """
+
+        if self.multidataset:
+            return None  # not defined for multidataset
+        if self._azimuthPixelSpacing is None:
+            self._azimuthPixelSpacing = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.azimuthPixelSpacing')
+        return self._azimuthPixelSpacing
+
+
+    @property
+    def geoloc(self):
+        """
+        load values from annotation files giving information on the geolocation grid (low resolution)
+        :return:
+        """
+        if self._geoloc is None:
+            self._geoloc = xr.Dataset()
+            line = self.get_low_res_geolocationGrid('line')
+            pixel = self.get_low_res_geolocationGrid('pixel')
+            for vv in ['slant_range_time_lr','incidence','elevation','height','longitude_lr','latitude_lr','azimuth_time','pixel','line']:
+                tmpval = self.get_low_res_geolocationGrid(vv) #self._geolocslant_range_time
+                self._geoloc[vv] = xr.DataArray(tmpval,dims=['atrack_geolocgrid','xtrack_geologrid'],
+                                                                coords={'atrack_geolocgrid':line[:,0],
+                                                                        'xtrack_geologrid':pixel[0,:]
+                                                                        })
+                # self.incidence = self.get_low_res_geolocationGrid('incidence')
+                # self.elevation = self.get_low_res_geolocationGrid('elevation')
+                # self.azimuth_time = self.get_low_res_geolocationGrid('azimuth_time')
+            self._geoloc['npixels'] = len(np.where(self._geoloc['line'] == self._geoloc['line'][0, 0])[0])
+        else:
+            pass
+        return self._geoloc
+
+
+
+
+    @property
+    def number_of_lines(self):
+        """
+        """
+
+        if self.multidataset:
+            return None  # not defined for multidataset
+        if self._number_of_lines is None:
+            self._number_of_lines = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.number_of_lines')
+        return self._number_of_lines
+
+
+    @property
+    def range_sampling_rate(self):
+        """
+        """
+
+        if self.multidataset:
+            return None  # not defined for multidataset
+        if self._range_sampling_rate is None:
+            self._range_sampling_rate = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.range_sampling_rate')
+        logger.debug('range sampling rate %s %s',self._range_sampling_rate,type(self._range_sampling_rate))
+        logger.debug('range sampling rate %s %s',self._range_sampling_rate,type(self._range_sampling_rate))
+        return self._range_sampling_rate
+
+    @property
+    def incidence_angle_mid_swath(self):
+        """
+        """
+
+        if self.multidataset:
+            return None  # not defined for multidataset
+        if self._incidence_angle_mid_swath is None:
+            self._incidence_angle_mid_swath = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.incidence_angle_mid_swath')
+        return self._incidence_angle_mid_swath
+
+    @property
+    def number_of_samples(self):
+        """
+        """
+
+        if self.multidataset:
+            return None  # not defined for multidataset
+        if self._number_of_samples is None:
+            self._number_of_samples = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.number_of_samples')
+        return self._number_of_samples
+
+    @property
+    def slant_range_time(self):
+        """
+        /product/imageAnnotation/imageInformation/slantRangeTime
+        """
+
+        if self.multidataset:
+            return None  # not defined for multidataset
+        if self._slant_range_time is None:
+            self._slant_range_time = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.slant_range_time')
+        return self._slant_range_time
+
+    @property
+    def nb_dcestimate(self):
+        """
+        """
+
+        if self.multidataset:
+            return None  # not defined for multidataset
+        if self._nb_dcestimate is None:
+            self._nb_dcestimate = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.nb_dcestimate')
+        return self._nb_dcestimate
 
     @property
     def npoints_geolocgrid(self):
@@ -358,6 +533,17 @@ class Sentinel1Meta:
         if self._azimuth_time_interval is None:
             self._azimuth_time_interval = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.azimuth_time_interval')
         return self._azimuth_time_interval
+
+    @property
+    def radar_frequency(self):
+        """
+        """
+
+        if self.multidataset:
+            return None  # not defined for multidataset
+        if self._radar_frequency is None:
+            self._radar_frequency = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.radar_frequency')
+        return self._radar_frequency
 
 
     @property
@@ -606,6 +792,7 @@ class Sentinel1Meta:
         if self.multidataset:
             return None  # not defined for multidataset
         return self.gcps.attrs['pixel_xtrack_m']
+
 
     @property
     def time_range(self):
@@ -969,147 +1156,92 @@ class Sentinel1Meta:
         # For consistency, azimuth time is derived from the one given in
         # geolocation grid (the one given in burst_list do not always perfectly
         # match).
-        print('line',line,type(line))
         burst_nlines = self.lines_per_burst
         azi_time_int = self.azimuth_time_interval
-        geoloc = self._get_geolocation_grid()
-        geoloc_line = geoloc['line'][:, int((geoloc['npixels'] - 1) / 2)]
-        print('geoloc_line',geoloc_line)
+        #geoloc = self._get_geolocation_grid()
+        #geoloc = self.geoloc
+        geoloc_line = self.geoloc['line'][:, int((self.geoloc['npixels'] - 1) / 2)]
         geoloc_iburst = np.floor(geoloc_line / float(burst_nlines)).astype('int32')
         iburst = np.floor(line / float(burst_nlines)).astype('int32')
-        print('iburst',iburst)
         ind = np.searchsorted(geoloc_iburst, iburst, side='left')
-        print('ind',ind)
-        print('geoloc["azimuth_time"]',geoloc['azimuth_time'].shape,geoloc['azimuth_time'].dtype)
-        geoloc_azitime = geoloc['azimuth_time'][:, int((geoloc['npixels'] - 1) / 2)]
+        geoloc_azitime = self.geoloc['azimuth_time'][:, int((self.geoloc['npixels'] - 1) / 2)]
         azitime = geoloc_azitime[ind] + (line - geoloc_line[ind]) * azi_time_int
-        print('azitime',azitime)
         return azitime
 
-    #ajout agrouaze copy paste from cerbere
-    def _get_geolocation_grid(self, ):
-        """
-        """
-        #ads = pads.find('./geolocationGrid/geolocationGridPointList')
-        #points = ads.findall('./geolocationGridPoint')
-        npoints =  self.npoints_geolocgrid
-        geoloc = OrderedDict()
-        geoloc['npoints'] = npoints
-        geoloc['nlines'] = 0
-        geoloc['npixels'] = 0
-        geoloc['azimuth_time'] = self.azimuth_time # np.empty(npoints, dtype='float64')
-        geoloc['slant_range_time'] = self.slant_range_time #np.empty(npoints, dtype='float64')
-        #geoloc['line'] = np.empty(npoints, dtype='int32')
-        geoloc['line'] = self.line
-        #geoloc['pixel'] = np.empty(npoints, dtype='int32')
-        geoloc['pixel'] = self.pixel
-        geoloc['latitude'] = self.latitude_lr #np.empty(npoints, dtype='float32')
-        geoloc['longitude'] = self.longitude_lr #np.empty(npoints, dtype='float32')
-        geoloc['height'] = self.height #np.empty(npoints, dtype='float32')
-        geoloc['incidence_angle'] = self.incidence # np.empty(npoints, dtype='float32')
-        geoloc['elevation_angle'] = self.elevation #np.empty(npoints, dtype='float32')
-        gridkeys = [k for k in geoloc if isinstance(geoloc[k], np.ndarray)]
-        # for ipt, point in enumerate(points):
-        #     strtime = point.find('./azimuthTime').text
-        #     geoloc['azimuth_time'][ipt] = self._strtime2numtime(strtime)
-        #     geoloc['slant_range_time'][ipt] = \
-        #         point.find('./slantRangeTime').text
-        #     geoloc['line'][ipt] = point.find('./line').text
-        #     geoloc['pixel'][ipt] = point.find('./pixel').text
-        #     geoloc['latitude'][ipt] = point.find('./latitude').text
-        #     geoloc['longitude'][ipt] = point.find('./longitude').text
-        #     geoloc['height'][ipt] = point.find('./height').text
-        #     geoloc['incidence_angle'][ipt] = \
-        #         point.find('./incidenceAngle').text
-        #     geoloc['elevation_angle'][ipt] = \
-        #         point.find('./elevationAngle').text
-        # Make grid
-        #lines = geoloc['line']
-        lines = self.line
-        pixels = self.pixel
-        print('lines',lines)
-        geoloc['npixels'] = len(np.where(lines == lines[0,0])[0])
-        #geoloc['npixels'] = len(pixels)
-        #pixels = geoloc['pixel']
-        
-        print('pixels',pixels)
-        geoloc['nlines'] = len(np.where(pixels == pixels[0,0])[0])
-        #geoloc['nlines'] = len(lines)
-        print('npoints,type',type(geoloc['npoints']))
-        if geoloc['nlines']*geoloc['npixels'] != geoloc['npoints']:
-            msg = 'nlines*npixels (%sx%s=%s) != npoints (%s) in geolocation grid'% (geoloc['nlines'],geoloc['npixels'],geoloc['nlines']*geoloc['npixels'],geoloc['npoints'])
-            raise BaseException(msg)
-        newshape = (geoloc['nlines'], geoloc['npixels'])
-        for key in gridkeys:
-            geoloc[key] = np.reshape(geoloc[key], newshape)
-        # Check grid
-        chk = geoloc['line'].min(axis=1) != geoloc['line'].max(axis=1)
-        if chk.any():
-            raise BaseException('geolocation lines do not form a grid')
-        chk = geoloc['pixel'].min(axis=0) != geoloc['pixel'].max(axis=0)
-        if chk.any():
-            raise BaseException('geolocation pixels do not form a grid')
-        linargsort = geoloc['line'][:, 0].argsort()
-        if ((linargsort[1:] - linargsort[0:-1]) != 1).any():
-            warnings.warn('Geolocation lines are not sorted -> do sort')
-            for key in gridkeys:
-                geoloc[key] = geoloc[key][linargsort, :]
-        pixargsort = geoloc['pixel'][0, :].argsort()
-        if ((pixargsort[1:] - pixargsort[0:-1]) != 1).any():
-            warnings.warn('Geolocation pixels are not sorted -> do sort')
-            for key in gridkeys:
-                geoloc[key] = geoloc[key][:, pixargsort]
-        return geoloc
-    
-    def _fill_dopplercentroid(self, pads):
+
+    @property
+    def dopplercentroid(self):
         """
         copy pasted from safegeotifffile for cross spectra estimation
-        #TODO put all the 12 attributs red in the xml annotaiton in the xml_mappings.py dict
-        :argument
-            pads : root obj from xml parsing product annotation file
         """
-        dce = OrderedDict()
-        estimates = pads.findall('./dopplerCentroid/dcEstimateList/dcEstimate')
-        dce['nlines'] = len(estimates)
-        dce['npixels'] = int(estimates[0].find('fineDceList').get('count'))
-        dce['ngeocoeffs'] = \
-            int(estimates[0].find('geometryDcPolynomial').get('count'))
-        dce['ndatacoeffs'] = \
-            int(estimates[0].find('dataDcPolynomial').get('count'))
-        dims = (dce['nlines'], dce['npixels'])
-        dce['azimuth_time'] = np.empty(dims, dtype='float64')
-        dce['t0'] = np.empty(dce['nlines'], dtype='float64')
-        dce['geo_polynom'] = np.empty((dce['nlines'], dce['ngeocoeffs']),
-                                      dtype='float32')
-        dce['data_polynom'] = np.empty((dce['nlines'], dce['ndatacoeffs']),
-                                       dtype='float32')
-        dce['data_rms'] = np.empty(dce['nlines'], dtype='float32')
-        #dce['data_rms_threshold'] =
-        dce['azimuth_time_start'] = np.empty(dce['nlines'], dtype='float64')
-        dce['azimuth_time_stop'] = np.empty(dce['nlines'], dtype='float64')
-        dce['slant_range_time'] = np.empty(dims, dtype='float64')
-        dce['frequency'] = np.empty(dims, dtype='float32')
-        for iline, estimate in enumerate(estimates):
-            strtime = estimate.find('./azimuthTime').text
-            dce['azimuth_time'][iline, :] = self._strtime2numtime(strtime)
-            dce['t0'][iline] = estimate.find('./t0').text
-            dce['geo_polynom'][iline, :] = \
-                estimate.find('./geometryDcPolynomial').text.split()
-            dce['data_polynom'][iline, :] = \
-                estimate.find('./dataDcPolynomial').text.split()
-            dce['data_rms'][iline] = estimate.find('./dataDcRmsError').text
+        if self._dopplercentroid is None:
+            dce = OrderedDict()
+            #estimates = pads.findall('./dopplerCentroid/dcEstimateList/dcEstimate')
+            dce['nlines'] = self.nb_dcestimate#len(estimates)
+            #dce['npixels'] = int(estimates[0].find('fineDceList').get('count'))
+            dce['npixels'] = self.nb_fineDce
+            # dce['ngeocoeffs'] = \
+            #     int(estimates[0].find('geometryDcPolynomial').get('count'))
+            dce['ngeocoeffs'] = self.nb_geoDcPoly
+            # dce['ndatacoeffs'] = \
+            #     int(estimates[0].find('dataDcPolynomial').get('count'))
+            dce['ndatacoeffs'] = self.nb_dataDcPoly
+            dims = (dce['nlines'], dce['npixels'])
+            dce['azimuth_time'] = np.empty(dims, dtype='float64')
+            dce['t0'] = np.empty(dce['nlines'], dtype='float64')
+            dce['geo_polynom'] = np.empty((dce['nlines'], dce['ngeocoeffs']),
+                                          dtype='float32')
+            dce['data_polynom'] = np.empty((dce['nlines'], dce['ndatacoeffs']),
+                                           dtype='float32')
+            dce['data_rms'] = np.empty(dce['nlines'], dtype='float32')
             #dce['data_rms_threshold'] =
-            strtime = estimate.find('./fineDceAzimuthStartTime').text
-            dce['azimuth_time_start'][iline] = self._strtime2numtime(strtime)
-            strtime = estimate.find('./fineDceAzimuthStopTime').text
-            dce['azimuth_time_stop'][iline] = self._strtime2numtime(strtime)
-            finedces = estimate.findall('./fineDceList/fineDce')
-            for ipixel, finedce in enumerate(finedces):
-                dce['slant_range_time'][iline, ipixel] = \
-                    finedce.find('./slantRangeTime').text
-                dce['frequency'][iline, ipixel] = \
-                    finedce.find('./frequency').text
-        #dic['doppler_centroid_estimates'] = dce
+            dce['azimuth_time_start'] = np.empty(dce['nlines'], dtype='float64')
+            dce['azimuth_time_stop'] = np.empty(dce['nlines'], dtype='float64')
+            dce['slant_range_time'] = np.empty(dims, dtype='float64')
+            dce['frequency'] = np.empty(dims, dtype='float32')
+            #for iline, estimate in enumerate(estimates):
+            tmp_dce_data = {}
+            for vv in ['dc_azimuth_time','dc_t0','dc_geoDcPoly','dc_dataDcPoly','dc_rmserr','dc_rmserrAboveThres'
+                       ,'dc_azstarttime','dc_azstoptime','dc_slantRangeTime','dc_frequency']:
+                tmp_dce_data[vv] = self.xml_parser.get_var(self._safe_files['annotation'].iloc[0], 'annotation.%s'%vv)
+
+            for iline in range(self.nb_dcestimate):
+                #strtime = estimate.find('./azimuthTime').text
+                strtime = tmp_dce_data['dc_azimuth_time'][iline]
+                dce['azimuth_time'][iline, :] = self._strtime2numtime(strtime)
+                #dce['t0'][iline] = estimate.find('./t0').text
+                dce['t0'][iline] = tmp_dce_data['dc_t0'][iline]
+                # dce['geo_polynom'][iline, :] = \
+                #     estimate.find('./geometryDcPolynomial').text.split()
+                dce['geo_polynom'][iline, :] = tmp_dce_data['dc_geoDcPoly'][iline,:]
+                # dce['data_polynom'][iline, :] = \
+                #     estimate.find('./dataDcPolynomial').text.split()
+                dce['data_polynom'][iline, :] = tmp_dce_data['dc_dataDcPoly'][iline,:]
+                #dce['data_rms'][iline] = estimate.find('./dataDcRmsError').text
+                dce['data_rms'][iline] = tmp_dce_data['dc_rmserr'][iline]
+                #dce['data_rms_threshold'] =
+                #strtime = estimate.find('./fineDceAzimuthStartTime').text
+                strtime = tmp_dce_data['dc_azstarttime'][iline]
+                dce['azimuth_time_start'][iline] = self._strtime2numtime(strtime)
+                #strtime = estimate.find('./fineDceAzimuthStopTime').text
+                strtime = tmp_dce_data['dc_azstoptime'][iline]
+                dce['azimuth_time_stop'][iline] = self._strtime2numtime(strtime)
+                #finedces = estimate.findall('./fineDceList/fineDce')
+                #for ipixel, finedce in enumerate(finedces):
+                dce['slant_range_time'] = tmp_dce_data['dc_slantRangeTime'].reshape((self.nb_dcestimate,self.nb_fineDce))
+                dce['frequency'] = tmp_dce_data['dc_frequency'].reshape((self.nb_dcestimate,self.nb_fineDce))
+                # for ipixel in  range(self.nb_fineDce):
+                #     # dce['slant_range_time'][iline, ipixel] = \
+                #     #     finedce.find('./slantRangeTime').text
+                #     dce['slant_range_time'][iline, ipixel] = tmp_dce_data['dc_slantRangeTime'][iline,ipixel]
+                #     # dce['frequency'][iline, ipixel] = \
+                #     #     finedce.find('./frequency').text
+                #     dce['frequency'][iline, ipixel] = tmp_dce_data['dc_frequency'][iline,ipixel]
+            self._dopplercentroid = dce
+        else:
+            dce = self._dopplercentroid
+            #dic['doppler_centroid_estimates'] = dce
+        logger.debug('doppler centroid estimete slant range time %s',dce['slant_range_time'].shape)
         return dce
 
     def _strtime2numtime(self, strtime, fmt='%Y-%m-%dT%H:%M:%S.%f'):
@@ -1122,4 +1254,207 @@ class Sentinel1Meta:
         # 'seconds since 2014-01-01 00:00:00'
         numtime = date2num(dtime,TIMEUNITS )
         return numtime
+
+    @property
+    def swathtiming(self):
+        """
+        read information from annotations files containing bursts timing
+        """
+        res_dict = None
+        if self._swathtiming is None:
+            res_dict = {}
+            #ads = pads.find('./swathTiming')
+            res_dict['lines_per_burst'] = self.lines_per_burst
+            res_dict['samples_per_burst'] = self.samples_per_burst
+            #ads = ads.find('./burstList')
+            #dic['number_of_bursts'] = int(ads.get('count'))
+            res_dict['number_of_bursts'] = self.number_of_bursts
+            burstlist = OrderedDict()
+            if res_dict['number_of_bursts']  != 0:
+                # bursts = ads.findall('./burst')
+                #bursts = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.all_bursts')
+                #nbursts = len(bursts)
+                nbursts = int(res_dict['number_of_bursts'])
+                burstlist['nbursts'] = nbursts
+                burstlist['azimuth_time'] = np.empty(nbursts, dtype='float64')
+                burstlist['azimuth_anx_time'] = np.empty(nbursts, dtype='float64')
+                burstlist['sensing_time'] = np.empty(nbursts, dtype='float64')
+                burstlist['byte_offset'] = np.empty(nbursts, dtype='uint64')
+                nlines = res_dict['lines_per_burst']
+                shp = (nbursts, nlines)
+                burstlist['first_valid_sample'] = np.empty(shp, dtype='int32')
+                burstlist['last_valid_sample'] = np.empty(shp, dtype='int32')
+                burstlist['valid_location'] = np.empty((nbursts, 4), dtype='int32')
+                tmp_data = {}
+                for vv in ['azimuthTime','azimuthAnxTime','sensingTime','byteOffset','firstValidSample','lastValidSample']:
+                    tmp_data[vv] = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.burst_'+vv)
+                    logger.debug('tmp_data %s : %s %s',vv,tmp_data[vv],tmp_data[vv].shape)
+                #for ibur, burst in enumerate(bursts):
+                for ibur in range(nbursts):
+                    #strtime = burst.find('./azimuthTime').text
+                    strtime = tmp_data['azimuthTime'][ibur]
+                    burstlist['azimuth_time'][ibur] = self._strtime2numtime(strtime)
+                    # burstlist['azimuth_anx_time'][ibur] = \
+                    #     np.float64(burst.find('./azimuthAnxTime').text)
+                    burstlist['azimuth_anx_time'][ibur] = \
+                        np.float64(tmp_data['azimuthAnxTime'][ibur])
+                    #strtime = burst.find('./sensingTime').text
+                    strtime = tmp_data['sensingTime'][ibur]
+                    burstlist['sensing_time'][ibur] = self._strtime2numtime(strtime)
+                    # burstlist['byte_offset'][ibur] = \
+                    #     np.uint64(burst.find('./byteOffset').text)
+                    burstlist['byte_offset'][ibur] = \
+                        np.uint64(tmp_data['byteOffset'][ibur])
+                    # fvs = np.int32(burst.find('./firstValidSample').text.split())
+                    fvs = np.int32(tmp_data['firstValidSample'][ibur])
+                    burstlist['first_valid_sample'][ibur, :] = fvs
+                    # lvs = np.int32(burst.find('./lastValidSample').text.split())
+                    lvs = np.int32(tmp_data['lastValidSample'][ibur])
+                    burstlist['last_valid_sample'][ibur, :] = lvs
+                    valind = np.where((fvs != -1) | (lvs != -1))[0]
+                    valloc = [ibur*nlines+valind.min(), fvs[valind].min(),
+                              ibur*nlines+valind.max(), lvs[valind].max()]
+                    burstlist['valid_location'][ibur, :] = valloc
+            res_dict['burst_list'] = burstlist
+            self._swathtiming = res_dict
+        else:
+            logger.debug('swath timing already filled')
+            res_dict = self._swathtiming
+        return res_dict
+
+    def extent_burst(self, burst, valid=True):
+        """Get extent for a SAR image burst.
+        copy pasted from sarimage.py ODL
+        """
+        nbursts = self.number_of_bursts
+        if nbursts == 0:
+            raise Exception('No bursts in SAR image')
+        if burst < 0 or burst >= nbursts:
+            raise Exception('Invalid burst index number')
+        if valid is True:
+            burst_list = self.swathtiming['burst_list']
+            extent = np.copy(burst_list['valid_location'][burst, :])
+        else:
+            extent = self._extent_max()
+            nlines = self.lines_per_burst
+            extent[0:3:2] = [nlines*burst, nlines*(burst+1)-1]
+        return extent
+
+
+    def _extent_max(self):
+        """Get extent for the whole SAR image.
+        copy/pasted from cerbere
+        """
+        return np.array((0, 0, self.number_of_lines-1,
+                         self.number_of_samples-1))
+
+    @property
+    def nb_state_vector(self):
+        """
+        Platform heading, relative to north
+        """
+
+        if self.multidataset:
+            return None  # not defined for multidataset
+        if self._nb_state_vector is None:
+            self._nb_state_vector = self.xml_parser.get_var(self.files['annotation'].iloc[0],
+                                                             'annotation.nb_state_vector')
+        return self._nb_state_vector
+
+    @property
+    def nb_fmrate(self):
+        """
+        azimuthFmRateList annotations
+        """
+
+        if self.multidataset:
+            return None  # not defined for multidataset
+        if self._nb_fmrate is None:
+            self._nb_fmrate = self.xml_parser.get_var(self.files['annotation'].iloc[0],
+                                                             'annotation.nb_fmrate')
+        return self._nb_fmrate
+
+    @property
+    def orbit_state_vectors(self):
+        if self._orbit_state_vectors is None:
+            res = {}
+            #vectors = pads.findall('./generalAnnotation/orbitList/orbit')
+            #nvect = len(vectors)
+            nvect = self.nb_state_vector
+            osv = OrderedDict()
+            osv['nlines'] = nvect
+            osv['time'] = np.empty(nvect, dtype='float64')
+            osv['frame'] = []
+            osv['position'] = np.empty((nvect, 3), dtype='float32')
+            osv['velocity'] = np.empty((nvect, 3), dtype='float32')
+            #for ivect, vector in enumerate(vectors):
+            tmpdata = {}
+            for vv in ['orbit_time','orbit_frame','orbit_pos_x','orbit_pos_y','orbit_pos_z',
+                       'orbit_vel_x','orbit_vel_y','orbit_vel_z']:
+                tmpdata[vv] = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.%s'%vv)
+            for ivect in range(nvect):
+                #strtime = vector.find('./time').text
+                strtime = tmpdata['orbit_time'][ivect]
+                osv['time'][ivect] = self._strtime2numtime(strtime)
+                #osv['frame'].append(vector.find('./frame').text)
+                osv['frame'].append(tmpdata['orbit_frame'][ivect])
+                #osv['position'][ivect, 0] = vector.find('./position/x').text
+                osv['position'][ivect, 0] = tmpdata['orbit_pos_x'][ivect]
+                osv['position'][ivect, 1] = tmpdata['orbit_pos_y'][ivect]
+                osv['position'][ivect, 2] = tmpdata['orbit_pos_z'][ivect]
+                osv['velocity'][ivect, 0] = tmpdata['orbit_vel_x'][ivect]
+                osv['velocity'][ivect, 1] = tmpdata['orbit_vel_y'][ivect]
+                osv['velocity'][ivect, 2] = tmpdata['orbit_vel_z'][ivect]
+            # osv['total_velocity'] = np.sqrt(osv['velocity'][:, 0]**2 + \
+            #                                 osv['velocity'][:, 1]**2 + \
+            #                                 osv['velocity'][:, 2]**2)
+            res['orbit_state_vectors'] = osv
+            res['orbit_state_position'] = osv['position'][nvect // 2, :]
+            res['orbit_state_velocity'] = osv['velocity'][nvect // 2, :]
+        else:
+            res = self._orbit_state_vectors
+        return res
+
+    @property
+    def azimuthfmrate(self):
+        """
+        /generalAnnotation/azimuthFmRateList/azimuthFmRate
+        """
+        if self._azimuthfmrate is None:
+            ncoeff = self.nb_fmrate
+            afr = OrderedDict()
+            afr['nlines'] = ncoeff
+            afr['azimuth_time'] = np.empty(ncoeff, dtype='float64')
+            afr['t0'] = np.empty(ncoeff, dtype='float32')
+            afr['c0'] = np.empty(ncoeff, dtype='float32')
+            afr['c1'] = np.empty(ncoeff, dtype='float32')
+            afr['c2'] = np.empty(ncoeff, dtype='float32')
+            tmp_fmrates = {}
+            for vv in ['fmrate_azimuthtime','fmrate_c0','fmrate_c1','fmrate_c2','fmrate_t0','fmrate_azimuthFmRatePolynomial']:
+                tmp_fmrates[vv] = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.%s'%vv)
+            for icoeff in range(ncoeff):
+                strtime = tmp_fmrates["fmrate_azimuthtime"][icoeff]
+                afr['azimuth_time'][icoeff] = self._strtime2numtime(strtime)
+                afr['t0'][icoeff] = tmp_fmrates['fmrate_t0'][icoeff]
+                if tmp_fmrates['fmrate_c0'] != []:
+                    poly1 = [tmp_fmrates[cname][icoeff] for cname in ['fmrate_c0', 'fmrate_c1', 'fmrate_c2']]
+                else:
+                    poly1 = [None,None,None]
+                #poly2 = coeff.find('./azimuthFmRatePolynomial')
+                poly2 = tmp_fmrates['fmrate_azimuthFmRatePolynomial'][icoeff]
+                if all([p is not None for p in poly1]): # old annotation
+                    polycoeff = [p.text for p in poly1]
+                elif poly2 is not None: # new annotation (if not bug)
+                    #polycoeff = poly2.text.split(' ')
+                    polycoeff = poly2
+                else:
+                    raise Exception('Could not find azimuth FM rate polynomial coefficients')
+                afr['c0'][icoeff] = polycoeff[0]
+                afr['c1'][icoeff] = polycoeff[1]
+                afr['c2'][icoeff] = polycoeff[2]
+            self._azimuthfmrate = afr
+        else:
+            afr = self._azimuthfmrate
+        return afr
+
 

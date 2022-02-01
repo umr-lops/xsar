@@ -172,7 +172,7 @@ xpath_mappings = {
         'fmrate_azimuthFmRatePolynomial': (
             float_2Darray_from_string_list,
             '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/azimuthFmRatePolynomial'),
-        'orbit_time': (np.array, '//product/generalAnnotation/orbitList/orbit/time'),
+        'orbit_time': (datetime64_array, '//product/generalAnnotation/orbitList/orbit/time'),
         'orbit_frame': (np.array, '//product/generalAnnotation/orbitList/orbit/frame'),
         'orbit_pos_x': (np.array, '//product/generalAnnotation/orbitList/orbit/position/x'),
         'orbit_pos_y': (np.array, '//product/generalAnnotation/orbitList/orbit/position/y'),
@@ -459,6 +459,19 @@ def bursts(lines_per_burst, samples_per_burst, burst_azimuthTime, burst_azimuthA
         }
     )
 
+def orbit(orbit_time, orbit_frame, orbit_pos_x, orbit_pos_y, orbit_pos_z, orbit_vel_x, orbit_vel_y, orbit_vel_z):
+
+    return pd.DataFrame(
+        {
+            'frame': orbit_frame,
+            'pos_x': orbit_pos_x,
+            'pos_y': orbit_pos_y,
+            'pos_z': orbit_pos_z,
+            'vel_x': orbit_vel_x,
+            'vel_y': orbit_vel_y,
+            'vel_z': orbit_vel_z
+        }, index=orbit_time
+    )
 
 # dict of compounds variables.
 # compounds variables are variables composed of several variables.
@@ -538,5 +551,11 @@ compounds_vars = {
         'args': ('annotation.lines_per_burst', 'annotation. samples_per_burst', 'annotation. burst_azimuthTime',
                  'annotation. burst_azimuthAnxTime', 'annotation. burst_sensingTime', 'annotation.burst_byteOffset',
                  'annotation. burst_firstValidSample', 'annotation.burst_lastValidSample')
+    },
+    'orbit': {
+        'func': orbit,
+        'args': ('annotation.orbit_time', 'annotation.orbit_frame',
+                 'annotation.orbit_pos_x', 'annotation.orbit_pos_y', 'annotation.orbit_pos_z',
+                 'annotation.orbit_vel_x', 'annotation.orbit_vel_y', 'annotation.orbit_vel_z')
     }
 }

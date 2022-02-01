@@ -376,6 +376,9 @@ class Sentinel1Meta:
     def bursts(self):
         return self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts')
 
+    @property
+    def orbit(self):
+        return self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'orbit')
 
 
     @property

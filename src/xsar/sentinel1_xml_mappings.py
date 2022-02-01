@@ -139,6 +139,7 @@ xpath_mappings = {
             float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/slantRangeTime'),
         'longitude': (float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/longitude'),
         'latitude': (float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/latitude'),
+        'number_pts_geolocation_grid':(scalar_int,'/product/geolocationGrid/geolocationGridPointList/@count'),
         'polarization': (scalar, '/product/adsHeader/polarisation'),
         'atrack_time_range': (
             datetime64_array, '/product/imageAnnotation/imageInformation/*[contains(name(),"LineUtcTime")]'),

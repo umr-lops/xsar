@@ -19,7 +19,6 @@ from affine import Affine
 import os
 from datetime import datetime
 from collections import OrderedDict
-from netCDF4 import date2num
 from .ipython_backends import repr_mimebundle
 
 logger = logging.getLogger('xsar.sentinel1_meta')
@@ -146,15 +145,6 @@ class Sentinel1Meta:
         self._azimuthfmrate = None
         self._nb_fmrate = None
         self._slant_range_time = None
-        self._rangePixelSpacing = None # redundant with pixel_xtrack_m from gcp but could be up to 1.5m different!! -> huge consequence
-        self._azimuthPixelSpacing = None # same remark
-        #for vv in ['longitude_lr','atrack','xtrack','latitude_lr','elevation','height','incidence']
-        #self.longitude_lr = self.get_low_res_geolocationGrid('longitude_lr') #useless
-        #self.latitude_lr = self.get_low_res_geolocationGrid('latitude_lr')
-        #self.atrack = self.get_low_res_geolocationGrid('atrack')
-        #self.xtrack = self.get_low_res_geolocationGrid('xtrack')
-        #self.height = self.get_low_res_geolocationGrid('height')
-
 
     def __del__(self):
         logger.debug('__del__')
@@ -374,54 +364,36 @@ class Sentinel1Meta:
         if self.multidataset:
             return None  # not defined for multidataset
         if self._azimuth_steering_rate is None:
-            self._azimuth_steering_rate = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.azimuth_steering_rate')
+            self._azimuth_steering_rate = self.xml_parser.get_var(self.files['annotation'].iloc[0],
+                                                                  'annotation.azimuth_steering_rate')
         return self._azimuth_steering_rate
-
-    @property
-    def rangePixelSpacing(self):
-        """
-        """
-
-        if self.multidataset:
-            return None  # not defined for multidataset
-        if self._rangePixelSpacing is None:
-            self._rangePixelSpacing = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.rangePixelSpacing')
-        return self._rangePixelSpacing
-
-    @property
-    def azimuthPixelSpacing(self):
-        """
-        """
-
-        if self.multidataset:
-            return None  # not defined for multidataset
-        if self._azimuthPixelSpacing is None:
-            self._azimuthPixelSpacing = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.azimuthPixelSpacing')
-        return self._azimuthPixelSpacing
-
 
     @property
     def geoloc(self):
         """
-        load values from annotation files giving information on the geolocation grid (low resolution)
-        :return:
+        xarray.Dataset with `['longitude', 'latitude', 'height', 'azimuth_time', 'slant_range_time_lr']` variables
+        and `['atrack', 'xtrack'] coordinates, at the geolocation grid
         """
+        # TODO: this function should be merged with self.gcps ('longitude', 'latitude', 'height' are the same)
+        if self.multidataset:
+            raise TypeError('geolocation_grid not available for multidataset')
         if self._geoloc is None:
-            self._geoloc = xr.Dataset()
-            line = self.get_low_res_geolocationGrid('line')
-            pixel = self.get_low_res_geolocationGrid('pixel')
-            for vv in ['slant_range_time_lr','incidence','elevation','height','longitude_lr','latitude_lr','azimuth_time','pixel','line']:
-                tmpval = self.get_low_res_geolocationGrid(vv) #self._geolocslant_range_time
-                self._geoloc[vv] = xr.DataArray(tmpval,dims=['atrack_geolocgrid','xtrack_geologrid'],
-                                                                coords={'atrack_geolocgrid':line[:,0],
-                                                                        'xtrack_geologrid':pixel[0,:]
-                                                                        })
-                # self.incidence = self.get_low_res_geolocationGrid('incidence')
-                # self.elevation = self.get_low_res_geolocationGrid('elevation')
-                # self.azimuth_time = self.get_low_res_geolocationGrid('azimuth_time')
-            self._geoloc['npixels'] = len(np.where(self._geoloc['line'] == self._geoloc['line'][0, 0])[0])
-        else:
-            pass
+            xml_annotation = self.files['annotation'].iloc[0]
+            da_var_list = []
+            for var_name in ['longitude', 'latitude', 'height', 'azimuth_time', 'slant_range_time_lr']:
+                # TODO: we should use dask.array.from_delayed so xml files are read on demand
+                da_var = self.xml_parser.get_compound_var(xml_annotation, var_name)
+                da_var.name = var_name
+                # FIXME: waiting for merge from upstream
+                # da_var['history'] = self.xml_parser.get_compound_var(xml_annotation, var_name, describe=True)
+                da_var_list.append(da_var)
+
+            self._geoloc = xr.merge(da_var_list)
+
+            self._geoloc.attrs = {
+                'pixel_xtrack_m': self.xml_parser.get_var(xml_annotation, 'annotation.azimuthPixelSpacing'),
+                'pixel_atrack_m': self.xml_parser.get_var(xml_annotation, 'annotation.rangePixelSpacing')
+            }
         return self._geoloc
 
 
@@ -496,20 +468,6 @@ class Sentinel1Meta:
         if self._nb_dcestimate is None:
             self._nb_dcestimate = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.nb_dcestimate')
         return self._nb_dcestimate
-
-    @property
-    def npoints_geolocgrid(self):
-         
-        """
-        total number of points in the XML geolocation grid from annotation files
-        """
-
-        if self.multidataset:
-            return None  # not defined for multidataset
-        if self._npoints_geolocgrid is None:
-            self._npoints_geolocgrid = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.npoints_geolocgrid')
-            self._npoints_geolocgrid = int(self._npoints_geolocgrid)
-        return self._npoints_geolocgrid
 
     @property
     def samples_per_burst(self):
@@ -1120,27 +1078,7 @@ class Sentinel1Meta:
         new.__dict__.update(minidict)
         return new
 
-    def get_low_res_geolocationGrid(self,param):
-        """
-        param (str) in ['longitude_lr','latitude_lr','pixel','line','height','elevation','incidence','azimuthTime','SlantRangeTime']
-        see Table 6-88 Data Type - geolocationGridPointType of Sentinel-1-Product-Specification
-        :param param:
-        :return:
-        """
-
-        nlines = len(self.xml_parser.get_var(self._safe_files['annotation'].iloc[0], 'annotation.atrack'))
-        npixels = len(self.xml_parser.get_var(self._safe_files['annotation'].iloc[0], 'annotation.xtrack'))
-        newshape = (nlines, npixels)
-        #for key in gridkeys:
-        raw_vector = self.xml_parser.get_var(self._safe_files['annotation'].iloc[0], 'annotation.%s'%param)
-        raw_vector = raw_vector.astype(float)
-        if param not in ['atrack','xtrack']:
-            res = np.reshape(raw_vector, newshape)
-        else:
-            res = raw_vector
-        return res
-    
-    #ajout temporaire agrouaze
+    # ajout temporaire agrouaze
     def burst_azitime(self, line):
         """
         Get azimuth time for bursts (TOPS SLC).

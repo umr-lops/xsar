@@ -13,7 +13,6 @@ import geopandas as gpd
 from shapely.geometry import Polygon
 import os.path
 import logging
-import netCDF4
 
 logger = logging.getLogger('xsar.sentinel1_xml_mappings')
 logger.addHandler(logging.NullHandler())
@@ -26,21 +25,19 @@ namespaces = {
     "safe": "http://www.esa.int/safe/sentinel-1.0",
     "gml": "http://www.opengis.net/gml"
 }
-TIMEUNITS = 'seconds since 1990-01-01T00:00:00' # copy pasted from cerbere
 # xpath convertion function: they take only one args (list returned by xpath)
 scalar = lambda x: x[0]
 scalar_int = lambda x: int(x[0])
 scalar_float = lambda x: float(x[0])
 date_converter = lambda x: datetime.strptime(x[0], '%Y-%m-%dT%H:%M:%S.%f')
 datetime64_array = lambda x: np.array([np.datetime64(date_converter([sx])) for sx in x])
-datetum_array = lambda x: np.array([netCDF4.date2num(date_converter([sx]),units=TIMEUNITS) for sx in x])
 int_1Darray_from_string = lambda x: np.fromstring(x[0], dtype=int, sep=' ')
 float_2Darray_from_string_list = lambda x: np.vstack([np.fromstring(e, dtype=float, sep=' ') for e in x])
 int_1Darray_from_join_strings = lambda x: np.fromstring(" ".join(x), dtype=int, sep=' ')
 float_1Darray_from_join_strings = lambda x: np.fromstring(" ".join(x), dtype=float, sep=' ')
 int_array = lambda x: np.array(x, dtype=int)
 bool_array = lambda x: np.array(x, dtype=bool)
-float_array = lambda x: np.array(x,dtype=float)
+float_array = lambda x: np.array(x, dtype=float)
 uniq_sorted = lambda x: np.array(sorted(set(x)))
 ordered_category = lambda x: pd.Categorical(x).reorder_categories(x, ordered=True)
 normpath = lambda paths: [os.path.normpath(p) for p in paths]
@@ -128,17 +125,19 @@ xpath_mappings = {
     'annotation': {
         'atrack': (uniq_sorted, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/line'),
         'xtrack': (uniq_sorted, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/pixel'),
-        'line':(int_array,'//product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/line'), #same as atrack but return a 10x21 matrix
-        'pixel':(int_array,'//product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/pixel'), #same as atrack but return a 10x21 matrix
+        'atrack_grid': (int_array, '//product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/line'),
+        'xtrack_grid': (int_array, '//product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/pixel'),
         'incidence': (
             np.array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/incidenceAngle'),
         'elevation': (
             np.array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/elevationAngle'),
-        'height':(np.array,'/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/height'),
-        'azimuth_time':(datetum_array,'/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/azimuthTime'),
-        'slant_range_time_lr':(np.array,'/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/slantRangeTime'),
-        'longitude_lr':(np.array,'/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/longitude'),
-        'latitude_lr':(np.array,'/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/latitude'),
+        'height': (float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/height'),
+        'azimuth_time': (
+            datetime64_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/azimuthTime'),
+        'slant_range_time_lr': (
+            float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/slantRangeTime'),
+        'longitude': (float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/longitude'),
+        'latitude': (float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/latitude'),
         'polarization': (scalar, '/product/adsHeader/polarisation'),
         'atrack_time_range': (
             datetime64_array, '/product/imageAnnotation/imageInformation/*[contains(name(),"LineUtcTime")]'),
@@ -146,57 +145,66 @@ xpath_mappings = {
         'pol': (scalar, '/product/adsHeader/polarisation'),
         'pass': (scalar, '/product/generalAnnotation/productInformation/pass'),
         'platform_heading': (scalar_float, '/product/generalAnnotation/productInformation/platformHeading'),
-        'number_of_bursts':(scalar_int,'/product/swathTiming/burstList/@count'),
-        'number_of_lines':(scalar,'/product/imageAnnotation/imageInformation/numberOfLines'),
-        'incidence_angle_mid_swath':(scalar,'/product/imageAnnotation/imageInformation/incidenceAngleMidSwath'),
-        'number_of_samples':(scalar,'/product/imageAnnotation/imageInformation/numberOfSamples'),
-        'lines_per_burst':(scalar,'/product/swathTiming/linesPerBurst'),
-        'samples_per_burst':(scalar,'/product/swathTiming/samplesPerBurst'),
-        'azimuth_time_interval':(scalar_float,'/product/imageAnnotation/imageInformation/azimuthTimeInterval'),
-        'npoints_geolocgrid':(scalar,'/product/geolocationGrid/geolocationGridPointList/@count'),
-        'all_bursts':(np.array,'//product/swathTiming/burstList/burst'),
-        'burst_azimuthTime':(np.array,'//product/swathTiming/burstList/burst/azimuthTime'),
-        'burst_azimuthAnxTime':(np.array,'//product/swathTiming/burstList/burst/azimuthAnxTime'),
-        'burst_sensingTime':(np.array,'//product/swathTiming/burstList/burst/sensingTime'),
-        'burst_byteOffset':(np.array,'//product/swathTiming/burstList/burst/byteOffset'),
-        'burst_firstValidSample':(float_2Darray_from_string_list,'//product/swathTiming/burstList/burst/firstValidSample'),
-        'burst_lastValidSample':(float_2Darray_from_string_list,'//product/swathTiming/burstList/burst/lastValidSample'),
-        'radar_frequency':(scalar_float,'/product/generalAnnotation/productInformation/radarFrequency'),
-        'nb_state_vector':(scalar_int,'/product/generalAnnotation/orbitList/@count'),
-        'nb_fmrate':(scalar_int,'/product/generalAnnotation/azimuthFmRateList/@count'),
-        'fmrate_azimuthtime':(np.array,'//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/azimuthTime'),
-        'fmrate_t0':(float_array,'//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/t0'),
-        'fmrate_c0':(np.array,'//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/c0'),
-        'fmrate_c1':(np.array,'//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/c1'),
-        'fmrate_c2':(np.array,'//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/c2'),
-        'fmrate_azimuthFmRatePolynomial':(float_2Darray_from_string_list,'//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/azimuthFmRatePolynomial'),
-        'orbit_time':(np.array,'//product/generalAnnotation/orbitList/orbit/time'),
-        'orbit_frame':(np.array,'//product/generalAnnotation/orbitList/orbit/frame'),
-        'orbit_pos_x':(np.array,'//product/generalAnnotation/orbitList/orbit/position/x'),
-        'orbit_pos_y':(np.array,'//product/generalAnnotation/orbitList/orbit/position/y'),
-        'orbit_pos_z':(np.array,'//product/generalAnnotation/orbitList/orbit/position/z'),
-        'orbit_vel_x':(np.array,'//product/generalAnnotation/orbitList/orbit/velocity/x'),
-        'orbit_vel_y':(np.array,'//product/generalAnnotation/orbitList/orbit/velocity/y'),
-        'orbit_vel_z':(np.array,'//product/generalAnnotation/orbitList/orbit/velocity/z'),
-        'azimuth_steering_rate':(scalar_float,'/product/generalAnnotation/productInformation/azimuthSteeringRate'),
-        'nb_dcestimate':(scalar_int,'/product/dopplerCentroid/dcEstimateList/@count'),
-        'nb_geoDcPoly':(scalar_int,'/product/dopplerCentroid/dcEstimateList/dcEstimate[1]/geometryDcPolynomial/@count'),
-        'nb_dataDcPoly':(scalar_int,'/product/dopplerCentroid/dcEstimateList/dcEstimate[1]/dataDcPolynomial/@count'),
-        'nb_fineDce':(scalar_int,'/product/dopplerCentroid/dcEstimateList/dcEstimate[1]/fineDceList/@count'),
-        'dc_azimuth_time':(np.array,'//product/dopplerCentroid/dcEstimateList/dcEstimate/azimuthTime'),
-        'dc_t0':(np.array,'//product/dopplerCentroid/dcEstimateList/dcEstimate/t0'),
-        'dc_geoDcPoly':(float_2Darray_from_string_list,'//product/dopplerCentroid/dcEstimateList/dcEstimate/geometryDcPolynomial'),
-        'dc_dataDcPoly':(float_2Darray_from_string_list,'//product/dopplerCentroid/dcEstimateList/dcEstimate/dataDcPolynomial'),
-        'dc_rmserr':(np.array,'//product/dopplerCentroid/dcEstimateList/dcEstimate/dataDcRmsError'),
-        'dc_rmserrAboveThres':(bool_array,'//product/dopplerCentroid/dcEstimateList/dcEstimate/dataDcRmsErrorAboveThreshold'),
-        'dc_azstarttime':(np.array,'//product/dopplerCentroid/dcEstimateList/dcEstimate/fineDceAzimuthStartTime'),
-        'dc_azstoptime':(np.array,'//product/dopplerCentroid/dcEstimateList/dcEstimate/fineDceAzimuthStopTime'),
-        'dc_slantRangeTime':(np.array,'///product/dopplerCentroid/dcEstimateList/dcEstimate/fineDceList/fineDce/slantRangeTime'),
-        'dc_frequency':(np.array,'///product/dopplerCentroid/dcEstimateList/dcEstimate/fineDceList/fineDce/frequency'),
-        'range_sampling_rate':(scalar_float,'/product/generalAnnotation/productInformation/rangeSamplingRate'),
-        'slant_range_time':(scalar_float,'/product/imageAnnotation/imageInformation/slantRangeTime'),
-        'rangePixelSpacing':(scalar_float,'/product/imageAnnotation/imageInformation/rangePixelSpacing'),
-        'azimuthPixelSpacing':(scalar_float,'/product/imageAnnotation/imageInformation/azimuthPixelSpacing'),
+        'number_of_bursts': (scalar_int, '/product/swathTiming/burstList/@count'),
+        'number_of_lines': (scalar, '/product/imageAnnotation/imageInformation/numberOfLines'),
+        'incidence_angle_mid_swath': (scalar, '/product/imageAnnotation/imageInformation/incidenceAngleMidSwath'),
+        'number_of_samples': (scalar, '/product/imageAnnotation/imageInformation/numberOfSamples'),
+        'lines_per_burst': (scalar, '/product/swathTiming/linesPerBurst'),
+        'samples_per_burst': (scalar, '/product/swathTiming/samplesPerBurst'),
+        'azimuth_time_interval': (scalar_float, '/product/imageAnnotation/imageInformation/azimuthTimeInterval'),
+        'all_bursts': (np.array, '//product/swathTiming/burstList/burst'),
+        'burst_azimuthTime': (np.array, '//product/swathTiming/burstList/burst/azimuthTime'),
+        'burst_azimuthAnxTime': (np.array, '//product/swathTiming/burstList/burst/azimuthAnxTime'),
+        'burst_sensingTime': (np.array, '//product/swathTiming/burstList/burst/sensingTime'),
+        'burst_byteOffset': (np.array, '//product/swathTiming/burstList/burst/byteOffset'),
+        'burst_firstValidSample': (
+            float_2Darray_from_string_list, '//product/swathTiming/burstList/burst/firstValidSample'),
+        'burst_lastValidSample': (
+            float_2Darray_from_string_list, '//product/swathTiming/burstList/burst/lastValidSample'),
+        'radar_frequency': (scalar_float, '/product/generalAnnotation/productInformation/radarFrequency'),
+        'nb_state_vector': (scalar_int, '/product/generalAnnotation/orbitList/@count'),
+        'nb_fmrate': (scalar_int, '/product/generalAnnotation/azimuthFmRateList/@count'),
+        'fmrate_azimuthtime': (np.array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/azimuthTime'),
+        'fmrate_t0': (float_array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/t0'),
+        'fmrate_c0': (np.array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/c0'),
+        'fmrate_c1': (np.array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/c1'),
+        'fmrate_c2': (np.array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/c2'),
+        'fmrate_azimuthFmRatePolynomial': (
+            float_2Darray_from_string_list,
+            '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/azimuthFmRatePolynomial'),
+        'orbit_time': (np.array, '//product/generalAnnotation/orbitList/orbit/time'),
+        'orbit_frame': (np.array, '//product/generalAnnotation/orbitList/orbit/frame'),
+        'orbit_pos_x': (np.array, '//product/generalAnnotation/orbitList/orbit/position/x'),
+        'orbit_pos_y': (np.array, '//product/generalAnnotation/orbitList/orbit/position/y'),
+        'orbit_pos_z': (np.array, '//product/generalAnnotation/orbitList/orbit/position/z'),
+        'orbit_vel_x': (np.array, '//product/generalAnnotation/orbitList/orbit/velocity/x'),
+        'orbit_vel_y': (np.array, '//product/generalAnnotation/orbitList/orbit/velocity/y'),
+        'orbit_vel_z': (np.array, '//product/generalAnnotation/orbitList/orbit/velocity/z'),
+        'azimuth_steering_rate': (scalar_float, '/product/generalAnnotation/productInformation/azimuthSteeringRate'),
+        'nb_dcestimate': (scalar_int, '/product/dopplerCentroid/dcEstimateList/@count'),
+        'nb_geoDcPoly': (
+            scalar_int, '/product/dopplerCentroid/dcEstimateList/dcEstimate[1]/geometryDcPolynomial/@count'),
+        'nb_dataDcPoly': (scalar_int, '/product/dopplerCentroid/dcEstimateList/dcEstimate[1]/dataDcPolynomial/@count'),
+        'nb_fineDce': (scalar_int, '/product/dopplerCentroid/dcEstimateList/dcEstimate[1]/fineDceList/@count'),
+        'dc_azimuth_time': (np.array, '//product/dopplerCentroid/dcEstimateList/dcEstimate/azimuthTime'),
+        'dc_t0': (np.array, '//product/dopplerCentroid/dcEstimateList/dcEstimate/t0'),
+        'dc_geoDcPoly': (
+            float_2Darray_from_string_list, '//product/dopplerCentroid/dcEstimateList/dcEstimate/geometryDcPolynomial'),
+        'dc_dataDcPoly': (
+            float_2Darray_from_string_list, '//product/dopplerCentroid/dcEstimateList/dcEstimate/dataDcPolynomial'),
+        'dc_rmserr': (np.array, '//product/dopplerCentroid/dcEstimateList/dcEstimate/dataDcRmsError'),
+        'dc_rmserrAboveThres': (
+            bool_array, '//product/dopplerCentroid/dcEstimateList/dcEstimate/dataDcRmsErrorAboveThreshold'),
+        'dc_azstarttime': (np.array, '//product/dopplerCentroid/dcEstimateList/dcEstimate/fineDceAzimuthStartTime'),
+        'dc_azstoptime': (np.array, '//product/dopplerCentroid/dcEstimateList/dcEstimate/fineDceAzimuthStopTime'),
+        'dc_slantRangeTime': (
+            np.array, '///product/dopplerCentroid/dcEstimateList/dcEstimate/fineDceList/fineDce/slantRangeTime'),
+        'dc_frequency': (
+            np.array, '///product/dopplerCentroid/dcEstimateList/dcEstimate/fineDceList/fineDce/frequency'),
+        'range_sampling_rate': (scalar_float, '/product/generalAnnotation/productInformation/rangeSamplingRate'),
+        'slant_range_time': (scalar_float, '/product/imageAnnotation/imageInformation/slantRangeTime'),
+        'rangePixelSpacing': (scalar_float, '/product/imageAnnotation/imageInformation/rangePixelSpacing'),
+        'azimuthPixelSpacing': (scalar_float, '/product/imageAnnotation/imageInformation/azimuthPixelSpacing'),
 
     }
 }
@@ -205,7 +213,7 @@ xpath_mappings = {
 # compounds variables converters
 
 def signal_lut(atrack, xtrack, lut):
-    logger.debug('signal lut on atrack %s xtrack %s lut : %s',atrack.shape,xtrack.shape,lut.shape)
+    logger.debug('signal lut on atrack %s xtrack %s lut : %s', atrack.shape, xtrack.shape, lut.shape)
     lut_f = RectBivariateSpline(atrack, xtrack, lut, kx=1, ky=1)
     return lut_f
 
@@ -407,6 +415,25 @@ def df_files(annotation_files, measurement_files, noise_files, calibration_files
     )
     return df
 
+def geolocation_grid(atrack, xtrack, values):
+    """
+
+    Parameters
+    ----------
+    atrack: np.ndarray
+        1D array of atrack dimension
+    xtrack: np.ndarray
+
+    Returns
+    -------
+    xarray.DataArray
+        with atrack and xtrack coordinates, and values as 2D
+
+    """
+    shape = (atrack.size, xtrack.size)
+    values = np.reshape(values, shape)
+    return xr.DataArray(values, dims=['atrack', 'xtrack'], coords={'atrack': atrack, 'xtrack': xtrack})
+
 
 # dict of compounds variables.
 # compounds variables are variables composed of several variables.
@@ -451,6 +478,8 @@ compounds_vars = {
             'noise.azi.swath')
     },
     'denoised': ('annotation.pol', 'annotation.denoised'),
+
+    # TODO: incidence and elevation should be deprecated (we should now use geolocation_grid)
     'incidence': {
         'func': annotation_angle,
         'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.incidence')
@@ -459,16 +488,25 @@ compounds_vars = {
         'func': annotation_angle,
         'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.elevation')
     },
+    'longitude': {
+        'func': geolocation_grid,
+        'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.longitude')
+    },
+    'latitude': {
+        'func': geolocation_grid,
+        'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.latitude')
+    },
     'height': {
-        'func': annotation_angle,
+        'func': geolocation_grid,
         'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.height')
     },
-    'slant_range_time': {
-        'func': annotation_angle,
-        'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.slant_range_time_lr')
+    'azimuth_time': {
+        'func': geolocation_grid,
+        'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.azimuth_time')
     },
-    # 'azimuth_time': {
-    #     'func': signal_lut,
-    #     'args':('annotation.atrack','annotation.xtrack','annotation.azimuth_time')
-    # }
+    'slant_range_time_lr': {
+        'func': geolocation_grid,
+        'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.slant_range_time_lr')
+    }
+
 }

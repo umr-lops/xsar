@@ -8,8 +8,7 @@ import dask
 import rasterio
 import rasterio.features
 import rioxarray
-from scipy import interpolate
-from scipy.interpolate import interp1d
+from scipy.interpolate import interp1d, RectBivariateSpline
 from shapely.geometry import Polygon
 import shapely
 from .utils import timing, haversine, map_blocks_coords, bbox_coords, BlockingActorProxy
@@ -171,9 +170,6 @@ class Sentinel1Dataset:
             'noise_lut_azi': 'noise',
             'incidence': 'annotation',
             'elevation': 'annotation',
-            'height':'annotation',
-            'azimuth_time':'annotation',
-            'slant_range_time':'annotation'
         }
 
         # dict mapping specifying if the variable has 'pol' dimension
@@ -220,7 +216,7 @@ class Sentinel1Dataset:
                 self._dataset = self._dataset.merge(self._get_noise(var_name))
             else:
                 logger.debug("Skipping variable '%s' ('%s' lut is missing)" % (var_name, lut_name))
-        self._dataset = self._dataset.merge(self._load_azimuth_time())
+        self._dataset = self._dataset.merge(self._load_from_geoloc(['height', 'azimuth_time', 'slant_range_time_lr']))
         self._dataset = self._add_denoised(self._dataset)
         self._dataset.attrs = self._recompute_attrs()
 
@@ -560,7 +556,49 @@ class Sentinel1Dataset:
             ds = ds.astype(self._dtypes[var_name])
 
         return ds
-    
+
+    def _load_from_geoloc(self, varnames):
+        """
+        Interpolate (with RectBiVariateSpline) variables from `self.s1meta.geoloc` to `self._dataset`
+
+        Parameters
+        ----------
+        varnames: list of str
+            subset of variables names in `self.s1meta.geoloc`
+
+        Returns
+        -------
+        xarray.Dataset
+            With interpolated vaiables
+
+        """
+
+        da_list = []
+        for varname in varnames:
+            interp_func = RectBivariateSpline(
+                self.s1meta.geoloc.atrack,
+                self.s1meta.geoloc.xtrack,
+                self.s1meta.geoloc[varname],
+                kx=1, ky=1
+            )
+            # the following take much cpu and memory, so we want to use dask
+            # interp_func(self._dataset.atrack, self.dataset.xtrack)
+            da_var = map_blocks_coords(
+                self._da_tmpl.astype(self.s1meta.geoloc[varname].dtype),
+                interp_func
+            )
+            da_var.name = varname
+
+            # copy history
+            try:
+                da_var.attrs['history'] = self.s1meta.geoloc[varname].attrs['history']
+            except KeyError:
+                pass
+
+            da_list.append(da_var)
+
+        return xr.merge(da_list)
+
     def _load_azimuth_time(self):
         """
         load/interpolate azimuth time from self.s1meta.files['annotation'] geolocation grid, as an `xarray.Dataset`.
@@ -573,6 +611,7 @@ class Sentinel1Dataset:
         xarray.Dataset
             dataset, with basic coords/dims naming convention
         """
+        raise DeprecationWarning('to be rewritten')
         zval = self.s1meta.geoloc['azimuth_time']
         yval = self.s1meta.geoloc['pixel'][0, :]
         slices = [slice(0,len(self.dataset.atrack.values)),slice(0,len(self.dataset.xtrack.values))] # TODO fix

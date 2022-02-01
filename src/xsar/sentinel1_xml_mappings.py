@@ -177,14 +177,14 @@ xpath_mappings = {
         'fmrate_azimuthFmRatePolynomial': (
             float_2Darray_from_string_list,
             '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/azimuthFmRatePolynomial'),
-        'orbit_time': (datetime64_array, '//product/generalAnnotation/orbitList/orbit/time'),
+        'orbit_time': (datenum_array, '//product/generalAnnotation/orbitList/orbit/time'), # needed as float for interpolation
         'orbit_frame': (np.array, '//product/generalAnnotation/orbitList/orbit/frame'),
-        'orbit_pos_x': (np.array, '//product/generalAnnotation/orbitList/orbit/position/x'),
-        'orbit_pos_y': (np.array, '//product/generalAnnotation/orbitList/orbit/position/y'),
-        'orbit_pos_z': (np.array, '//product/generalAnnotation/orbitList/orbit/position/z'),
-        'orbit_vel_x': (np.array, '//product/generalAnnotation/orbitList/orbit/velocity/x'),
-        'orbit_vel_y': (np.array, '//product/generalAnnotation/orbitList/orbit/velocity/y'),
-        'orbit_vel_z': (np.array, '//product/generalAnnotation/orbitList/orbit/velocity/z'),
+        'orbit_pos_x': (float_array, '//product/generalAnnotation/orbitList/orbit/position/x'),
+        'orbit_pos_y': (float_array, '//product/generalAnnotation/orbitList/orbit/position/y'),
+        'orbit_pos_z': (float_array, '//product/generalAnnotation/orbitList/orbit/position/z'),
+        'orbit_vel_x': (float_array, '//product/generalAnnotation/orbitList/orbit/velocity/x'),
+        'orbit_vel_y': (float_array, '//product/generalAnnotation/orbitList/orbit/velocity/y'),
+        'orbit_vel_z': (float_array, '//product/generalAnnotation/orbitList/orbit/velocity/z'),
         'azimuth_steering_rate': (scalar_float, '/product/generalAnnotation/productInformation/azimuthSteeringRate'),
         'nb_dcestimate': (scalar_int, '/product/dopplerCentroid/dcEstimateList/@count'),
         'nb_geoDcPoly': (
@@ -479,18 +479,29 @@ def bursts(lines_per_burst, samples_per_burst, burst_azimuthTime, burst_azimuthA
     return da
 
 def orbit(time, frame, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z):
+    """
+    return orbit vectors during acquisition (position and velocity)
+    Returns
+    -------
+    xarray.DataArray
+        with time and xyz coordinates, and values as 1D and 2D
 
-    return pd.DataFrame(
-        {
-            'frame': frame,
-            'pos_x': pos_x,
-            'pos_y': pos_y,
-            'pos_z': pos_z,
-            'vel_x': vel_x,
-            'vel_y': vel_y,
-            'vel_z': vel_z
-        }, index=time
-    )
+    """
+    da = xr.Dataset()
+    da['frame'] = xr.DataArray(frame,dims=['time'],coords={'time':time})
+    da['pos_x'] = xr.DataArray(pos_x, dims=['time'], coords={'time': time})
+    da['pos_y'] = xr.DataArray(pos_y, dims=['time'], coords={'time': time})
+    da['pos_z'] = xr.DataArray(pos_z, dims=['time'], coords={'time': time})
+    da['vel_x'] = xr.DataArray(vel_x, dims=['time'], coords={'time': time})
+    da['vel_y'] = xr.DataArray(vel_y, dims=['time'], coords={'time': time})
+    da['vel_z'] = xr.DataArray(vel_z, dims=['time'], coords={'time': time})
+    da['velocity'] = xr.DataArray(np.vstack([vel_x,vel_y,vel_z]).T,dims=['time','xyz'],
+                                  coords={'time': time,'xyz':np.arange(3)})
+    da['position'] = xr.DataArray(np.vstack([pos_x, pos_y, pos_z]).T, dims=['time', 'xyz'],
+                                  coords={'time': time, 'xyz': np.arange(3)})
+    da.attrs = {'nlines': len(time)} #number of orbit vectors in annotation file
+    return da
+
 
 def azimuth_fmrate(azimuthtime, t0, c0, c1, c2, polynomial):
 

@@ -137,7 +137,6 @@ class Sentinel1Meta:
         self._radar_frequency = None
         self._azimuth_time_interval = None
         self._npoints_geolocgrid = None
-        self._orbit_state_vectors = None
         self._geoloc = None
         self._ground_spacing = None
         self._nb_state_vector = None
@@ -1259,46 +1258,6 @@ class Sentinel1Meta:
                                                              'annotation.nb_fmrate')
         return self._nb_fmrate
 
-    @property
-    def orbit_state_vectors(self):
-        if self._orbit_state_vectors is None:
-            res = {}
-            #vectors = pads.findall('./generalAnnotation/orbitList/orbit')
-            #nvect = len(vectors)
-            nvect = self.nb_state_vector
-            osv = OrderedDict()
-            osv['nlines'] = nvect
-            osv['time'] = np.empty(nvect, dtype='float64')
-            osv['frame'] = []
-            osv['position'] = np.empty((nvect, 3), dtype='float32')
-            osv['velocity'] = np.empty((nvect, 3), dtype='float32')
-            #for ivect, vector in enumerate(vectors):
-            tmpdata = {}
-            for vv in ['orbit_time','orbit_frame','orbit_pos_x','orbit_pos_y','orbit_pos_z',
-                       'orbit_vel_x','orbit_vel_y','orbit_vel_z']:
-                tmpdata[vv] = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.%s'%vv)
-            for ivect in range(nvect):
-                #strtime = vector.find('./time').text
-                strtime = tmpdata['orbit_time'][ivect]
-                osv['time'][ivect] = self._strtime2numtime(strtime)
-                #osv['frame'].append(vector.find('./frame').text)
-                osv['frame'].append(tmpdata['orbit_frame'][ivect])
-                #osv['position'][ivect, 0] = vector.find('./position/x').text
-                osv['position'][ivect, 0] = tmpdata['orbit_pos_x'][ivect]
-                osv['position'][ivect, 1] = tmpdata['orbit_pos_y'][ivect]
-                osv['position'][ivect, 2] = tmpdata['orbit_pos_z'][ivect]
-                osv['velocity'][ivect, 0] = tmpdata['orbit_vel_x'][ivect]
-                osv['velocity'][ivect, 1] = tmpdata['orbit_vel_y'][ivect]
-                osv['velocity'][ivect, 2] = tmpdata['orbit_vel_z'][ivect]
-            # osv['total_velocity'] = np.sqrt(osv['velocity'][:, 0]**2 + \
-            #                                 osv['velocity'][:, 1]**2 + \
-            #                                 osv['velocity'][:, 2]**2)
-            res['orbit_state_vectors'] = osv
-            res['orbit_state_position'] = osv['position'][nvect // 2, :]
-            res['orbit_state_velocity'] = osv['velocity'][nvect // 2, :]
-        else:
-            res = self._orbit_state_vectors
-        return res
 
     @property
     def azimuthfmrate(self):

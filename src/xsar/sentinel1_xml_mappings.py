@@ -14,6 +14,7 @@ import geopandas as gpd
 from shapely.geometry import Polygon
 import os.path
 import logging
+import netCDF4
 
 logger = logging.getLogger('xsar.sentinel1_xml_mappings')
 logger.addHandler(logging.NullHandler())
@@ -26,12 +27,14 @@ namespaces = {
     "safe": "http://www.esa.int/safe/sentinel-1.0",
     "gml": "http://www.opengis.net/gml"
 }
+TIMEUNITS = 'seconds since 1990-01-01T00:00:00'
 # xpath convertion function: they take only one args (list returned by xpath)
 scalar = lambda x: x[0]
 scalar_int = lambda x: int(x[0])
 scalar_float = lambda x: float(x[0])
 date_converter = lambda x: datetime.strptime(x[0], '%Y-%m-%dT%H:%M:%S.%f')
 datetime64_array = lambda x: np.array([np.datetime64(date_converter([sx])) for sx in x])
+datenum_array = lambda x: np.array([netCDF4.date2num(date_converter([sx]),TIMEUNITS) for sx in x])
 int_1Darray_from_string = lambda x: np.fromstring(x[0], dtype=int, sep=' ')
 float_2Darray_from_string_list = lambda x: np.vstack([np.fromstring(e, dtype=float, sep=' ') for e in x])
 int_1Darray_from_join_strings = lambda x: np.fromstring(" ".join(x), dtype=int, sep=' ')
@@ -134,7 +137,7 @@ xpath_mappings = {
             np.array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/elevationAngle'),
         'height': (float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/height'),
         'azimuth_time': (
-            datetime64_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/azimuthTime'),
+            datenum_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/azimuthTime'),
         'slant_range_time_lr': (
             float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/slantRangeTime'),
         'longitude': (float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/longitude'),

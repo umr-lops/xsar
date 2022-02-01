@@ -379,6 +379,8 @@ class Sentinel1Meta:
                 'pixel_xtrack_m': self.xml_parser.get_var(xml_annotation, 'annotation.azimuthPixelSpacing'),
                 'pixel_atrack_m': self.xml_parser.get_var(xml_annotation, 'annotation.rangePixelSpacing'),
                 'number_pts_geolocation_grid': self.xml_parser.get_var(xml_annotation, 'annotation.number_pts_geolocation_grid'),
+                'npixels': len(self._geoloc['xtrack']),
+                'nlines': len(self._geoloc['atrack']),
             }
         return self._geoloc
 
@@ -1294,7 +1296,7 @@ class Sentinel1Meta:
         """Get extent for the whole SAR image.
         copy/pasted from cerbere
         """
-        return np.array((0, 0, self.number_of_lines-1,
+        return np.array((0, 0, self.number_of_lines-1, #TODO see whether it is still needed if gcp a set on integer index (instead of x.5 index)
                          self.number_of_samples-1))
 
     @property

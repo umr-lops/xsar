@@ -21,6 +21,7 @@ import os
 from datetime import datetime
 from collections import OrderedDict
 from .ipython_backends import repr_mimebundle
+import netCDF4
 
 
 logger = logging.getLogger('xsar.sentinel1_meta')
@@ -1204,7 +1205,7 @@ class Sentinel1Meta:
         #numtime = date2num(dtime, self.read_field('time').units)
         TIMEUNITS = 'seconds since 1990-01-01T00:00:00'
         # 'seconds since 2014-01-01 00:00:00'
-        numtime = date2num(dtime,TIMEUNITS )
+        numtime = netCDF4.date2num(dtime,TIMEUNITS )
         return numtime
 
     @property

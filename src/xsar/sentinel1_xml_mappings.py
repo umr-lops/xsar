@@ -158,9 +158,9 @@ xpath_mappings = {
         'samples_per_burst': (scalar, '/product/swathTiming/samplesPerBurst'),
         'azimuth_time_interval': (scalar_float, '/product/imageAnnotation/imageInformation/azimuthTimeInterval'),
         'all_bursts': (np.array, '//product/swathTiming/burstList/burst'),
-        'burst_azimuthTime': (datetime64_array, '//product/swathTiming/burstList/burst/azimuthTime'),
+        'burst_azimuthTime': (datenum_array, '//product/swathTiming/burstList/burst/azimuthTime'),
         'burst_azimuthAnxTime': (float_array, '//product/swathTiming/burstList/burst/azimuthAnxTime'),
-        'burst_sensingTime': (datetime64_array, '//product/swathTiming/burstList/burst/sensingTime'),
+        'burst_sensingTime': (datenum_array, '//product/swathTiming/burstList/burst/sensingTime'),
         'burst_byteOffset': (np.array, '//product/swathTiming/burstList/burst/byteOffset'),
         'burst_firstValidSample': (
             float_2Darray_from_string_list, '//product/swathTiming/burstList/burst/firstValidSample'),
@@ -452,17 +452,31 @@ def bursts(lines_per_burst, samples_per_burst, burst_azimuthTime, burst_azimuthA
     burst_lastValidSample = burst_lastValidSample.astype(float)
     burst_firstValidSample[burst_firstValidSample == -1] = np.nan
     burst_lastValidSample[burst_lastValidSample == -1] = np.nan
-
-    return xr.Dataset(
+    nbursts = len(burst_azimuthTime)
+    valid_locations = np.empty((nbursts, 4), dtype='int32')
+    for ibur in range(nbursts):
+        fvs = burst_firstValidSample[ibur, :]
+        lvs = burst_lastValidSample[ibur, :]
+        #valind = np.where((fvs != -1) | (lvs != -1))[0]
+        valind = np.where(np.isfinite(fvs) | np.isfinite(lvs))[0]
+        valloc = [ibur * lines_per_burst + valind.min(), fvs[valind].min(),
+                  ibur * lines_per_burst + valind.max(), lvs[valind].max()]
+        valid_locations[ibur, :] = valloc
+    da = xr.Dataset(
         {
             'azimuthTime': ('burst', burst_azimuthTime),
             'azimuthAnxTime': ('burst', burst_azimuthAnxTime),
             'sensingTime': ('burst', burst_sensingTime),
             'byteOffset': ('burst', burst_byteOffset),
             'firstValidSample': (['burst', 'xtrack'], burst_firstValidSample),
-            'lastValidSample': (['burst', 'xtrack'], burst_lastValidSample)
+            'lastValidSample': (['burst', 'xtrack'], burst_lastValidSample),
+            'valid_location': xr.DataArray(dims=['burst', 'limits'], data=valid_locations,
+                                           attrs={
+                                               'description': 'start atrack index, start xtrack index, stop atrack index, stop xtrack index'}),
         }
     )
+    da.attrs = {'nbursts': nbursts}
+    return da
 
 def orbit(time, frame, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z):
 

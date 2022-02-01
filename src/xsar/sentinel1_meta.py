@@ -140,7 +140,6 @@ class Sentinel1Meta:
         self._orbit_state_vectors = None
         self._geoloc = None
         self._ground_spacing = None
-        self._swathtiming = None
         self._nb_state_vector = None
         self._nb_dcestimate = None
         self._nb_dataDcPoly = None
@@ -1207,73 +1206,6 @@ class Sentinel1Meta:
         # 'seconds since 2014-01-01 00:00:00'
         numtime = netCDF4.date2num(dtime,TIMEUNITS )
         return numtime
-
-    @property
-    def swathtiming(self):
-        """
-        read information from annotations files containing bursts timing
-        """
-        res_dict = None
-        if self._swathtiming is None:
-            res_dict = {}
-            #ads = pads.find('./swathTiming')
-            res_dict['lines_per_burst'] = self.lines_per_burst
-            res_dict['samples_per_burst'] = self.samples_per_burst
-            #ads = ads.find('./burstList')
-            #dic['number_of_bursts'] = int(ads.get('count'))
-            res_dict['number_of_bursts'] = self.number_of_bursts
-            burstlist = OrderedDict()
-            if res_dict['number_of_bursts']  != 0:
-                # bursts = ads.findall('./burst')
-                #bursts = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.all_bursts')
-                #nbursts = len(bursts)
-                nbursts = int(res_dict['number_of_bursts'])
-                burstlist['nbursts'] = nbursts
-                burstlist['azimuth_time'] = np.empty(nbursts, dtype='float64')
-                burstlist['azimuth_anx_time'] = np.empty(nbursts, dtype='float64')
-                burstlist['sensing_time'] = np.empty(nbursts, dtype='float64')
-                burstlist['byte_offset'] = np.empty(nbursts, dtype='uint64')
-                nlines = res_dict['lines_per_burst']
-                shp = (nbursts, nlines)
-                burstlist['first_valid_sample'] = np.empty(shp, dtype='int32')
-                burstlist['last_valid_sample'] = np.empty(shp, dtype='int32')
-                burstlist['valid_location'] = np.empty((nbursts, 4), dtype='int32')
-                tmp_data = {}
-                for vv in ['azimuthTime','azimuthAnxTime','sensingTime','byteOffset','firstValidSample','lastValidSample']:
-                    tmp_data[vv] = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.burst_'+vv)
-                    logger.debug('tmp_data %s : %s %s',vv,tmp_data[vv],tmp_data[vv].shape)
-                #for ibur, burst in enumerate(bursts):
-                for ibur in range(nbursts):
-                    #strtime = burst.find('./azimuthTime').text
-                    strtime = tmp_data['azimuthTime'][ibur]
-                    burstlist['azimuth_time'][ibur] = self._strtime2numtime(strtime)
-                    # burstlist['azimuth_anx_time'][ibur] = \
-                    #     np.float64(burst.find('./azimuthAnxTime').text)
-                    burstlist['azimuth_anx_time'][ibur] = \
-                        np.float64(tmp_data['azimuthAnxTime'][ibur])
-                    #strtime = burst.find('./sensingTime').text
-                    strtime = tmp_data['sensingTime'][ibur]
-                    burstlist['sensing_time'][ibur] = self._strtime2numtime(strtime)
-                    # burstlist['byte_offset'][ibur] = \
-                    #     np.uint64(burst.find('./byteOffset').text)
-                    burstlist['byte_offset'][ibur] = \
-                        np.uint64(tmp_data['byteOffset'][ibur])
-                    # fvs = np.int32(burst.find('./firstValidSample').text.split())
-                    fvs = np.int32(tmp_data['firstValidSample'][ibur])
-                    burstlist['first_valid_sample'][ibur, :] = fvs
-                    # lvs = np.int32(burst.find('./lastValidSample').text.split())
-                    lvs = np.int32(tmp_data['lastValidSample'][ibur])
-                    burstlist['last_valid_sample'][ibur, :] = lvs
-                    valind = np.where((fvs != -1) | (lvs != -1))[0]
-                    valloc = [ibur*nlines+valind.min(), fvs[valind].min(),
-                              ibur*nlines+valind.max(), lvs[valind].max()]
-                    burstlist['valid_location'][ibur, :] = valloc
-            res_dict['burst_list'] = burstlist
-            self._swathtiming = res_dict
-        else:
-            logger.debug('swath timing already filled')
-            res_dict = self._swathtiming
-        return res_dict
 
     def extent_burst(self, burst, valid=True):
         """Get extent for a SAR image burst.

@@ -5,6 +5,7 @@ xpath mapping from xml file, with convertion functions
 from datetime import datetime
 import numpy as np
 from scipy.interpolate import RectBivariateSpline, interp1d
+from numpy.polynomial import Polynomial
 from shapely.geometry import box
 import pandas as pd
 import xarray as xr
@@ -459,18 +460,32 @@ def bursts(lines_per_burst, samples_per_burst, burst_azimuthTime, burst_azimuthA
         }
     )
 
-def orbit(orbit_time, orbit_frame, orbit_pos_x, orbit_pos_y, orbit_pos_z, orbit_vel_x, orbit_vel_y, orbit_vel_z):
+def orbit(time, frame, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z):
 
     return pd.DataFrame(
         {
-            'frame': orbit_frame,
-            'pos_x': orbit_pos_x,
-            'pos_y': orbit_pos_y,
-            'pos_z': orbit_pos_z,
-            'vel_x': orbit_vel_x,
-            'vel_y': orbit_vel_y,
-            'vel_z': orbit_vel_z
-        }, index=orbit_time
+            'frame': frame,
+            'pos_x': pos_x,
+            'pos_y': pos_y,
+            'pos_z': pos_z,
+            'vel_x': vel_x,
+            'vel_y': vel_y,
+            'vel_z': vel_z
+        }, index=time
+    )
+
+def azimuth_fmrate(azimuthtime, t0, c0, c1, c2, polynomial):
+
+    if ( np.sum([c.size for c in [c0,c1,c2]]) != 0) and (polynomial.size == 0):
+        # old annotation
+        polynomial = np.stack([c0, c1, c1], axis=1)
+
+
+    return pd.DataFrame(
+        {
+            't0': t0,
+            'polynomial': [ Polynomial(p) for p in polynomial ]
+        }, index=azimuthtime
     )
 
 # dict of compounds variables.
@@ -557,5 +572,12 @@ compounds_vars = {
         'args': ('annotation.orbit_time', 'annotation.orbit_frame',
                  'annotation.orbit_pos_x', 'annotation.orbit_pos_y', 'annotation.orbit_pos_z',
                  'annotation.orbit_vel_x', 'annotation.orbit_vel_y', 'annotation.orbit_vel_z')
+    },
+    'azimuth_fmrate': {
+        'func': azimuth_fmrate,
+        'args': (
+            'annotation.fmrate_azimuthtime', 'annotation.fmrate_t0',
+            'annotation.fmrate_c0', 'annotation.fmrate_c1', 'annotation.fmrate_c2',
+            'annotation.fmrate_azimuthFmRatePolynomial')
     }
 }

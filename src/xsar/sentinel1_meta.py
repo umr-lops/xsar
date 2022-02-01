@@ -21,6 +21,7 @@ from datetime import datetime
 from collections import OrderedDict
 from .ipython_backends import repr_mimebundle
 
+
 logger = logging.getLogger('xsar.sentinel1_meta')
 logger.addHandler(logging.NullHandler())
 
@@ -380,6 +381,9 @@ class Sentinel1Meta:
     def orbit(self):
         return self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'orbit')
 
+    @property
+    def azimuth_fmrate(self):
+        return self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'azimuth_fmrate')
 
     @property
     def number_of_lines(self):

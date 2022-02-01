@@ -297,30 +297,6 @@ class Sentinel1Meta:
             self._orbit_pass = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.pass')
         return self._orbit_pass
 
-    @property
-    def number_of_bursts(self):
-        """
-        for instance 9 bursts for a subswath IW
-        """
-
-        if self.multidataset:
-            return None  # not defined for multidataset
-        if self._number_of_bursts is None:
-            self._number_of_bursts = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.number_of_bursts')
-        logger.debug('number of bursts %s %s',self._number_of_bursts,type(self._number_of_bursts))
-        return self._number_of_bursts
-
-    @property
-    def lines_per_burst(self):
-        """
-        """
-
-        if self.multidataset:
-            return None  # not defined for multidataset
-        if self._lines_per_burst is None:
-            self._lines_per_burst = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.lines_per_burst')
-        return self._lines_per_burst
-
 
     @property
     def nb_geoDcPoly(self):
@@ -396,6 +372,9 @@ class Sentinel1Meta:
             }
         return self._geoloc
 
+    @property
+    def bursts(self):
+        return self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts')
 
 
 
@@ -468,17 +447,6 @@ class Sentinel1Meta:
         if self._nb_dcestimate is None:
             self._nb_dcestimate = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.nb_dcestimate')
         return self._nb_dcestimate
-
-    @property
-    def samples_per_burst(self):
-        """
-        """
-
-        if self.multidataset:
-            return None  # not defined for multidataset
-        if self._samples_per_burst is None:
-            self._samples_per_burst = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.samples_per_burst')
-        return self._samples_per_burst
 
 
     @property

@@ -9,7 +9,7 @@ import dask
 import rasterio
 import rasterio.features
 import rioxarray
-from scipy.interpolate import interp1d
+from scipy.interpolate import interp1d, RectBivariateSpline
 from shapely.geometry import Polygon
 import shapely
 from .utils import timing, haversine, map_blocks_coords, bbox_coords, BlockingActorProxy, merge_yaml, get_glob
@@ -113,6 +113,7 @@ class Sentinel1Dataset:
             'longitude': 'f4',
             'incidence': 'f4',
             'elevation': 'f4',
+            'height': 'f4',
             'ground_heading': 'f4',
             'nesz': None,
             'negz': None,
@@ -123,7 +124,9 @@ class Sentinel1Dataset:
             'noise_lut_azi': 'f4',
             'sigma0_lut': 'f8',
             'gamma0_lut': 'f8',
-            'digital_number': None
+            'digital_number': None,
+            'azimuth_time':None,
+            'slant_range_time':None
         }
         if dtypes is not None:
             self._dtypes.update(dtypes)
@@ -201,7 +204,7 @@ class Sentinel1Dataset:
             'noise_lut_range': 'noise',
             'noise_lut_azi': 'noise',
             'incidence': 'annotation',
-            'elevation': 'annotation'
+            'elevation': 'annotation',
         }
 
         # dict mapping specifying if the variable has 'pol' dimension
@@ -211,7 +214,10 @@ class Sentinel1Dataset:
             'noise_lut_range': True,
             'noise_lut_azi': True,
             'incidence': False,
-            'elevation': False
+            'elevation': False,
+            'height': False,
+            'azimuth_time': False,
+            'slant_range_time': False
         }
 
         # variables not returned to the user (unless luts=True)
@@ -253,6 +259,7 @@ class Sentinel1Dataset:
         if rasters is not None:
             self._dataset = xr.merge([self._dataset, rasters])
 
+        self._dataset = self._dataset.merge(self._load_from_geoloc(['height', 'azimuth_time', 'slant_range_time_lr']))
         self._dataset = self._add_denoised(self._dataset)
         self._dataset.attrs = self._recompute_attrs()
 
@@ -271,6 +278,9 @@ class Sentinel1Dataset:
 
         # save original bbox
         self._bbox_coords_ori = self._bbox_coords
+
+
+    
 
     def __del__(self):
         logger.debug('__del__')
@@ -618,6 +628,101 @@ class Sentinel1Dataset:
             ds = ds.astype(self._dtypes[var_name])
 
         return ds
+
+    def _load_from_geoloc(self, varnames):
+        """
+        Interpolate (with RectBiVariateSpline) variables from `self.s1meta.geoloc` to `self._dataset`
+
+        Parameters
+        ----------
+        varnames: list of str
+            subset of variables names in `self.s1meta.geoloc`
+
+        Returns
+        -------
+        xarray.Dataset
+            With interpolated vaiables
+
+        """
+
+        da_list = []
+        for varname in varnames:
+            interp_func = RectBivariateSpline(
+                self.s1meta.geoloc.atrack,
+                self.s1meta.geoloc.xtrack,
+                self.s1meta.geoloc[varname],
+                kx=1, ky=1
+            )
+            # the following take much cpu and memory, so we want to use dask
+            # interp_func(self._dataset.atrack, self.dataset.xtrack)
+            da_var = map_blocks_coords(
+                self._da_tmpl.astype(self.s1meta.geoloc[varname].dtype),
+                interp_func
+            )
+            da_var.name = varname
+
+            # copy history
+            try:
+                da_var.attrs['history'] = self.s1meta.geoloc[varname].attrs['history']
+            except KeyError:
+                pass
+
+            da_list.append(da_var)
+
+        return xr.merge(da_list)
+
+    def _load_azimuth_time(self):
+        """
+        load/interpolate azimuth time from self.s1meta.files['annotation'] geolocation grid, as an `xarray.Dataset`.
+
+        Parameters
+        ----------
+
+        Returns
+        -------
+        xarray.Dataset
+            dataset, with basic coords/dims naming convention
+        """
+        raise DeprecationWarning('to be rewritten')
+        zval = self.s1meta.geoloc['azimuth_time']
+        yval = self.s1meta.geoloc['pixel'][0, :]
+        slices = [slice(0,len(self.dataset.atrack.values)),slice(0,len(self.dataset.xtrack.values))] # TODO fix
+        yint = np.arange(slices[1].start, slices[1].stop,
+                         slices[1].step, dtype='int32')
+
+        if self.s1meta.number_of_bursts == 0:
+            xval = self.s1meta.geoloc['line'][:, 0]
+            xint = np.arange(slices[0].start, slices[0].stop,
+                             slices[0].step, dtype='int32')
+        else:
+            # TOPS SLC: interpolation is performed according to azimuth time
+            # because of overlap
+            npixels = len(np.where(self.s1meta.geoloc['line'] == self.s1meta.geoloc['line'][0])[0])
+            xval = self.s1meta.geoloc['azimuth_time'][:, int((npixels - 1) / 2)]
+            line = np.arange(slices[0].start, slices[0].stop,
+                             slices[0].step, dtype='int32')
+            xint = self.s1meta.burst_azitime(line).values
+        # Set bbox in case of extrapolation is needed
+        # (may happen with strange TOPS SLC geolocation grids)
+        bbox = []
+        for xyv, xyi in zip([xval, yval], [xint, yint]):
+            if xyi.min() < xyv.min():
+                bbox.append(xyi.min())
+            else:
+                bbox.append(None)
+            if xyi.max() > xyv.max():
+                bbox.append(xyi.max())
+            else:
+                bbox.append(None)
+        if True:
+            logger.debug('xint %s %s yint %s %s',xint.shape,type(xint),yint.shape,type(yint))
+            func = interpolate.RectBivariateSpline(xval, yval, zval, bbox=bbox,
+                                               kx=1, ky=1)
+            values = func(xint[:, np.newaxis], yint[np.newaxis, :], grid=False)
+            tmpda = xr.DataArray(values,dims=['atrack','xtrack']) # ,coords={'atrack_time':yint[np.newaxis, :],'xtrack_time':xint[:, np.newaxis]}
+            self._dataset['azimuth_time'] = tmpda
+        res = xr.Dataset({'azimuth_time':tmpda})
+        return res
 
     @timing
     def _load_lon_lat(self):
@@ -1033,3 +1138,56 @@ class Sentinel1Dataset:
 
     def _repr_mimebundle_(self, include=None, exclude=None):
         return repr_mimebundle(self, include=include, exclude=exclude)
+
+
+
+    def ground_spacing(self):
+        """Get SAR image ground spacing.
+
+        Parameters
+        ----------
+        Returns
+        -------
+        ground_spacing : ndarray
+            [azimuth, range] ground spacing in meters.
+
+        Notes
+        -----
+        For GRD products, range_index and extent are ignored.
+        """
+        if True: #this version use the values annotated in slant rangePixelSpacing
+            ground_spacing = np.array((self.s1meta.azimuthPixelSpacing,self.s1meta.rangePixelSpacing))
+        #                            self.get_info('range_pixel_spacing')))
+            if self.s1meta.product == 'SLC':
+                # ext = self._extent_max()
+                # if extent is not None:
+                #     ext[1:4:2] = extent[1:4:2]
+                # else:
+                #     if range_index is not None:
+                #         ext[1:4:2] = range_index
+                # inc = self.get_data('incidence', extent=ext, midazimuth=True,
+                #                     midrange=True)
+                atrack_tmp = self._dataset['atrack']
+                xtrack_tmp = self._dataset['xtrack']
+                # get the incidence at the center of the part of image selected
+                inc = self._dataset['incidence'].isel({'atrack': int(len(atrack_tmp) / 2),
+                                                       'xtrack': int(len(xtrack_tmp) / 2)
+                                                       })
+                ground_spacing[1] /= np.sin(inc * np.pi / 180)
+        else: # this version use the values from gcps that could be up to 1.5m different (correction slant-ground included)
+            ground_spacing = np.array((self.pixel_atrack_m,self.pixel_xtrack_m))
+
+        return ground_spacing
+
+    def get_sensor_velocity(self, azimuth_time):
+        """Interpolate sensor velocity at given azimuth time"""
+        orbstatevect = self.s1meta.orbit_state_vectors['orbit_state_vectors']
+        azi_times = orbstatevect['time']
+        vels = np.sqrt(np.sum(orbstatevect['velocity'] ** 2., axis=1))
+        iv = np.clip(np.searchsorted(azi_times, azimuth_time) - 1, 0, azi_times.size - 2)
+        _vels = vels[iv] + (azimuth_time - azi_times[iv]) * \
+                (vels[iv + 1] - vels[iv]) / (azi_times[iv + 1] - azi_times[iv])
+        return _vels
+
+
+    

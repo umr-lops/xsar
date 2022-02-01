@@ -132,9 +132,9 @@ xpath_mappings = {
         'atrack_grid': (int_array, '//product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/line'),
         'xtrack_grid': (int_array, '//product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/pixel'),
         'incidence': (
-            np.array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/incidenceAngle'),
+            float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/incidenceAngle'),
         'elevation': (
-            np.array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/elevationAngle'),
+            float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/elevationAngle'),
         'height': (float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/height'),
         'azimuth_time': (
             datenum_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/azimuthTime'),
@@ -538,11 +538,11 @@ compounds_vars = {
 
     # TODO: incidence and elevation should be deprecated (we should now use geolocation_grid)
     'incidence': {
-        'func': annotation_angle,
+        'func': geolocation_grid,
         'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.incidence')
     },
     'elevation': {
-        'func': annotation_angle,
+        'func': geolocation_grid,
         'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.elevation')
     },
     'longitude': {

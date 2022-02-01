@@ -365,12 +365,13 @@ class Sentinel1Meta:
         if self._geoloc is None:
             xml_annotation = self.files['annotation'].iloc[0]
             da_var_list = []
-            for var_name in ['longitude', 'latitude', 'height', 'azimuth_time', 'slant_range_time_lr']:
+            for var_name in ['longitude', 'latitude', 'height', 'azimuth_time', 'slant_range_time_lr','incidence','elevation']:
                 # TODO: we should use dask.array.from_delayed so xml files are read on demand
                 da_var = self.xml_parser.get_compound_var(xml_annotation, var_name)
                 da_var.name = var_name
                 # FIXME: waiting for merge from upstream
                 # da_var['history'] = self.xml_parser.get_compound_var(xml_annotation, var_name, describe=True)
+                logger.debug('%s %s',var_name,da_var)
                 da_var_list.append(da_var)
 
             self._geoloc = xr.merge(da_var_list)

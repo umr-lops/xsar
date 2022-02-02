@@ -376,8 +376,8 @@ class Sentinel1Meta:
             self._geoloc = xr.merge(da_var_list)
 
             self._geoloc.attrs = {
-                'pixel_xtrack_m': self.xml_parser.get_var(xml_annotation, 'annotation.azimuthPixelSpacing'),
-                'pixel_atrack_m': self.xml_parser.get_var(xml_annotation, 'annotation.rangePixelSpacing'),
+                'pixel_atrack_m': self.xml_parser.get_var(xml_annotation, 'annotation.azimuthPixelSpacing'),
+                'pixel_xtrack_m': self.xml_parser.get_var(xml_annotation, 'annotation.rangePixelSpacing'),
                 'number_pts_geolocation_grid': self.xml_parser.get_var(xml_annotation, 'annotation.number_pts_geolocation_grid'),
                 'npixels': len(self._geoloc['xtrack']),
                 'nlines': len(self._geoloc['atrack']),

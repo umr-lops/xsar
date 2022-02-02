@@ -149,7 +149,7 @@ class Sentinel1Meta:
         self._range_sampling_rate = None
         self._azimuthfmrate = None
         self._nb_fmrate = None
-        self._slant_range_time = None
+        self._slant_range_time_image = None
 
         self.rasters = self.__class__.rasters.copy()
         """pandas dataframe for rasters (see `xsar.Sentinel1Meta.set_raster`)"""
@@ -355,7 +355,7 @@ class Sentinel1Meta:
     @property
     def geoloc(self):
         """
-        xarray.Dataset with `['longitude', 'latitude', 'height', 'azimuth_time', 'slant_range_time_lr']` variables
+        xarray.Dataset with `['longitude', 'latitude', 'height', 'azimuth_time', 'slant_range_time','incidence','elevation' ]` variables
         and `['atrack', 'xtrack'] coordinates, at the geolocation grid
         """
         # TODO: this function should be merged with self.gcps ('longitude', 'latitude', 'height' are the same)
@@ -364,7 +364,7 @@ class Sentinel1Meta:
         if self._geoloc is None:
             xml_annotation = self.files['annotation'].iloc[0]
             da_var_list = []
-            for var_name in ['longitude', 'latitude', 'height', 'azimuth_time', 'slant_range_time_lr','incidence','elevation']:
+            for var_name in ['longitude', 'latitude', 'height', 'azimuth_time', 'slant_range_time','incidence','elevation']:
                 # TODO: we should use dask.array.from_delayed so xml files are read on demand
                 da_var = self.xml_parser.get_compound_var(xml_annotation, var_name)
                 da_var.name = var_name
@@ -444,16 +444,16 @@ class Sentinel1Meta:
         return self._number_of_samples
 
     @property
-    def slant_range_time(self):
+    def slant_range_time_image(self):
         """
         /product/imageAnnotation/imageInformation/slantRangeTime
         """
 
         if self.multidataset:
             return None  # not defined for multidataset
-        if self._slant_range_time is None:
-            self._slant_range_time = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.slant_range_time')
-        return self._slant_range_time
+        if self._slant_range_time_image is None:
+            self._slant_range_time_image = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.slant_range_time_image')
+        return self._slant_range_time_image
 
     @property
     def nb_dcestimate(self):
@@ -1181,13 +1181,6 @@ class Sentinel1Meta:
                 #for ipixel, finedce in enumerate(finedces):
                 dce['slant_range_time'] = tmp_dce_data['dc_slantRangeTime'].reshape((self.nb_dcestimate,self.nb_fineDce))
                 dce['frequency'] = tmp_dce_data['dc_frequency'].reshape((self.nb_dcestimate,self.nb_fineDce))
-                # for ipixel in  range(self.nb_fineDce):
-                #     # dce['slant_range_time'][iline, ipixel] = \
-                #     #     finedce.find('./slantRangeTime').text
-                #     dce['slant_range_time'][iline, ipixel] = tmp_dce_data['dc_slantRangeTime'][iline,ipixel]
-                #     # dce['frequency'][iline, ipixel] = \
-                #     #     finedce.find('./frequency').text
-                #     dce['frequency'][iline, ipixel] = tmp_dce_data['dc_frequency'][iline,ipixel]
             self._dopplercentroid = dce
         else:
             dce = self._dopplercentroid

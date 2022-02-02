@@ -138,7 +138,7 @@ xpath_mappings = {
         'height': (float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/height'),
         'azimuth_time': (
             datenum_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/azimuthTime'),
-        'slant_range_time_lr': (
+        'slant_range_time': (
             float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/slantRangeTime'),
         'longitude': (float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/longitude'),
         'latitude': (float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/latitude'),
@@ -207,7 +207,7 @@ xpath_mappings = {
         'dc_frequency': (
             float_array, '///product/dopplerCentroid/dcEstimateList/dcEstimate/fineDceList/fineDce/frequency'),
         'range_sampling_rate': (scalar_float, '/product/generalAnnotation/productInformation/rangeSamplingRate'),
-        'slant_range_time': (scalar_float, '/product/imageAnnotation/imageInformation/slantRangeTime'),
+        'slant_range_time_image': (scalar_float, '/product/imageAnnotation/imageInformation/slantRangeTime'),
         'rangePixelSpacing': (scalar_float, '/product/imageAnnotation/imageInformation/rangePixelSpacing'),
         'azimuthPixelSpacing': (scalar_float, '/product/imageAnnotation/imageInformation/azimuthPixelSpacing'),
 
@@ -586,9 +586,9 @@ compounds_vars = {
         'func': geolocation_grid,
         'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.azimuth_time')
     },
-    'slant_range_time_lr': {
+    'slant_range_time': {
         'func': geolocation_grid,
-        'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.slant_range_time_lr')
+        'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.slant_range_time')
     },
     'bursts': {
         'func': bursts,

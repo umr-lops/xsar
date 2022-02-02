@@ -259,7 +259,7 @@ class Sentinel1Dataset:
         if rasters is not None:
             self._dataset = xr.merge([self._dataset, rasters])
 
-        self._dataset = self._dataset.merge(self._load_from_geoloc(['height', 'azimuth_time', 'slant_range_time_lr','incidence','elevation']))
+        self._dataset = self._dataset.merge(self._load_from_geoloc(['height', 'azimuth_time', 'slant_range_time','incidence','elevation']))
         self._dataset = self._add_denoised(self._dataset)
         self._dataset.attrs = self._recompute_attrs()
 
@@ -1171,10 +1171,16 @@ class Sentinel1Dataset:
         return ground_spacing
 
     def get_sensor_velocity(self, azimuth_time):
-        """Interpolate sensor velocity at given azimuth time"""
-        orbstatevect = self.s1meta.orbit_state_vectors['orbit_state_vectors']
-        azi_times = orbstatevect['time']
-        vels = np.sqrt(np.sum(orbstatevect['velocity'] ** 2., axis=1))
+        """Interpolate sensor velocity at given azimuth time
+        Parameters
+        ----------
+            azimuth_time (int):
+        Returns
+        -------
+        """
+        orbstatevect = self.s1meta.orbit
+        azi_times = orbstatevect['time'].values
+        vels = np.sqrt(np.sum(orbstatevect['velocity'].values ** 2., axis=1))
         iv = np.clip(np.searchsorted(azi_times, azimuth_time) - 1, 0, azi_times.size - 2)
         _vels = vels[iv] + (azimuth_time - azi_times[iv]) * \
                 (vels[iv + 1] - vels[iv]) / (azi_times[iv + 1] - azi_times[iv])

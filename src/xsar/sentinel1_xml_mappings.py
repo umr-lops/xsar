@@ -475,7 +475,7 @@ def bursts(lines_per_burst, samples_per_burst, burst_azimuthTime, burst_azimuthA
                                                'description': 'start atrack index, start xtrack index, stop atrack index, stop xtrack index'}),
         }
     )
-    da.attrs = {'nbursts': nbursts}
+    da.attrs = {'nbursts': nbursts,'lines_per_burst':lines_per_burst}
     return da
 
 def orbit(time, frame, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z):

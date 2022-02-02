@@ -203,8 +203,8 @@ class Sentinel1Dataset:
             'gamma0_lut': 'calibration',
             'noise_lut_range': 'noise',
             'noise_lut_azi': 'noise',
-            'incidence': 'annotation',
-            'elevation': 'annotation',
+            #'incidence': 'annotation',
+            #'elevation': 'annotation',
         }
 
         # dict mapping specifying if the variable has 'pol' dimension
@@ -259,7 +259,7 @@ class Sentinel1Dataset:
         if rasters is not None:
             self._dataset = xr.merge([self._dataset, rasters])
 
-        self._dataset = self._dataset.merge(self._load_from_geoloc(['height', 'azimuth_time', 'slant_range_time_lr']))
+        self._dataset = self._dataset.merge(self._load_from_geoloc(['height', 'azimuth_time', 'slant_range_time_lr','incidence','elevation']))
         self._dataset = self._add_denoised(self._dataset)
         self._dataset.attrs = self._recompute_attrs()
 
@@ -653,6 +653,7 @@ class Sentinel1Dataset:
                 self.s1meta.geoloc[varname],
                 kx=1, ky=1
             )
+            logger.debug('%s %s',varname,interp_func)
             # the following take much cpu and memory, so we want to use dask
             # interp_func(self._dataset.atrack, self.dataset.xtrack)
             da_var = map_blocks_coords(
@@ -1155,28 +1156,18 @@ class Sentinel1Dataset:
         -----
         For GRD products, range_index and extent are ignored.
         """
-        if True: #this version use the values annotated in slant rangePixelSpacing
-            ground_spacing = np.array((self.s1meta.azimuthPixelSpacing,self.s1meta.rangePixelSpacing))
-        #                            self.get_info('range_pixel_spacing')))
-            if self.s1meta.product == 'SLC':
-                # ext = self._extent_max()
-                # if extent is not None:
-                #     ext[1:4:2] = extent[1:4:2]
-                # else:
-                #     if range_index is not None:
-                #         ext[1:4:2] = range_index
-                # inc = self.get_data('incidence', extent=ext, midazimuth=True,
-                #                     midrange=True)
-                atrack_tmp = self._dataset['atrack']
-                xtrack_tmp = self._dataset['xtrack']
-                # get the incidence at the center of the part of image selected
-                inc = self._dataset['incidence'].isel({'atrack': int(len(atrack_tmp) / 2),
-                                                       'xtrack': int(len(xtrack_tmp) / 2)
-                                                       })
-                ground_spacing[1] /= np.sin(inc * np.pi / 180)
-        else: # this version use the values from gcps that could be up to 1.5m different (correction slant-ground included)
-            ground_spacing = np.array((self.pixel_atrack_m,self.pixel_xtrack_m))
-
+        logger.debug('pixel_xtrack_m : %s',self.s1meta.geoloc.attrs['pixel_xtrack_m'])
+        ground_spacing = np.array((self.s1meta.geoloc.attrs['pixel_atrack_m'],self.s1meta.geoloc.attrs['pixel_xtrack_m']))
+        if self.s1meta.product == 'SLC':
+            atrack_tmp = self._dataset['atrack']
+            xtrack_tmp = self._dataset['xtrack']
+            # get the incidence at the center of the part of image selected
+            logger.debug('inc da : %s',self._dataset['incidence'])
+            inc = self._dataset['incidence'].isel({'atrack': int(len(atrack_tmp) / 2),
+                                                   'xtrack': int(len(xtrack_tmp) / 2)
+                                                   }).values
+            logger.debug('inc : %s',inc)
+            ground_spacing[1] /= np.sin(inc * np.pi / 180)
         return ground_spacing
 
     def get_sensor_velocity(self, azimuth_time):

@@ -370,7 +370,7 @@ class Sentinel1Meta:
                 da_var.name = var_name
                 # FIXME: waiting for merge from upstream
                 # da_var['history'] = self.xml_parser.get_compound_var(xml_annotation, var_name, describe=True)
-                logger.debug('%s %s',var_name,da_var)
+                #logger.debug('%s %s',var_name,da_var)
                 da_var_list.append(da_var)
 
             self._geoloc = xr.merge(da_var_list)
@@ -1107,7 +1107,7 @@ class Sentinel1Meta:
         # For consistency, azimuth time is derived from the one given in
         # geolocation grid (the one given in burst_list do not always perfectly
         # match).
-        burst_nlines = self.lines_per_burst
+        burst_nlines = self.burstsattrs['lines_per_burst']
         azi_time_int = self.azimuth_time_interval
         #geoloc = self._get_geolocation_grid()
         #geoloc = self.geoloc
@@ -1210,17 +1210,19 @@ class Sentinel1Meta:
         """Get extent for a SAR image burst.
         copy pasted from sarimage.py ODL
         """
-        nbursts = self.number_of_bursts
+        #nbursts = self.number_of_bursts
+        nbursts = self.bursts.attrs['nbursts']
         if nbursts == 0:
             raise Exception('No bursts in SAR image')
         if burst < 0 or burst >= nbursts:
             raise Exception('Invalid burst index number')
         if valid is True:
-            burst_list = self.swathtiming['burst_list']
-            extent = np.copy(burst_list['valid_location'][burst, :])
+            #burst_list = self.swathtiming['burst_list']
+            burst_list = self.bursts
+            extent = np.copy(burst_list['valid_location'].values[burst, :])
         else:
             extent = self._extent_max()
-            nlines = self.lines_per_burst
+            nlines = self.bursts.attrs['lines_per_burst']
             extent[0:3:2] = [nlines*burst, nlines*(burst+1)-1]
         return extent
 
@@ -1244,6 +1246,7 @@ class Sentinel1Meta:
             self._nb_state_vector = self.xml_parser.get_var(self.files['annotation'].iloc[0],
                                                              'annotation.nb_state_vector')
         return self._nb_state_vector
+
 
     @property
     def nb_fmrate(self):

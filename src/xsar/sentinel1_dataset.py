@@ -581,7 +581,7 @@ class Sentinel1Dataset:
                     zip(self.s1meta.files['measurement'], self.s1meta.manifest_attrs['polarizations'])
                 ],
                 'pol'
-            )
+            ).chunk(chunks)
 
 
 

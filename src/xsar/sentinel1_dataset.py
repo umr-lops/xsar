@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import logging
+import pdb
 import warnings
 import numpy as np
 from scipy.interpolate import RectBivariateSpline
@@ -171,14 +172,29 @@ class Sentinel1Dataset:
         # what's matter here is the shape of the image, not the values.
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", np.ComplexWarning)
-            self._da_tmpl = xr.DataArray(
-                dask.array.empty_like(
-                    self._dataset.digital_number.isel(pol=0).drop('pol'),
-                    dtype=np.int8, name="empty_var_tmpl-%s" % dask.base.tokenize(self.s1meta.name)),
-                dims=('atrack', 'xtrack'),
-                coords={'atrack': self._dataset.digital_number.atrack,
-                        'xtrack': self._dataset.digital_number.xtrack}
-            )
+            if self.s1meta.bursts.nbursts != 0:
+                # SLC TOPS, tune the high res grid because of bursts overlapping
+                xint = self.s1meta.burst_azitime(self._dataset.digital_number.atrack.values)
+                self._da_tmpl = xr.DataArray(
+                    dask.array.empty_like(
+                        np.empty((len(xint),len(self._dataset.digital_number.xtrack))),
+                        dtype=np.int8, name="empty_var_tmpl-%s" % dask.base.tokenize(self.s1meta.name)),
+                    dims=('atrack', 'xtrack'),
+                    coords={'atrack': self._dataset.digital_number.atrack,
+                            'xtrack': self._dataset.digital_number.xtrack},
+                    #attrs={'xint':xint}
+                )
+                self._da_tmpl['xint'] = xr.DataArray(xint,dims=['atrack'])
+            else:
+
+                self._da_tmpl = xr.DataArray(
+                    dask.array.empty_like(
+                        self._dataset.digital_number.isel(pol=0).drop('pol'),
+                        dtype=np.int8, name="empty_var_tmpl-%s" % dask.base.tokenize(self.s1meta.name)),
+                    dims=('atrack', 'xtrack'),
+                    coords={'atrack': self._dataset.digital_number.atrack,
+                            'xtrack': self._dataset.digital_number.xtrack}
+                )
 
         # FIXME possible memory leak
         # when calling a self.s1meta method, an ActorFuture is returned.
@@ -647,19 +663,37 @@ class Sentinel1Dataset:
 
         da_list = []
         for varname in varnames:
-            interp_func = RectBivariateSpline(
-                self.s1meta.geoloc.atrack,
-                self.s1meta.geoloc.xtrack,
-                self.s1meta.geoloc[varname],
-                kx=1, ky=1
-            )
+
+            if self.s1meta.bursts.nbursts!=0:
+                # TOPS SLC
+                logger.debug(' x %s y %s z %s',self.s1meta.geoloc.azimuth_time.shape,self.s1meta.geoloc.xtrack.shape,self.s1meta.geoloc[varname].shape)
+                interp_func = RectBivariateSpline(
+                    self.s1meta.geoloc.azimuth_time[:,0],
+                    self.s1meta.geoloc.xtrack,
+                    self.s1meta.geoloc[varname],
+                    kx=1, ky=1
+                )
+            else:
+                interp_func = RectBivariateSpline(
+                    self.s1meta.geoloc.atrack,
+                    self.s1meta.geoloc.xtrack,
+                    self.s1meta.geoloc[varname],
+                    kx=1, ky=1
+                )
             logger.debug('%s %s',varname,interp_func)
             # the following take much cpu and memory, so we want to use dask
             # interp_func(self._dataset.atrack, self.dataset.xtrack)
-            da_var = map_blocks_coords(
-                self._da_tmpl.astype(self.s1meta.geoloc[varname].dtype),
-                interp_func
-            )
+            if self.s1meta.bursts.nbursts!=0:
+                da_var = map_blocks_coords(
+                    self._da_tmpl.astype(self.s1meta.geoloc[varname].dtype),
+                    interp_func,
+                    withburst=True,func_kwargs={'grid':False},
+                )
+            else:
+                da_var = map_blocks_coords(
+                    self._da_tmpl.astype(self.s1meta.geoloc[varname].dtype),
+                    interp_func
+                )
             da_var.name = varname
 
             # copy history
@@ -671,59 +705,6 @@ class Sentinel1Dataset:
             da_list.append(da_var)
 
         return xr.merge(da_list)
-
-    def _load_azimuth_time(self):
-        """
-        load/interpolate azimuth time from self.s1meta.files['annotation'] geolocation grid, as an `xarray.Dataset`.
-
-        Parameters
-        ----------
-
-        Returns
-        -------
-        xarray.Dataset
-            dataset, with basic coords/dims naming convention
-        """
-        raise DeprecationWarning('to be rewritten')
-        zval = self.s1meta.geoloc['azimuth_time']
-        yval = self.s1meta.geoloc['pixel'][0, :]
-        slices = [slice(0,len(self.dataset.atrack.values)),slice(0,len(self.dataset.xtrack.values))] # TODO fix
-        yint = np.arange(slices[1].start, slices[1].stop,
-                         slices[1].step, dtype='int32')
-
-        if self.s1meta.number_of_bursts == 0:
-            xval = self.s1meta.geoloc['line'][:, 0]
-            xint = np.arange(slices[0].start, slices[0].stop,
-                             slices[0].step, dtype='int32')
-        else:
-            # TOPS SLC: interpolation is performed according to azimuth time
-            # because of overlap
-            npixels = len(np.where(self.s1meta.geoloc['line'] == self.s1meta.geoloc['line'][0])[0])
-            xval = self.s1meta.geoloc['azimuth_time'][:, int((npixels - 1) / 2)]
-            line = np.arange(slices[0].start, slices[0].stop,
-                             slices[0].step, dtype='int32')
-            xint = self.s1meta.burst_azitime(line).values
-        # Set bbox in case of extrapolation is needed
-        # (may happen with strange TOPS SLC geolocation grids)
-        bbox = []
-        for xyv, xyi in zip([xval, yval], [xint, yint]):
-            if xyi.min() < xyv.min():
-                bbox.append(xyi.min())
-            else:
-                bbox.append(None)
-            if xyi.max() > xyv.max():
-                bbox.append(xyi.max())
-            else:
-                bbox.append(None)
-        if True:
-            logger.debug('xint %s %s yint %s %s',xint.shape,type(xint),yint.shape,type(yint))
-            func = interpolate.RectBivariateSpline(xval, yval, zval, bbox=bbox,
-                                               kx=1, ky=1)
-            values = func(xint[:, np.newaxis], yint[np.newaxis, :], grid=False)
-            tmpda = xr.DataArray(values,dims=['atrack','xtrack']) # ,coords={'atrack_time':yint[np.newaxis, :],'xtrack_time':xint[:, np.newaxis]}
-            self._dataset['azimuth_time'] = tmpda
-        res = xr.Dataset({'azimuth_time':tmpda})
-        return res
 
     @timing
     def _load_lon_lat(self):
@@ -743,6 +724,7 @@ class Sentinel1Dataset:
 
         ll_coords = ['longitude', 'latitude']
         # ll_tmpl is like self._da_tmpl stacked 2 times (for both longitude and latitude)
+
         ll_tmpl = self._da_tmpl.expand_dims({'ll': 2}).assign_coords(ll=ll_coords).astype(self._dtypes['longitude'])
         ll_ds = map_blocks_coords(ll_tmpl, coords2ll, name='blocks_lonlat')
         # remove ll_coords to have two separate variables longitude and latitude

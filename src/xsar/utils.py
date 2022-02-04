@@ -1,5 +1,5 @@
 """miscellaneous functions"""
-
+import pdb
 from functools import wraps
 import time
 import os
@@ -153,7 +153,7 @@ def minigrid(x, y, z, method='linear', dims=['x', 'y']):
     return xr.DataArray(ngrid, dims=dims, coords={dims[0]: x_u, dims[1]: y_u})
 
 
-def map_blocks_coords(da, func, func_kwargs={}, **kwargs):
+def map_blocks_coords(da, func,withburst=False, func_kwargs={}, **kwargs):
     """
     like `dask.map_blocks`, but `func` parameters are dimensions coordinates belonging to the block.
 
@@ -211,7 +211,7 @@ def map_blocks_coords(da, func, func_kwargs={}, **kwargs):
 
         # use loc to get corresponding coordinates
         coords_sel = tuple(c[loc[i][0]:loc[i][1]] for i, c in enumerate(coords))
-
+        logger.debug('coords sel simple case %s',coords_sel)
         result = f(*coords_sel, **func_kwargs)
 
         if dtype is not None:
@@ -219,14 +219,49 @@ def map_blocks_coords(da, func, func_kwargs={}, **kwargs):
 
         return result
 
-    coords = {c: da[c].values for c in da.dims}
+    def _evaluate_from_azimuth_time(block, f, coords,azimuthtime, block_info=None, dtype=None):
+        # get loc ((dim_0_start,dim_0_stop),(dim_1_start,dim_1_stop),...)
+        try:
+            loc = block_info[None]['array-location']
+        except TypeError:
+            # map_blocks is feeding us some dummy block data to check output type and shape
+            # so we juste generate dummy coords to be able to call f
+            # (Note : dummy coords are 0 sized if dummy block is empty)
+            loc = tuple(zip((0,) * len(block.shape), block.shape))
+        logger.debug('loc %s',loc)
+        azaz = azimuthtime[loc[0][0]:loc[0][1]]
+        logger.debug('azaz : %s %s',azaz,azaz.shape)
+        coords_sel = []
+        for i, c in enumerate(coords):
+            tmptmp = c[loc[i][0]:loc[i][1]]
+            coords_sel.append(tmptmp)
+
+        range_coords = coords_sel[1]
+        logger.debug('range coords %s %s',range_coords,range_coords.shape)
+        logger.debug('block %s %s %s',block,type(block),block.shape)
+        #logger.debug('func kwargs %s',**func_kwargs)
+        result = f(azaz[:, np.newaxis],range_coords[np.newaxis,:],**func_kwargs)
+        if dtype is not None:
+            result = result.astype(dtype)
+        return result
+    if withburst is True:
+        # TOPS SLC
+
+        coords = {c: da[c].values for c in da.dims}
+        coords_4_interpolation = {'xint': da['xint'].values, 'xtrack': da['xtrack'].values}
+    else:
+        coords = {c: da[c].values for c in da.dims}
+        coords_4_interpolation = coords
     if 'name' not in kwargs:
         kwargs['name'] = dask.utils.funcname(func)
 
     meta = da.data
     dtype = meta.dtype
-
-    from_coords = bind(_evaluate_from_coords, ..., ..., coords.values(), dtype=dtype)
+    if withburst:
+        #TOPS SLC
+        from_coords = bind(_evaluate_from_azimuth_time, ..., ..., coords_4_interpolation.values(),azimuthtime=coords_4_interpolation['xint'], dtype=dtype)
+    else:
+        from_coords = bind(_evaluate_from_coords, ..., ..., coords_4_interpolation.values(), dtype=dtype)
 
     daskarr = meta.map_blocks(from_coords, func, meta=meta, **kwargs)
     dataarr = xr.DataArray(daskarr,

@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+
 import cartopy.feature
 import logging
 import warnings
@@ -1091,32 +1092,23 @@ class Sentinel1Meta:
         new.__dict__.update(minidict)
         return new
 
-    # ajout temporaire agrouaze
     def burst_azitime(self, line):
         """
         Get azimuth time for bursts (TOPS SLC).
         To be used for locations of interpolation since line indices will not handle
         properly overlap.
         """
-        ## burst_nlines = self.read_global_attribute('lines_per_burst')
-        ## azi_time_int = self.read_global_attribute('azimuth_time_interval')
-        ## burst_list = self.read_global_attribute('burst_list')
-        ## index_burst = np.floor(line / float(burst_nlines)).astype('int32')
-        ## azitime = burst_list['azimuth_time'][index_burst] + \
-        ##           (line - index_burst * burst_nlines) * azi_time_int
         # For consistency, azimuth time is derived from the one given in
         # geolocation grid (the one given in burst_list do not always perfectly
         # match).
-        burst_nlines = self.burstsattrs['lines_per_burst']
+        burst_nlines = self.bursts.attrs['lines_per_burst']
         azi_time_int = self.azimuth_time_interval
-        #geoloc = self._get_geolocation_grid()
-        #geoloc = self.geoloc
-        geoloc_line = self.geoloc['line'][:, int((self.geoloc['npixels'] - 1) / 2)]
-        geoloc_iburst = np.floor(geoloc_line / float(burst_nlines)).astype('int32')
-        iburst = np.floor(line / float(burst_nlines)).astype('int32')
-        ind = np.searchsorted(geoloc_iburst, iburst, side='left')
-        geoloc_azitime = self.geoloc['azimuth_time'][:, int((self.geoloc['npixels'] - 1) / 2)]
-        azitime = geoloc_azitime[ind] + (line - geoloc_line[ind]) * azi_time_int
+        geoloc_line = self.geoloc['atrack'].values
+        geoloc_iburst = np.floor(geoloc_line / float(burst_nlines)).astype('int32') # find the indice of the bursts in the geolocation grid
+        iburst = np.floor(line / float(burst_nlines)).astype('int32') # find the indices of the bursts in the high resolution grid
+        ind = np.searchsorted(geoloc_iburst, iburst, side='left') # find the indices of the burst transitions
+        geoloc_azitime = self.geoloc['azimuth_time'].values[:, int((self.geoloc.attrs['npixels'] - 1) / 2)]
+        azitime = geoloc_azitime[ind] + (line - geoloc_line[ind]) * azi_time_int #compute the azimuth time by adding a step function (first term) and a growing term (second term)
         return azitime
 
 

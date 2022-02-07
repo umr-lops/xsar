@@ -311,7 +311,11 @@ class Sentinel1Meta:
 
     @property
     def bursts(self):
-        return self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts')
+        if self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.number_of_bursts') > 0:
+            return self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts')
+        else:
+            # no burst, return empty dataframe with 'burst' column
+            return pd.DataFrame({'burst': []})
 
     @property
     def orbit(self):

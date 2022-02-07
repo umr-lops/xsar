@@ -710,7 +710,7 @@ class Sentinel1Dataset:
     def _load_lon_lat(self):
         """
         Load longitude and latitude using `self.s1meta.gcps`.
-
+        #TODO deprecated func
         Returns
         -------
         tuple xarray.Dataset

@@ -503,8 +503,79 @@ def orbit(time, frame, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z):
     return da
 
 
-def azimuth_fmrate(azimuthtime, t0, c0, c1, c2, polynomial):
+def strtime2numtime( strtime, fmt='%Y-%m-%dT%H:%M:%S.%f'):
+    """
+    Convert string time to numeric time.
+    """
+    dtime = datetime.strptime(strtime, fmt)
+    #numtime = date2num(dtime, self.read_field('time').units)
+    TIMEUNITS = 'seconds since 1990-01-01T00:00:00'
+    # 'seconds since 2014-01-01 00:00:00'
+    numtime = netCDF4.date2num(dtime,TIMEUNITS )
+    return numtime
 
+def doppler_centroid_estimates(nb_dcestimate,nb_geoDcPoly,nb_dataDcPoly,
+                nb_fineDce,dc_azimuth_time,dc_t0,dc_geoDcPoly,
+                dc_dataDcPoly,dc_rmserr,dc_rmserrAboveThres,dc_azstarttime,
+                dc_azstoptime,dc_slantRangeTime,dc_frequency):
+    """
+
+    :param nb_dcestimate:
+    :param nb_geoDcPoly:
+    :param nb_dataDcPoly:
+    :param nb_fineDce:
+    :param dc_azimuth_time:
+    :param dc_t0:
+    :param dc_geoDcPoly:
+    :param dc_dataDcPoly:
+    :param dc_rmserr:
+    :param dc_rmserrAboveThres:
+    :param dc_azstarttime:
+    :param dc_azstoptime:
+    :param dc_slantRangeTime:
+    :param dc_frequency:
+    :return:
+    """
+    ds = xr.Dataset()
+    ds['t0'] = xr.DataArray(dc_t0.astype(float),dims=['n_estimates'])
+    ds['geo_polynom'] = xr.DataArray(dc_geoDcPoly,dims=['n_estimates','ngeocoeffs'])
+    ds['data_polynom'] = xr.DataArray(dc_dataDcPoly,dims=['n_estimates','ndatacoeffs'])
+    dims = (nb_dcestimate, nb_fineDce)
+    ds['azimuth_time'] = xr.DataArray(np.empty(dims, dtype='float64'),dims=['n_estimates','nb_fine_dce'])
+    ds['azimuth_time_start'] =  xr.DataArray(np.empty((nb_dcestimate), dtype='float64'),dims=['n_estimates'])
+    ds['azimuth_time_stop'] = xr.DataArray(np.empty((nb_dcestimate), dtype='float64'), dims=['n_estimates'])
+    ds['data_rms'] = xr.DataArray(dc_rmserr.astype(float),dims=['n_estimates'])
+    ds['slant_range_time'] = xr.DataArray(dc_slantRangeTime.reshape(dims),dims=['n_estimates','nb_fine_dce'])
+    ds['frequency'] = xr.DataArray(dc_frequency.reshape(dims), dims=['n_estimates', 'nb_fine_dce'])
+    ds['data_rms_threshold'] = xr.DataArray(dc_rmserrAboveThres,dims=['n_estimates'])
+    for iline in range(nb_dcestimate):
+        strtime = dc_azimuth_time[iline]
+        ds['azimuth_time'].values[iline, :] = strtime2numtime(strtime)
+        strtime = dc_azstarttime[iline]
+        ds['azimuth_time_start'].values[iline] = strtime2numtime(strtime)
+        strtime = dc_azstoptime[iline]
+        ds['azimuth_time_stop'].values[iline] = strtime2numtime(strtime)
+    ds.attrs['description'] = 'annotations for Doppler centroid estimates'
+    ds.attrs['n_estimates'] = len(ds['t0'])
+    ds.attrs['n_fineDCE'] = nb_fineDce
+    ds.attrs['ngeocoeffs'] = nb_geoDcPoly
+    ds.attrs['ndatacoeffs'] = nb_dataDcPoly
+    return ds
+
+
+def azimuth_fmrate(azimuthtime, t0, c0, c1, c2, polynomial):
+    """
+
+    :param azimuthtime:
+    :param t0:
+    :param c0:
+    :param c1:
+    :param c2:
+    :param polynomial:
+    :return:
+    """
+    azimuthtime = np.array([strtime2numtime(x) for x in azimuthtime])
+    #azimuthtime = azimuthtime.astype(float)
     if ( np.sum([c.size for c in [c0,c1,c2]]) != 0) and (polynomial.size == 0):
         # old annotation
         polynomial = np.stack([c0, c1, c1], axis=1)
@@ -513,7 +584,8 @@ def azimuth_fmrate(azimuthtime, t0, c0, c1, c2, polynomial):
     return pd.DataFrame(
         {
             't0': t0,
-            'polynomial': [ Polynomial(p) for p in polynomial ]
+            'polynomial': [ Polynomial(p) for p in polynomial ],
+            'azimuth_time':azimuthtime
         }, index=azimuthtime
     )
 
@@ -561,7 +633,6 @@ compounds_vars = {
     },
     'denoised': ('annotation.pol', 'annotation.denoised'),
 
-    # TODO: incidence and elevation should be deprecated (we should now use geolocation_grid)
     'incidence': {
         'func': geolocation_grid,
         'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.incidence')
@@ -608,5 +679,17 @@ compounds_vars = {
             'annotation.fmrate_azimuthtime', 'annotation.fmrate_t0',
             'annotation.fmrate_c0', 'annotation.fmrate_c1', 'annotation.fmrate_c2',
             'annotation.fmrate_azimuthFmRatePolynomial')
+    },
+    'doppler_estimate': {
+        'func':doppler_centroid_estimates,
+        'args':('annotation.nb_dcestimate','annotation.nb_geoDcPoly','annotation.nb_dataDcPoly',
+                'annotation.nb_fineDce','annotation.dc_azimuth_time','annotation.dc_t0','annotation.dc_geoDcPoly',
+                'annotation.dc_dataDcPoly','annotation.dc_rmserr','annotation.dc_rmserrAboveThres','annotation.dc_azstarttime',
+                'annotation.dc_azstoptime','annotation.dc_slantRangeTime','annotation.dc_frequency'
+
+        )
     }
 }
+
+
+

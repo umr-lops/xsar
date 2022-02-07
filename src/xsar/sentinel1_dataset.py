@@ -169,7 +169,7 @@ class Sentinel1Dataset:
         # what's matter here is the shape of the image, not the values.
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", np.ComplexWarning)
-            if self.s1meta.bursts.nbursts != 0:
+            if self.s1meta.bursts.burst.size != 0:
                 # SLC TOPS, tune the high res grid because of bursts overlapping
                 xint = self.s1meta.burst_azitime(self._dataset.digital_number.atrack.values)
                 self._da_tmpl = xr.DataArray(
@@ -664,7 +664,7 @@ class Sentinel1Dataset:
         da_list = []
         for varname in varnames:
 
-            if self.s1meta.bursts.nbursts!=0:
+            if self.s1meta.bursts.burst.size!=0:
                 # TOPS SLC
                 logger.debug(' x %s y %s z %s',self.s1meta.geoloc.azimuth_time.shape,self.s1meta.geoloc.xtrack.shape,self.s1meta.geoloc[varname].shape)
                 interp_func = RectBivariateSpline(
@@ -683,7 +683,7 @@ class Sentinel1Dataset:
             logger.debug('%s %s',varname,interp_func)
             # the following take much cpu and memory, so we want to use dask
             # interp_func(self._dataset.atrack, self.dataset.xtrack)
-            if self.s1meta.bursts.nbursts!=0:
+            if self.s1meta.bursts.burst.size!=0:
                 da_var = map_blocks_coords(
                     self._da_tmpl.astype(self.s1meta.geoloc[varname].dtype),
                     interp_func,

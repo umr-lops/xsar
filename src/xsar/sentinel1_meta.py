@@ -123,16 +123,8 @@ class Sentinel1Meta:
         # get defaults masks from class attribute
         for name, feature in self.__class__._mask_features_raw.items():
             self.set_mask_feature(name, feature)
-        self._orbit_pass = None
-        self._platform_heading = None
-        self._number_of_lines = None
-        self._number_of_samples = None
-        self._radar_frequency = None
-        self._azimuth_time_interval = None
+        # self._number_of_samples = None
         self._geoloc = None
-        self._azimuth_steering_rate = None
-        self._range_sampling_rate = None
-        self._slant_range_time_image = None
 
         self.rasters = self.__class__.rasters.copy()
         """pandas dataframe for rasters (see `xsar.Sentinel1Meta.set_raster`)"""
@@ -272,33 +264,15 @@ class Sentinel1Meta:
                 res_dict[k] = getattr(self, k)
             elif k in self.manifest_attrs.keys():
                 res_dict[k] = self.manifest_attrs[k]
+            elif k in self.subswath_image.keys():
+                res_dict[k] = self.subswath_image[k]
+            elif k in self.orbit.attrs.keys():
+                res_dict[k] = self.orbit.attrs[k]
             else:
                 raise KeyError('Unable to find key/attr "%s" in Sentinel1Meta' % k)
         return res_dict
 
-    @property
-    def orbit_pass(self):
-        """
-        Orbit pass, i.e 'Ascending' or 'Descending'
-        """
 
-        if self.multidataset:
-            return None  # not defined for multidataset
-        if self._orbit_pass is None:
-            self._orbit_pass = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.pass')
-        return self._orbit_pass
-
-    @property
-    def azimuth_steering_rate(self):
-        """
-        """
-
-        if self.multidataset:
-            return None  # not defined for multidataset
-        if self._azimuth_steering_rate is None:
-            self._azimuth_steering_rate = self.xml_parser.get_var(self.files['annotation'].iloc[0],
-                                                                  'annotation.azimuth_steering_rate')
-        return self._azimuth_steering_rate
 
     @property
     def geoloc(self):
@@ -332,6 +306,10 @@ class Sentinel1Meta:
         return self._geoloc
 
     @property
+    def subswath_image(self):
+        return self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'subswath_image')
+
+    @property
     def bursts(self):
         return self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts')
 
@@ -346,102 +324,6 @@ class Sentinel1Meta:
     @property
     def azimuth_fmrate(self):
         return self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'azimuth_fmrate')
-
-    @property
-    def number_of_lines(self):
-        """
-        """
-
-        if self.multidataset:
-            return None  # not defined for multidataset
-        if self._number_of_lines is None:
-            self._number_of_lines = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.number_of_lines')
-        return self._number_of_lines
-
-
-    @property
-    def range_sampling_rate(self):
-        """
-        """
-
-        if self.multidataset:
-            return None  # not defined for multidataset
-        if self._range_sampling_rate is None:
-            self._range_sampling_rate = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.range_sampling_rate')
-        logger.debug('range sampling rate %s %s',self._range_sampling_rate,type(self._range_sampling_rate))
-        logger.debug('range sampling rate %s %s',self._range_sampling_rate,type(self._range_sampling_rate))
-        return self._range_sampling_rate
-
-    @property
-    def incidence_angle_mid_swath(self):
-        """
-        """
-
-        if self.multidataset:
-            return None  # not defined for multidataset
-        if self._incidence_angle_mid_swath is None:
-            self._incidence_angle_mid_swath = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.incidence_angle_mid_swath')
-        return self._incidence_angle_mid_swath
-
-    @property
-    def number_of_samples(self):
-        """
-        """
-
-        if self.multidataset:
-            return None  # not defined for multidataset
-        if self._number_of_samples is None:
-            self._number_of_samples = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.number_of_samples')
-        return self._number_of_samples
-
-    @property
-    def slant_range_time_image(self):
-        """
-        /product/imageAnnotation/imageInformation/slantRangeTime
-        """
-
-        if self.multidataset:
-            return None  # not defined for multidataset
-        if self._slant_range_time_image is None:
-            self._slant_range_time_image = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.slant_range_time_image')
-        return self._slant_range_time_image
-
-
-    @property
-    def azimuth_time_interval(self):
-        """
-        """
-
-        if self.multidataset:
-            return None  # not defined for multidataset
-        if self._azimuth_time_interval is None:
-            self._azimuth_time_interval = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.azimuth_time_interval')
-        return self._azimuth_time_interval
-
-    @property
-    def radar_frequency(self):
-        """
-        """
-
-        if self.multidataset:
-            return None  # not defined for multidataset
-        if self._radar_frequency is None:
-            self._radar_frequency = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.radar_frequency')
-        return self._radar_frequency
-
-
-    @property
-    def platform_heading(self):
-        """
-        Platform heading, relative to north
-        """
-
-        if self.multidataset:
-            return None  # not defined for multidataset
-        if self._platform_heading is None:
-            self._platform_heading = self.xml_parser.get_var(self.files['annotation'].iloc[0],
-                                                             'annotation.platform_heading')
-        return self._platform_heading
 
     @property
     def rio(self):
@@ -1041,7 +923,7 @@ class Sentinel1Meta:
         # geolocation grid (the one given in burst_list do not always perfectly
         # match).
         burst_nlines = self.bursts.attrs['lines_per_burst']
-        azi_time_int = self.azimuth_time_interval
+        azi_time_int = self.subswath_image['azimuth_time_interval']
         geoloc_line = self.geoloc['atrack'].values
         geoloc_iburst = np.floor(geoloc_line / float(burst_nlines)).astype('int32') # find the indice of the bursts in the geolocation grid
         iburst = np.floor(line / float(burst_nlines)).astype('int32') # find the indices of the bursts in the high resolution grid
@@ -1054,7 +936,7 @@ class Sentinel1Meta:
         """Get extent for a SAR image burst.
         copy pasted from sarimage.py ODL
         """
-        nbursts = self.bursts.attrs['nbursts']
+        nbursts = self.bursts.burst.size
         if nbursts == 0:
             raise Exception('No bursts in SAR image')
         if burst < 0 or burst >= nbursts:

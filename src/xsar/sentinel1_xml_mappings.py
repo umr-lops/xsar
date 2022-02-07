@@ -475,10 +475,10 @@ def bursts(lines_per_burst, samples_per_burst, burst_azimuthTime, burst_azimuthA
                                                'description': 'start atrack index, start xtrack index, stop atrack index, stop xtrack index'}),
         }
     )
-    da.attrs = {'nbursts': nbursts,'lines_per_burst':lines_per_burst}
+    da.attrs = {'lines_per_burst':lines_per_burst}
     return da
 
-def orbit(time, frame, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z):
+def orbit(time, frame, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z,orbit_pass,platform_heading):
     """
     return orbit vectors during acquisition (position and velocity)
     Returns
@@ -499,7 +499,8 @@ def orbit(time, frame, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z):
                                   coords={'time': time,'xyz':np.arange(3)})
     da['position'] = xr.DataArray(np.vstack([pos_x, pos_y, pos_z]).T, dims=['time', 'xyz'],
                                   coords={'time': time, 'xyz': np.arange(3)})
-    da.attrs = {'nlines': len(time)} #number of orbit vectors in annotation file
+    #da.attrs = {'nlines': len(time)} #number of orbit vectors in annotation file
+    da.attrs = {'orbit_pass':orbit_pass,'platform_heading':platform_heading}
     return da
 
 
@@ -556,11 +557,24 @@ def doppler_centroid_estimates(nb_dcestimate,nb_geoDcPoly,nb_dataDcPoly,
         strtime = dc_azstoptime[iline]
         ds['azimuth_time_stop'].values[iline] = strtime2numtime(strtime)
     ds.attrs['description'] = 'annotations for Doppler centroid estimates'
-    ds.attrs['n_estimates'] = len(ds['t0'])
-    ds.attrs['n_fineDCE'] = nb_fineDce
-    ds.attrs['ngeocoeffs'] = nb_geoDcPoly
-    ds.attrs['ndatacoeffs'] = nb_dataDcPoly
+    #ds.attrs['n_estimates'] = len(ds['t0'])
+    #ds.attrs['n_fineDCE'] = nb_fineDce
+    #ds.attrs['ngeocoeffs'] = nb_geoDcPoly
+    #ds.attrs['ndatacoeffs'] = nb_dataDcPoly
     return ds
+
+def subswath_image(number_of_lines,range_sampling_rate,azimuth_steering_rate,slant_range_time_image,
+                   azimuth_time_interval,radar_frequency,number_of_samples,incidence_angle_mid_swath):
+    res = {'number_of_lines':number_of_lines,
+           'range_sampling_rate':range_sampling_rate,
+           'azimuth_steering_rate':azimuth_steering_rate,
+           'slant_range_time_image':slant_range_time_image,
+           'azimuth_time_interval':azimuth_time_interval,
+           'radar_frequency':radar_frequency,
+           'number_of_samples':number_of_samples,
+           'incidence_angle_mid_swath':incidence_angle_mid_swath
+           }
+    return res
 
 
 def azimuth_fmrate(azimuthtime, t0, c0, c1, c2, polynomial):
@@ -671,7 +685,8 @@ compounds_vars = {
         'func': orbit,
         'args': ('annotation.orbit_time', 'annotation.orbit_frame',
                  'annotation.orbit_pos_x', 'annotation.orbit_pos_y', 'annotation.orbit_pos_z',
-                 'annotation.orbit_vel_x', 'annotation.orbit_vel_y', 'annotation.orbit_vel_z')
+                 'annotation.orbit_vel_x', 'annotation.orbit_vel_y', 'annotation.orbit_vel_z',
+                 'annotation.pass','annotation.platform_heading')
     },
     'azimuth_fmrate': {
         'func': azimuth_fmrate,
@@ -687,8 +702,15 @@ compounds_vars = {
                 'annotation.dc_dataDcPoly','annotation.dc_rmserr','annotation.dc_rmserrAboveThres','annotation.dc_azstarttime',
                 'annotation.dc_azstoptime','annotation.dc_slantRangeTime','annotation.dc_frequency'
 
-        )
+        ),
+    },
+    'subswath_image': {
+        'func': subswath_image,
+        'args':('annotation.number_of_lines','annotation.range_sampling_rate','annotation.azimuth_steering_rate',
+                'annotation.slant_range_time_image','annotation.azimuth_time_interval','annotation.radar_frequency',
+                'annotation.number_of_samples','annotation.incidence_angle_mid_swath')
     }
+
 }
 
 

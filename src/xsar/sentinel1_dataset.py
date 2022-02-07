@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
 import logging
-import pdb
 import warnings
 import numpy as np
-from scipy.interpolate import RectBivariateSpline
 import xarray as xr
 import pandas as pd
 import dask
@@ -19,7 +17,6 @@ from affine import Affine
 from .sentinel1_meta import Sentinel1Meta
 from .ipython_backends import repr_mimebundle
 import yaml
-import os
 
 logger = logging.getLogger('xsar.sentinel1_dataset')
 logger.addHandler(logging.NullHandler())
@@ -233,7 +230,9 @@ class Sentinel1Dataset:
             'elevation': False,
             'height': False,
             'azimuth_time': False,
-            'slant_range_time': False
+            'slant_range_time': False,
+            'longitude': False,
+            'latitude': False
         }
 
         # variables not returned to the user (unless luts=True)
@@ -249,11 +248,11 @@ class Sentinel1Dataset:
                 section='noise_lut'
             )
 
-        lon_lat = self._load_lon_lat()
+        #lon_lat = self._load_lon_lat()
 
         self._rasterized_masks = self._load_rasterized_masks()
 
-        ds_merge_list = [self._dataset, lon_lat, self._rasterized_masks, self._load_ground_heading(),
+        ds_merge_list = [self._dataset, self._rasterized_masks, self._load_ground_heading(), #lon_lat
                          self._luts.drop_vars(self._hidden_vars, errors='ignore')]
 
         if luts:
@@ -275,7 +274,8 @@ class Sentinel1Dataset:
         if rasters is not None:
             self._dataset = xr.merge([self._dataset, rasters])
 
-        self._dataset = self._dataset.merge(self._load_from_geoloc(['height', 'azimuth_time', 'slant_range_time','incidence','elevation']))
+        self._dataset = self._dataset.merge(self._load_from_geoloc(['height', 'azimuth_time', 'slant_range_time',
+                                                                    'incidence','elevation','longitude','latitude']))
         self._dataset = self._add_denoised(self._dataset)
         self._dataset.attrs = self._recompute_attrs()
 

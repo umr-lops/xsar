@@ -130,10 +130,8 @@ class Sentinel1Meta:
         self._radar_frequency = None
         self._azimuth_time_interval = None
         self._geoloc = None
-        #self._nb_state_vector = None
         self._azimuth_steering_rate = None
         self._range_sampling_rate = None
-        # self._azimuthfmrate = None
         self._slant_range_time_image = None
 
         self.rasters = self.__class__.rasters.copy()

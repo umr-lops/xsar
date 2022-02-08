@@ -924,12 +924,14 @@ class Sentinel1Meta:
         # match).
         burst_nlines = self.bursts.attrs['lines_per_burst']
         azi_time_int = self.subswath_image['azimuth_time_interval']
+        azi_time_int = np.timedelta64(int(azi_time_int*1e12),'ps') #turn this interval float/seconds into timedelta/picoseconds
         geoloc_line = self.geoloc['atrack'].values
         geoloc_iburst = np.floor(geoloc_line / float(burst_nlines)).astype('int32') # find the indice of the bursts in the geolocation grid
         iburst = np.floor(line / float(burst_nlines)).astype('int32') # find the indices of the bursts in the high resolution grid
         ind = np.searchsorted(geoloc_iburst, iburst, side='left') # find the indices of the burst transitions
         geoloc_azitime = self.geoloc['azimuth_time'].values[:, int((self.geoloc.attrs['npixels'] - 1) / 2)]
-        azitime = geoloc_azitime[ind] + (line - geoloc_line[ind]) * azi_time_int #compute the azimuth time by adding a step function (first term) and a growing term (second term)
+        azitime = geoloc_azitime[ind] + (line - geoloc_line[ind]) * azi_time_int.astype('<m8[ns]') #compute the azimuth time by adding a step function (first term) and a growing term (second term)
+        logger.debug('azitime %s %s %s',azitime,type(azitime),azitime.dtype)
         return azitime
 
     def extent_burst(self, burst, valid=True):

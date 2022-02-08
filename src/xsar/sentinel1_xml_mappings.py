@@ -14,7 +14,6 @@ import geopandas as gpd
 from shapely.geometry import Polygon
 import os.path
 import logging
-import netCDF4
 
 logger = logging.getLogger('xsar.sentinel1_xml_mappings')
 logger.addHandler(logging.NullHandler())
@@ -34,7 +33,6 @@ scalar_int = lambda x: int(x[0])
 scalar_float = lambda x: float(x[0])
 date_converter = lambda x: datetime.strptime(x[0], '%Y-%m-%dT%H:%M:%S.%f')
 datetime64_array = lambda x: np.array([np.datetime64(date_converter([sx])) for sx in x])
-datenum_array = lambda x: np.array([netCDF4.date2num(date_converter([sx]),TIMEUNITS) for sx in x])
 int_1Darray_from_string = lambda x: np.fromstring(x[0], dtype=int, sep=' ')
 float_2Darray_from_string_list = lambda x: np.vstack([np.fromstring(e, dtype=float, sep=' ') for e in x])
 int_1Darray_from_join_strings = lambda x: np.fromstring(" ".join(x), dtype=int, sep=' ')
@@ -137,7 +135,7 @@ xpath_mappings = {
             float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/elevationAngle'),
         'height': (float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/height'),
         'azimuth_time': (
-            datenum_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/azimuthTime'),
+            datetime64_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/azimuthTime'),
         'slant_range_time': (
             float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/slantRangeTime'),
         'longitude': (float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/longitude'),
@@ -158,9 +156,9 @@ xpath_mappings = {
         'samples_per_burst': (scalar, '/product/swathTiming/samplesPerBurst'),
         'azimuth_time_interval': (scalar_float, '/product/imageAnnotation/imageInformation/azimuthTimeInterval'),
         'all_bursts': (np.array, '//product/swathTiming/burstList/burst'),
-        'burst_azimuthTime': (datenum_array, '//product/swathTiming/burstList/burst/azimuthTime'),
+        'burst_azimuthTime': (datetime64_array, '//product/swathTiming/burstList/burst/azimuthTime'),
         'burst_azimuthAnxTime': (float_array, '//product/swathTiming/burstList/burst/azimuthAnxTime'),
-        'burst_sensingTime': (datenum_array, '//product/swathTiming/burstList/burst/sensingTime'),
+        'burst_sensingTime': (datetime64_array, '//product/swathTiming/burstList/burst/sensingTime'),
         'burst_byteOffset': (np.array, '//product/swathTiming/burstList/burst/byteOffset'),
         'burst_firstValidSample': (
             float_2Darray_from_string_list, '//product/swathTiming/burstList/burst/firstValidSample'),
@@ -169,7 +167,7 @@ xpath_mappings = {
         'radar_frequency': (scalar_float, '/product/generalAnnotation/productInformation/radarFrequency'),
         'nb_state_vector': (scalar_int, '/product/generalAnnotation/orbitList/@count'),
         'nb_fmrate': (scalar_int, '/product/generalAnnotation/azimuthFmRateList/@count'),
-        'fmrate_azimuthtime': (np.array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/azimuthTime'),
+        'fmrate_azimuthtime': (datetime64_array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/azimuthTime'),
         'fmrate_t0': (float_array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/t0'),
         'fmrate_c0': (np.array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/c0'),
         'fmrate_c1': (np.array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/c1'),
@@ -177,7 +175,7 @@ xpath_mappings = {
         'fmrate_azimuthFmRatePolynomial': (
             float_2Darray_from_string_list,
             '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/azimuthFmRatePolynomial'),
-        'orbit_time': (datenum_array, '//product/generalAnnotation/orbitList/orbit/time'), # needed as float for interpolation
+        'orbit_time': (datetime64_array, '//product/generalAnnotation/orbitList/orbit/time'),
         'orbit_frame': (np.array, '//product/generalAnnotation/orbitList/orbit/frame'),
         'orbit_pos_x': (float_array, '//product/generalAnnotation/orbitList/orbit/position/x'),
         'orbit_pos_y': (float_array, '//product/generalAnnotation/orbitList/orbit/position/y'),
@@ -191,7 +189,7 @@ xpath_mappings = {
             scalar_int, '/product/dopplerCentroid/dcEstimateList/dcEstimate[1]/geometryDcPolynomial/@count'),
         'nb_dataDcPoly': (scalar_int, '/product/dopplerCentroid/dcEstimateList/dcEstimate[1]/dataDcPolynomial/@count'),
         'nb_fineDce': (scalar_int, '/product/dopplerCentroid/dcEstimateList/dcEstimate[1]/fineDceList/@count'),
-        'dc_azimuth_time': (np.array, '//product/dopplerCentroid/dcEstimateList/dcEstimate/azimuthTime'),
+        'dc_azimuth_time': (datetime64_array, '//product/dopplerCentroid/dcEstimateList/dcEstimate/azimuthTime'),
         'dc_t0': (np.array, '//product/dopplerCentroid/dcEstimateList/dcEstimate/t0'),
         'dc_geoDcPoly': (
             float_2Darray_from_string_list, '//product/dopplerCentroid/dcEstimateList/dcEstimate/geometryDcPolynomial'),
@@ -200,8 +198,8 @@ xpath_mappings = {
         'dc_rmserr': (np.array, '//product/dopplerCentroid/dcEstimateList/dcEstimate/dataDcRmsError'),
         'dc_rmserrAboveThres': (
             bool_array, '//product/dopplerCentroid/dcEstimateList/dcEstimate/dataDcRmsErrorAboveThreshold'),
-        'dc_azstarttime': (np.array, '//product/dopplerCentroid/dcEstimateList/dcEstimate/fineDceAzimuthStartTime'),
-        'dc_azstoptime': (np.array, '//product/dopplerCentroid/dcEstimateList/dcEstimate/fineDceAzimuthStopTime'),
+        'dc_azstarttime': (datetime64_array, '//product/dopplerCentroid/dcEstimateList/dcEstimate/fineDceAzimuthStartTime'),
+        'dc_azstoptime': (datetime64_array, '//product/dopplerCentroid/dcEstimateList/dcEstimate/fineDceAzimuthStopTime'),
         'dc_slantRangeTime': (
             float_array, '///product/dopplerCentroid/dcEstimateList/dcEstimate/fineDceList/fineDce/slantRangeTime'),
         'dc_frequency': (
@@ -504,16 +502,16 @@ def orbit(time, frame, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z,orbit_pass,platf
     return da
 
 
-def strtime2numtime( strtime, fmt='%Y-%m-%dT%H:%M:%S.%f'):
-    """
-    Convert string time to numeric time.
-    """
-    dtime = datetime.strptime(strtime, fmt)
-    #numtime = date2num(dtime, self.read_field('time').units)
-    TIMEUNITS = 'seconds since 1990-01-01T00:00:00'
-    # 'seconds since 2014-01-01 00:00:00'
-    numtime = netCDF4.date2num(dtime,TIMEUNITS )
-    return numtime
+# def strtime2numtime( strtime, fmt='%Y-%m-%dT%H:%M:%S.%f'):
+#     """
+#     Convert string time to numeric time.
+#     """
+#     dtime = datetime.strptime(strtime, fmt)
+#     #numtime = date2num(dtime, self.read_field('time').units)
+#     TIMEUNITS = 'seconds since 1990-01-01T00:00:00'
+#     # 'seconds since 2014-01-01 00:00:00'
+#     numtime = netCDF4.date2num(dtime,TIMEUNITS )
+#     return numtime
 
 def doppler_centroid_estimates(nb_dcestimate,nb_geoDcPoly,nb_dataDcPoly,
                 nb_fineDce,dc_azimuth_time,dc_t0,dc_geoDcPoly,
@@ -542,20 +540,21 @@ def doppler_centroid_estimates(nb_dcestimate,nb_geoDcPoly,nb_dataDcPoly,
     ds['geo_polynom'] = xr.DataArray(dc_geoDcPoly,dims=['n_estimates','ngeocoeffs'])
     ds['data_polynom'] = xr.DataArray(dc_dataDcPoly,dims=['n_estimates','ndatacoeffs'])
     dims = (nb_dcestimate, nb_fineDce)
-    ds['azimuth_time'] = xr.DataArray(np.empty(dims, dtype='float64'),dims=['n_estimates','nb_fine_dce'])
-    ds['azimuth_time_start'] =  xr.DataArray(np.empty((nb_dcestimate), dtype='float64'),dims=['n_estimates'])
-    ds['azimuth_time_stop'] = xr.DataArray(np.empty((nb_dcestimate), dtype='float64'), dims=['n_estimates'])
+    ds['azimuth_time'] = xr.DataArray(dc_azimuth_time,dims=['n_estimates'])
+    ds['azimuth_time_start'] =  xr.DataArray(dc_azstarttime,dims=['n_estimates'])
+    ds['azimuth_time_stop'] = xr.DataArray(dc_azstoptime, dims=['n_estimates'])
     ds['data_rms'] = xr.DataArray(dc_rmserr.astype(float),dims=['n_estimates'])
     ds['slant_range_time'] = xr.DataArray(dc_slantRangeTime.reshape(dims),dims=['n_estimates','nb_fine_dce'])
     ds['frequency'] = xr.DataArray(dc_frequency.reshape(dims), dims=['n_estimates', 'nb_fine_dce'])
     ds['data_rms_threshold'] = xr.DataArray(dc_rmserrAboveThres,dims=['n_estimates'])
-    for iline in range(nb_dcestimate):
-        strtime = dc_azimuth_time[iline]
-        ds['azimuth_time'].values[iline, :] = strtime2numtime(strtime)
-        strtime = dc_azstarttime[iline]
-        ds['azimuth_time_start'].values[iline] = strtime2numtime(strtime)
-        strtime = dc_azstoptime[iline]
-        ds['azimuth_time_stop'].values[iline] = strtime2numtime(strtime)
+
+    # for iline in range(nb_dcestimate):
+    #     strtime = dc_azimuth_time[iline]
+    #     ds['azimuth_time'].values[iline, :] = strtime2numtime(strtime)
+    #     strtime = dc_azstarttime[iline]
+    #     ds['azimuth_time_start'].values[iline] = strtime2numtime(strtime)
+    #     strtime = dc_azstoptime[iline]
+    #     ds['azimuth_time_stop'].values[iline] = strtime2numtime(strtime)
     ds.attrs['description'] = 'annotations for Doppler centroid estimates'
     #ds.attrs['n_estimates'] = len(ds['t0'])
     #ds.attrs['n_fineDCE'] = nb_fineDce
@@ -588,20 +587,24 @@ def azimuth_fmrate(azimuthtime, t0, c0, c1, c2, polynomial):
     :param polynomial:
     :return:
     """
-    azimuthtime = np.array([strtime2numtime(x) for x in azimuthtime])
+    #azimuthtime = np.array([strtime2numtime(x) for x in azimuthtime])
     #azimuthtime = azimuthtime.astype(float)
     if ( np.sum([c.size for c in [c0,c1,c2]]) != 0) and (polynomial.size == 0):
-        # old annotation
+        # old IPF annotation
         polynomial = np.stack([c0, c1, c1], axis=1)
-
-
-    return pd.DataFrame(
-        {
-            't0': t0,
-            'polynomial': [ Polynomial(p) for p in polynomial ],
-            'azimuth_time':azimuthtime
-        }, index=azimuthtime
-    )
+    else:
+        c0 = polynomial[:,0]
+        c1 = polynomial[:,1]
+        c2 = polynomial[:,2]
+        logger.debug('polynomial %s %s',type(polynomial),polynomial)
+    logger.debug('c0 %s',c0)
+    res = xr.Dataset()
+    res['t0'] = xr.DataArray(t0,dims=['azimuth_time'],coords={'azimuth_time':azimuthtime})
+    res['c0'] = xr.DataArray(c0,dims=['azimuth_time'],coords={'azimuth_time':azimuthtime})
+    res['c1'] = xr.DataArray(c1, dims=['azimuth_time'],coords={'azimuth_time':azimuthtime})
+    res['c2'] = xr.DataArray(c2, dims=['azimuth_time'],coords={'azimuth_time':azimuthtime})
+    res['polynomial'] = xr.DataArray([Polynomial(p) for p in polynomial],dims=['azimuth_time'],coords={'azimuth_time':azimuthtime})
+    return res
 
 # dict of compounds variables.
 # compounds variables are variables composed of several variables.

@@ -123,7 +123,7 @@ class Sentinel1Dataset:
             'sigma0_lut': 'f8',
             'gamma0_lut': 'f8',
             'digital_number': None,
-            'azimuth_time':None,
+            'azimuth_time':np.datetime64,
             'slant_range_time':None
         }
         if dtypes is not None:
@@ -663,35 +663,43 @@ class Sentinel1Dataset:
 
         da_list = []
         for varname in varnames:
-
+            logger.debug('varname : %s',varname)
+            if varname in ['azimuth_time']:
+                z_values = self.s1meta.geoloc[varname].astype(float)
+            else:
+                z_values = self.s1meta.geoloc[varname]
             if self.s1meta.bursts.burst.size!=0:
                 # TOPS SLC
-                logger.debug(' x %s y %s z %s',self.s1meta.geoloc.azimuth_time.shape,self.s1meta.geoloc.xtrack.shape,self.s1meta.geoloc[varname].shape)
+                logger.debug(' x %s y %s z %s %s',self.s1meta.geoloc.azimuth_time.shape,
+                             self.s1meta.geoloc.xtrack.shape,self.s1meta.geoloc[varname].shape,self.s1meta.geoloc[varname].dtype)
                 interp_func = RectBivariateSpline(
-                    self.s1meta.geoloc.azimuth_time[:,0],
+                    self.s1meta.geoloc.azimuth_time[:,0].astype(float),
                     self.s1meta.geoloc.xtrack,
-                    self.s1meta.geoloc[varname],
+                    z_values,
                     kx=1, ky=1
                 )
             else:
                 interp_func = RectBivariateSpline(
                     self.s1meta.geoloc.atrack,
                     self.s1meta.geoloc.xtrack,
-                    self.s1meta.geoloc[varname],
+                    z_values,
                     kx=1, ky=1
                 )
             logger.debug('%s %s',varname,interp_func)
             # the following take much cpu and memory, so we want to use dask
             # interp_func(self._dataset.atrack, self.dataset.xtrack)
+            typee = self.s1meta.geoloc[varname].dtype
+            logger.debug('output type %s %s',varname,typee)
             if self.s1meta.bursts.burst.size!=0:
+
                 da_var = map_blocks_coords(
-                    self._da_tmpl.astype(self.s1meta.geoloc[varname].dtype),
+                    self._da_tmpl.astype(typee),
                     interp_func,
                     withburst=True,func_kwargs={'grid':False},
                 )
             else:
                 da_var = map_blocks_coords(
-                    self._da_tmpl.astype(self.s1meta.geoloc[varname].dtype),
+                    self._da_tmpl.astype(typee),
                     interp_func
                 )
             da_var.name = varname

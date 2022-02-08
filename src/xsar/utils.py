@@ -229,7 +229,7 @@ def map_blocks_coords(da, func,withburst=False, func_kwargs={}, **kwargs):
             # (Note : dummy coords are 0 sized if dummy block is empty)
             loc = tuple(zip((0,) * len(block.shape), block.shape))
         logger.debug('loc %s',loc)
-        azaz = azimuthtime[loc[0][0]:loc[0][1]]
+        azaz = azimuthtime[loc[0][0]:loc[0][1]].astype(float) # cast float before interpolation
         logger.debug('azaz : %s %s',azaz,azaz.shape)
         coords_sel = []
         for i, c in enumerate(coords):
@@ -248,7 +248,7 @@ def map_blocks_coords(da, func,withburst=False, func_kwargs={}, **kwargs):
         # TOPS SLC
 
         coords = {c: da[c].values for c in da.dims}
-        coords_4_interpolation = {'xint': da['xint'].values, 'xtrack': da['xtrack'].values}
+        coords_4_interpolation = {'xint': da['xint'].values.astype(float), 'xtrack': da['xtrack'].values}
     else:
         coords = {c: da[c].values for c in da.dims}
         coords_4_interpolation = coords

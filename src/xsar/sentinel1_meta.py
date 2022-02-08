@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-
 import cartopy.feature
 import logging
 import warnings
@@ -20,7 +19,6 @@ from .xml_parser import XmlParser
 from affine import Affine
 import os
 from .ipython_backends import repr_mimebundle
-
 
 logger = logging.getLogger('xsar.sentinel1_meta')
 logger.addHandler(logging.NullHandler())
@@ -120,6 +118,7 @@ class Sentinel1Meta:
         self._mask_features = {}
         self._mask_intersecting_geometries = {}
         self._mask_geometry = {}
+
         # get defaults masks from class attribute
         for name, feature in self.__class__._mask_features_raw.items():
             self.set_mask_feature(name, feature)
@@ -271,7 +270,6 @@ class Sentinel1Meta:
             else:
                 raise KeyError('Unable to find key/attr "%s" in Sentinel1Meta' % k)
         return res_dict
-
 
 
     @property

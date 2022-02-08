@@ -26,7 +26,6 @@ namespaces = {
     "safe": "http://www.esa.int/safe/sentinel-1.0",
     "gml": "http://www.opengis.net/gml"
 }
-TIMEUNITS = 'seconds since 1990-01-01T00:00:00'
 # xpath convertion function: they take only one args (list returned by xpath)
 scalar = lambda x: x[0]
 scalar_int = lambda x: int(x[0])
@@ -713,8 +712,4 @@ compounds_vars = {
                 'annotation.slant_range_time_image','annotation.azimuth_time_interval','annotation.radar_frequency',
                 'annotation.number_of_samples','annotation.incidence_angle_mid_swath')
     }
-
 }
-
-
-

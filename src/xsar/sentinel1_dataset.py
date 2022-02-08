@@ -607,7 +607,7 @@ class Sentinel1Dataset:
                     zip(self.s1meta.files['measurement'], self.s1meta.manifest_attrs['polarizations'])
                 ],
                 'pol'
-            )
+            ).chunk(chunks)
 
 
 
@@ -732,7 +732,6 @@ class Sentinel1Dataset:
 
         ll_coords = ['longitude', 'latitude']
         # ll_tmpl is like self._da_tmpl stacked 2 times (for both longitude and latitude)
-
         ll_tmpl = self._da_tmpl.expand_dims({'ll': 2}).assign_coords(ll=ll_coords).astype(self._dtypes['longitude'])
         ll_ds = map_blocks_coords(ll_tmpl, coords2ll, name='blocks_lonlat')
         # remove ll_coords to have two separate variables longitude and latitude
@@ -911,7 +910,7 @@ class Sentinel1Dataset:
                 da = da.drop_vars(['spatial_ref', 'crs'], errors='ignore')
 
                 upscaled_da = map_blocks_coords(
-                    xr.DataArray(dims=['y', 'x'], coords={'x': lons, 'y': lats}).chunk(3000),
+                    xr.DataArray(dims=['y', 'x'], coords={'x': lons, 'y': lats}).chunk(1000),
                     RectBivariateSpline(da.y.values, da.x.values, da.values)
                 )
 
@@ -940,7 +939,7 @@ class Sentinel1Dataset:
                     dims=['atrack', 'xtrack'],
                     coords={'atrack': self._da_tmpl.atrack, 'xtrack': self._da_tmpl.xtrack},
                     attrs=raster_ds[var].attrs
-                )
+                ).chunk(self._da_tmpl.chunks)
                 da_var.attrs['history'] = yaml.safe_dump({var_name: hist_res})
                 logger.debug('adding variable "%s" from raster "%s"' % (var_name, name))
                 da_var_list.append(da_var)

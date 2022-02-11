@@ -658,7 +658,7 @@ class Sentinel1Dataset:
     @timing
     def _load_ground_heading(self):
         def coords2heading(atracks, xtracks):
-            return self.s1meta.coords2heading(atracks, xtracks, to_grid=True, approx=False)
+            return self.s1meta.coords2heading(atracks, xtracks, to_grid=True, approx=True)
 
         gh = map_blocks_coords(
             self._da_tmpl.astype(self._dtypes['ground_heading']),

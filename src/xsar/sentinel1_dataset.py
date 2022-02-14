@@ -666,6 +666,11 @@ class Sentinel1Dataset:
             logger.debug('varname : %s',varname)
             if varname in ['azimuth_time']:
                 z_values = self.s1meta.geoloc[varname].astype(float)
+            elif varname == 'longitude':
+                z_values = self.s1meta.geoloc[varname]
+                if self.s1meta.cross_antemeridian:
+                    logger.debug('translate longitudes between 0 and 360')
+                    z_values = z_values%360
             else:
                 z_values = self.s1meta.geoloc[varname]
             if self.s1meta.bursts.burst.size!=0:
@@ -702,6 +707,14 @@ class Sentinel1Dataset:
                     self._da_tmpl.astype(typee),
                     interp_func
                 )
+            if varname == 'longitude':
+                if self.s1meta.cross_antemeridian:
+                    logger.debug('transform back longitudes between -180 and 180')
+                    logger.debug('da_var : %s %s',da_var,type(da_var))
+                    remove360 = da_var.where(da_var<=180,360) # i put 360 for all the points > 180
+                    remove360 = remove360.where(remove360==360,0) # I put 0 for all the points <=180
+                    da_var = da_var - remove360
+
             da_var.name = varname
 
             # copy history

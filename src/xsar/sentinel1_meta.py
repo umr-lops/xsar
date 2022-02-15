@@ -595,6 +595,18 @@ class Sentinel1Meta:
 
     @property
     def orbit(self):
+        """
+        orbit, as a geopandas.GeoDataFrame, with columns:
+          - 'velocity' : shapely.geometry.Point with velocity in x, y, z direction
+          - 'geometry' : shapely.geometry.Point with position in x, y, z direction
+
+        crs is set to 'geocentric'
+
+        attrs keys:
+          - 'orbit_pass': 'Ascending' or 'Descending'
+          - 'platform_heading': in degrees, relative to north
+
+        """
         if self.multidataset:
             return None  # not defined for multidataset
         gdf_orbit = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'orbit')

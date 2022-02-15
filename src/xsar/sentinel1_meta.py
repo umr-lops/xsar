@@ -606,6 +606,10 @@ class Sentinel1Meta:
           - 'orbit_pass': 'Ascending' or 'Descending'
           - 'platform_heading': in degrees, relative to north
 
+        Notes
+        -----
+        orbit is longer than the SAFE, because it belongs to all datatakes, not only this slice
+
         """
         if self.multidataset:
             return None  # not defined for multidataset

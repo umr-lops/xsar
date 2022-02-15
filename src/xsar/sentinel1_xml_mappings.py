@@ -10,8 +10,9 @@ import pandas as pd
 import xarray as xr
 import warnings
 import geopandas as gpd
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, Point
 import os.path
+import pyproj
 
 namespaces = {
     "xfdu": "urn:ccsds:schema:xfdu:1",
@@ -32,6 +33,7 @@ float_2Darray_from_string_list = lambda x: np.vstack([np.fromstring(e, dtype=flo
 int_1Darray_from_join_strings = lambda x: np.fromstring(" ".join(x), dtype=int, sep=' ')
 float_1Darray_from_join_strings = lambda x: np.fromstring(" ".join(x), dtype=float, sep=' ')
 int_array = lambda x: np.array(x, dtype=int)
+float_array = lambda x: np.array(x, dtype=float)
 uniq_sorted = lambda x: np.array(sorted(set(x)))
 ordered_category = lambda x: pd.Categorical(x).reorder_categories(x, ordered=True)
 normpath = lambda paths: [os.path.normpath(p) for p in paths]
@@ -129,7 +131,15 @@ xpath_mappings = {
         'denoised': (scalar, '/product/imageAnnotation/processingInformation/thermalNoiseCorrectionPerformed'),
         'pol': (scalar, '/product/adsHeader/polarisation'),
         'pass': (scalar, '/product/generalAnnotation/productInformation/pass'),
-        'platform_heading': (scalar_float, '/product/generalAnnotation/productInformation/platformHeading')
+        'platform_heading': (scalar_float, '/product/generalAnnotation/productInformation/platformHeading'),
+        'orbit_time': (datetime64_array, '//product/generalAnnotation/orbitList/orbit/time'),
+        'orbit_frame': (np.array, '//product/generalAnnotation/orbitList/orbit/frame'),
+        'orbit_pos_x': (float_array, '//product/generalAnnotation/orbitList/orbit/position/x'),
+        'orbit_pos_y': (float_array, '//product/generalAnnotation/orbitList/orbit/position/y'),
+        'orbit_pos_z': (float_array, '//product/generalAnnotation/orbitList/orbit/position/z'),
+        'orbit_vel_x': (float_array, '//product/generalAnnotation/orbitList/orbit/velocity/x'),
+        'orbit_vel_y': (float_array, '//product/generalAnnotation/orbitList/orbit/velocity/y'),
+        'orbit_vel_z': (float_array, '//product/generalAnnotation/orbitList/orbit/velocity/z'),
     }
 }
 
@@ -338,6 +348,35 @@ def df_files(annotation_files, measurement_files, noise_files, calibration_files
     )
     return df
 
+def orbit(time, frame, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z,orbit_pass,platform_heading):
+    """
+    Returns
+    -------
+    geopandas.GeoDataFrame
+        with 'geometry' as position, 'time' as index, 'velocity' as velocity, and 'geocent' as crs.
+    """
+
+    if (frame[0] != 'Earth Fixed') or (np.unique(frame).size != 1):
+        raise NotImplementedError('All orbit frames must be of type "Earth Fixed"')
+
+    crs = pyproj.crs.CRS(proj='geocent', ellps='WGS84', datum='WGS84')
+
+    gdf = gpd.GeoDataFrame(
+        {
+            'velocity': list(map(Point, zip(vel_x,vel_y,vel_z)))
+        },
+        geometry=list(map(Point, zip(pos_x,pos_y,pos_z))),
+        crs=crs,
+        index=time
+    )
+
+    gdf.attrs = {
+        'orbit_pass': orbit_pass,
+        'platform_heading': platform_heading
+    }
+
+    return gdf
+
 
 # dict of compounds variables.
 # compounds variables are variables composed of several variables.
@@ -389,5 +428,12 @@ compounds_vars = {
     'elevation': {
         'func': annotation_angle,
         'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.elevation')
+    },
+    'orbit': {
+        'func': orbit,
+        'args': ('annotation.orbit_time', 'annotation.orbit_frame',
+                 'annotation.orbit_pos_x', 'annotation.orbit_pos_y', 'annotation.orbit_pos_z',
+                 'annotation.orbit_vel_x', 'annotation.orbit_vel_y', 'annotation.orbit_vel_z',
+                 'annotation.pass','annotation.platform_heading')
     },
 }

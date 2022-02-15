@@ -123,9 +123,6 @@ class Sentinel1Meta:
         for name, feature in self.__class__._mask_features_raw.items():
             self.set_mask_feature(name, feature)
 
-        self._orbit_pass = None
-        self._platform_heading = None
-
         self.rasters = self.__class__.rasters.copy()
         """pandas dataframe for rasters (see `xsar.Sentinel1Meta.set_raster`)"""
 
@@ -276,9 +273,8 @@ class Sentinel1Meta:
 
         if self.multidataset:
             return None  # not defined for multidataset
-        if self._orbit_pass is None:
-            self._orbit_pass = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.pass')
-        return self._orbit_pass
+
+        return self.orbit.attrs['orbit_pass']
 
     @property
     def platform_heading(self):
@@ -288,10 +284,8 @@ class Sentinel1Meta:
 
         if self.multidataset:
             return None  # not defined for multidataset
-        if self._platform_heading is None:
-            self._platform_heading = self.xml_parser.get_var(self.files['annotation'].iloc[0],
-                                                             'annotation.platform_heading')
-        return self._platform_heading
+
+        return self.orbit.attrs['platform_heading']
 
     @property
     def rio(self):
@@ -598,6 +592,14 @@ class Sentinel1Meta:
     def cross_antemeridian(self):
         """True if footprint cross antemeridian"""
         return ((np.max(self.gcps['longitude']) - np.min(self.gcps['longitude'])) > 180).item()
+
+    @property
+    def orbit(self):
+        if self.multidataset:
+            return None  # not defined for multidataset
+        gdf_orbit = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'orbit')
+        gdf_orbit.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'orbit', describe=True)
+        return gdf_orbit
 
     @property
     def _dict_coords2ll(self):

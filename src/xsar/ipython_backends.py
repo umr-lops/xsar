@@ -8,7 +8,8 @@ try:
     import jinja2
     import geopandas as gpd
     import holoviews.ipython.display_hooks as display_hooks
-    from shapely.geometry import Polygon
+    from shapely.geometry import Polygon, Point
+    import pyproj
 except ModuleNotFoundError as e:
     pass
 
@@ -66,22 +67,29 @@ def repr_mimebundle_Sentinel1Meta(self, include=None, exclude=None):
         {
             'dsid': dsid,
             'geometry': footprint
-        }
+        },
+        crs='EPSG:4326'
     )
 
     opts = {
         'bokeh': dict(tools=['hover'])
     }
 
-    footprint = gv.Polygons(footprints_df) \
+    footprint = gv.Polygons(footprints_df, label='footprint') \
         .opts(projection=crs, xlim=xlim, ylim=ylim, alpha=0.5) \
         .opts(**(opts.get(hv.Store.current_backend) or {}), backend=hv.Store.current_backend)
+
+    orbit = gv.Points(
+        self.orbit['geometry'].to_crs('EPSG:4326'), label='orbit'
+    ).opts(projection=crs, xlim=xlim, ylim=ylim, alpha=0.5)\
+        .opts(**(opts.get(hv.Store.current_backend) or {}), backend=hv.Store.current_backend)
+
 
     opts = {
         'bokeh': dict(width=400, height=400),
         'matplotlib': dict(fig_inches=5)
     }
-    location = (world * footprint) \
+    location = (world * footprint * orbit) \
         .opts(title='Map') \
         .opts(**(opts.get(hv.Store.current_backend) or {}), backend=hv.Store.current_backend) \
 

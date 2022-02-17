@@ -618,6 +618,14 @@ class Sentinel1Meta:
         return gdf_orbit
 
     @property
+    def image(self):
+        if self.multidataset:
+            return None
+        img_dict = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'image')
+        img_dict['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'image', describe=True)
+        return img_dict
+
+    @property
     def _dict_coords2ll(self):
         """
         dict with keys ['longitude', 'latitude'] with interpolation function (RectBivariateSpline) as values.

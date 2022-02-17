@@ -128,6 +128,13 @@ xpath_mappings = {
         'polarization': (scalar, '/product/adsHeader/polarisation'),
         'atrack_time_range': (
             datetime64_array, '/product/imageAnnotation/imageInformation/*[contains(name(),"LineUtcTime")]'),
+        'atrack_size': (scalar, '/product/imageAnnotation/imageInformation/numberOfLines'),
+        'xtrack_size': (scalar, '/product/imageAnnotation/imageInformation/numberOfSamples'),
+        'incidence_angle_mid_swath': (scalar_float, '/product/imageAnnotation/imageInformation/incidenceAngleMidSwath'),
+        'azimuth_time_interval': (scalar_float, '/product/imageAnnotation/imageInformation/azimuthTimeInterval'),
+        'slant_range_time_image': (scalar_float, '/product/imageAnnotation/imageInformation/slantRangeTime'),
+        'rangePixelSpacing': (scalar_float, '/product/imageAnnotation/imageInformation/rangePixelSpacing'),
+        'azimuthPixelSpacing': (scalar_float, '/product/imageAnnotation/imageInformation/azimuthPixelSpacing'),
         'denoised': (scalar, '/product/imageAnnotation/processingInformation/thermalNoiseCorrectionPerformed'),
         'pol': (scalar, '/product/adsHeader/polarisation'),
         'pass': (scalar, '/product/generalAnnotation/productInformation/pass'),
@@ -377,6 +384,17 @@ def orbit(time, frame, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z,orbit_pass,platf
 
     return gdf
 
+def image(atrack_time_range, atrack_size, xtrack_size, incidence_angle_mid_swath, azimuth_time_interval,
+          slant_range_time_image, azimuthPixelSpacing, rangePixelSpacing):
+
+    return {
+        'atrack_time_range': atrack_time_range,
+        'shape': (atrack_size, xtrack_size),
+        'pixel_spacing': (azimuthPixelSpacing, rangePixelSpacing),
+        'incidence_angle_mid_swath': incidence_angle_mid_swath,
+        'azimuth_time_interval': azimuth_time_interval,
+        'slant_range_time_image': slant_range_time_image,
+    }
 
 # dict of compounds variables.
 # compounds variables are variables composed of several variables.
@@ -436,4 +454,10 @@ compounds_vars = {
                  'annotation.orbit_vel_x', 'annotation.orbit_vel_y', 'annotation.orbit_vel_z',
                  'annotation.pass','annotation.platform_heading')
     },
+    'image': {
+        'func': image,
+        'args': ('annotation.atrack_time_range', 'annotation.atrack_size', 'annotation.xtrack_size',
+                 'annotation.incidence_angle_mid_swath', 'annotation.azimuth_time_interval',
+                 'annotation.slant_range_time_image', 'annotation.azimuthPixelSpacing', 'annotation.rangePixelSpacing')
+    }
 }

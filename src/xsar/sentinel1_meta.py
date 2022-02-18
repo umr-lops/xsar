@@ -930,5 +930,17 @@ class Sentinel1Meta:
                 #'npixels': len(self._geoloc['xtrack']),
                 #'nlines': len(self._geoloc['atrack']),
             }
+            # compute attributes (footprint, coverage, pixel_size)
+            lons = [self._geoloc['longitude'].values.max(),self._geoloc['longitude'].values.max(),
+                    self._geoloc['longitude'].values.min(),self._geoloc['longitude'].values.min(),
+                    self._geoloc['longitude'].values.max()]
+            lats = [self._geoloc['latitude'].values.min(),self._geoloc['latitude'].values.max(),
+                    self._geoloc['latitude'].values.max(),self._geoloc['latitude'].values.min(),
+                    self._geoloc['latitude'].values.min()]
+            logger.debug('lons : %s',lons)
+            corners = list(zip(lons, lats))
+            p = Polygon(corners)
+            logger.debug('polyon : %s',p)
+            self._geoloc.attrs['footprint'] = p
         return self._geoloc
 

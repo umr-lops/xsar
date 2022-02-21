@@ -8,6 +8,7 @@ from scipy.interpolate import RectBivariateSpline, interp1d
 from shapely.geometry import box
 import pandas as pd
 import xarray as xr
+from numpy.polynomial import Polynomial
 import warnings
 import geopandas as gpd
 from shapely.geometry import Polygon, Point
@@ -426,8 +427,8 @@ def doppler_centroid_estimates(nb_dcestimate,nb_geoDcPoly,nb_dataDcPoly,
     """
     ds = xr.Dataset()
     ds['t0'] = xr.DataArray(dc_t0.astype(float),dims=['n_estimates'])
-    ds['geo_polynom'] = xr.DataArray(dc_geoDcPoly,dims=['n_estimates','ngeocoeffs'])
-    ds['data_polynom'] = xr.DataArray(dc_dataDcPoly,dims=['n_estimates','ndatacoeffs'])
+    ds['geo_polynom'] = xr.DataArray([Polynomial(p) for p in dc_geoDcPoly],dims=['n_estimates'])
+    ds['data_polynom'] = xr.DataArray([Polynomial(p) for p in dc_dataDcPoly],dims=['n_estimates'])
     dims = (nb_dcestimate, nb_fineDce)
     ds['azimuth_time'] = xr.DataArray(dc_azimuth_time,dims=['n_estimates'])
     ds['azimuth_time_start'] =  xr.DataArray(dc_azstarttime,dims=['n_estimates'])

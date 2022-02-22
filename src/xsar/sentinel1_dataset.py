@@ -2,13 +2,14 @@
 import logging
 import warnings
 import numpy as np
+from scipy.interpolate import RectBivariateSpline
 import xarray as xr
 import pandas as pd
 import dask
 import rasterio
 import rasterio.features
 import rioxarray
-from scipy.interpolate import interp1d, RectBivariateSpline
+from scipy.interpolate import interp1d
 from shapely.geometry import Polygon
 import shapely
 from .utils import timing, haversine, map_blocks_coords, bbox_coords, BlockingActorProxy, merge_yaml, get_glob
@@ -17,6 +18,7 @@ from affine import Affine
 from .sentinel1_meta import Sentinel1Meta
 from .ipython_backends import repr_mimebundle
 import yaml
+import os
 
 logger = logging.getLogger('xsar.sentinel1_dataset')
 logger.addHandler(logging.NullHandler())
@@ -111,7 +113,6 @@ class Sentinel1Dataset:
             'longitude': 'f4',
             'incidence': 'f4',
             'elevation': 'f4',
-            'height': 'f4',
             'ground_heading': 'f4',
             'nesz': None,
             'negz': None,
@@ -122,9 +123,7 @@ class Sentinel1Dataset:
             'noise_lut_azi': 'f4',
             'sigma0_lut': 'f8',
             'gamma0_lut': 'f8',
-            'digital_number': None,
-            'azimuth_time':np.datetime64,
-            'slant_range_time':None
+            'digital_number': None
         }
         if dtypes is not None:
             self._dtypes.update(dtypes)
@@ -169,29 +168,14 @@ class Sentinel1Dataset:
         # what's matter here is the shape of the image, not the values.
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", np.ComplexWarning)
-            if self.s1meta.bursts.burst.size != 0:
-                # SLC TOPS, tune the high res grid because of bursts overlapping
-                xint = self.s1meta.burst_azitime(self._dataset.digital_number.atrack.values)
-                self._da_tmpl = xr.DataArray(
-                    dask.array.empty_like(
-                        np.empty((len(xint),len(self._dataset.digital_number.xtrack))),
-                        dtype=np.int8, name="empty_var_tmpl-%s" % dask.base.tokenize(self.s1meta.name)),
-                    dims=('atrack', 'xtrack'),
-                    coords={'atrack': self._dataset.digital_number.atrack,
-                            'xtrack': self._dataset.digital_number.xtrack},
-                    #attrs={'xint':xint}
-                )
-                self._da_tmpl['xint'] = xr.DataArray(xint,dims=['atrack'])
-            else:
-
-                self._da_tmpl = xr.DataArray(
-                    dask.array.empty_like(
-                        self._dataset.digital_number.isel(pol=0).drop('pol'),
-                        dtype=np.int8, name="empty_var_tmpl-%s" % dask.base.tokenize(self.s1meta.name)),
-                    dims=('atrack', 'xtrack'),
-                    coords={'atrack': self._dataset.digital_number.atrack,
-                            'xtrack': self._dataset.digital_number.xtrack}
-                )
+            self._da_tmpl = xr.DataArray(
+                dask.array.empty_like(
+                    self._dataset.digital_number.isel(pol=0).drop('pol'),
+                    dtype=np.int8, name="empty_var_tmpl-%s" % dask.base.tokenize(self.s1meta.name)),
+                dims=('atrack', 'xtrack'),
+                coords={'atrack': self._dataset.digital_number.atrack,
+                        'xtrack': self._dataset.digital_number.xtrack}
+            )
 
         # FIXME possible memory leak
         # when calling a self.s1meta method, an ActorFuture is returned.
@@ -216,8 +200,8 @@ class Sentinel1Dataset:
             'gamma0_lut': 'calibration',
             'noise_lut_range': 'noise',
             'noise_lut_azi': 'noise',
-            #'incidence': 'annotation',
-            #'elevation': 'annotation',
+            'incidence': 'annotation',
+            'elevation': 'annotation'
         }
 
         # dict mapping specifying if the variable has 'pol' dimension
@@ -227,12 +211,7 @@ class Sentinel1Dataset:
             'noise_lut_range': True,
             'noise_lut_azi': True,
             'incidence': False,
-            'elevation': False,
-            'height': False,
-            'azimuth_time': False,
-            'slant_range_time': False,
-            'longitude': False,
-            'latitude': False
+            'elevation': False
         }
 
         # variables not returned to the user (unless luts=True)
@@ -248,11 +227,11 @@ class Sentinel1Dataset:
                 section='noise_lut'
             )
 
-        #lon_lat = self._load_lon_lat()
+        lon_lat = self._load_lon_lat()
 
         self._rasterized_masks = self._load_rasterized_masks()
 
-        ds_merge_list = [self._dataset, self._rasterized_masks, self._load_ground_heading(), #lon_lat
+        ds_merge_list = [self._dataset, lon_lat, self._rasterized_masks, self._load_ground_heading(),
                          self._luts.drop_vars(self._hidden_vars, errors='ignore')]
 
         if luts:
@@ -274,8 +253,6 @@ class Sentinel1Dataset:
         if rasters is not None:
             self._dataset = xr.merge([self._dataset, rasters])
 
-        self._dataset = self._dataset.merge(self._load_from_geoloc(['height', 'azimuth_time', 'slant_range_time',
-                                                                    'incidence','elevation','longitude','latitude']))
         self._dataset = self._add_denoised(self._dataset)
         self._dataset.attrs = self._recompute_attrs()
 
@@ -294,9 +271,6 @@ class Sentinel1Dataset:
 
         # save original bbox
         self._bbox_coords_ori = self._bbox_coords
-
-
-    
 
     def __del__(self):
         logger.debug('__del__')
@@ -645,93 +619,11 @@ class Sentinel1Dataset:
 
         return ds
 
-    def _load_from_geoloc(self, varnames):
-        """
-        Interpolate (with RectBiVariateSpline) variables from `self.s1meta.geoloc` to `self._dataset`
-
-        Parameters
-        ----------
-        varnames: list of str
-            subset of variables names in `self.s1meta.geoloc`
-
-        Returns
-        -------
-        xarray.Dataset
-            With interpolated vaiables
-
-        """
-
-        da_list = []
-        for varname in varnames:
-            logger.debug('varname : %s',varname)
-            if varname in ['azimuth_time']:
-                z_values = self.s1meta.geoloc[varname].astype(float)
-            elif varname == 'longitude':
-                z_values = self.s1meta.geoloc[varname]
-                if self.s1meta.cross_antemeridian:
-                    logger.debug('translate longitudes between 0 and 360')
-                    z_values = z_values%360
-            else:
-                z_values = self.s1meta.geoloc[varname]
-            if self.s1meta.bursts.burst.size!=0:
-                # TOPS SLC
-                logger.debug(' x %s y %s z %s %s',self.s1meta.geoloc.azimuth_time.shape,
-                             self.s1meta.geoloc.xtrack.shape,self.s1meta.geoloc[varname].shape,self.s1meta.geoloc[varname].dtype)
-                interp_func = RectBivariateSpline(
-                    self.s1meta.geoloc.azimuth_time[:,0].astype(float),
-                    self.s1meta.geoloc.xtrack,
-                    z_values,
-                    kx=1, ky=1
-                )
-            else:
-                interp_func = RectBivariateSpline(
-                    self.s1meta.geoloc.atrack,
-                    self.s1meta.geoloc.xtrack,
-                    z_values,
-                    kx=1, ky=1
-                )
-            logger.debug('%s %s',varname,interp_func)
-            # the following take much cpu and memory, so we want to use dask
-            # interp_func(self._dataset.atrack, self.dataset.xtrack)
-            typee = self.s1meta.geoloc[varname].dtype
-            logger.debug('output type %s %s',varname,typee)
-            if self.s1meta.bursts.burst.size!=0:
-
-                da_var = map_blocks_coords(
-                    self._da_tmpl.astype(typee),
-                    interp_func,
-                    withburst=True,func_kwargs={'grid':False},
-                )
-            else:
-                da_var = map_blocks_coords(
-                    self._da_tmpl.astype(typee),
-                    interp_func
-                )
-            if varname == 'longitude':
-                if self.s1meta.cross_antemeridian:
-                    logger.debug('transform back longitudes between -180 and 180')
-                    logger.debug('da_var : %s %s',da_var,type(da_var))
-                    remove360 = da_var.where(da_var<=180,360) # i put 360 for all the points > 180
-                    remove360 = remove360.where(remove360==360,0) # I put 0 for all the points <=180
-                    da_var = da_var - remove360
-
-            da_var.name = varname
-
-            # copy history
-            try:
-                da_var.attrs['history'] = self.s1meta.geoloc[varname].attrs['history']
-            except KeyError:
-                pass
-
-            da_list.append(da_var)
-
-        return xr.merge(da_list)
-
     @timing
     def _load_lon_lat(self):
         """
         Load longitude and latitude using `self.s1meta.gcps`.
-        #TODO deprecated func
+
         Returns
         -------
         tuple xarray.Dataset
@@ -1141,52 +1033,3 @@ class Sentinel1Dataset:
 
     def _repr_mimebundle_(self, include=None, exclude=None):
         return repr_mimebundle(self, include=include, exclude=exclude)
-
-
-
-    def ground_spacing(self):
-        """Get SAR image ground spacing.
-
-        Parameters
-        ----------
-        Returns
-        -------
-        ground_spacing : ndarray
-            [azimuth, range] ground spacing in meters.
-
-        Notes
-        -----
-        For GRD products, range_index and extent are ignored.
-        """
-        logger.debug('pixel_xtrack_m : %s',self.s1meta.geoloc.attrs['pixel_xtrack_m'])
-        ground_spacing = np.array((self.s1meta.geoloc.attrs['pixel_atrack_m'],self.s1meta.geoloc.attrs['pixel_xtrack_m']))
-        if self.s1meta.product == 'SLC':
-            atrack_tmp = self._dataset['atrack']
-            xtrack_tmp = self._dataset['xtrack']
-            # get the incidence at the center of the part of image selected
-            logger.debug('inc da : %s',self._dataset['incidence'])
-            inc = self._dataset['incidence'].isel({'atrack': int(len(atrack_tmp) / 2),
-                                                   'xtrack': int(len(xtrack_tmp) / 2)
-                                                   }).values
-            logger.debug('inc : %s',inc)
-            ground_spacing[1] /= np.sin(inc * np.pi / 180)
-        return ground_spacing
-
-    def get_sensor_velocity(self, azimuth_time):
-        """Interpolate sensor velocity at given azimuth time
-        Parameters
-        ----------
-            azimuth_time (int):
-        Returns
-        -------
-        """
-        orbstatevect = self.s1meta.orbit
-        azi_times = orbstatevect['time'].values
-        vels = np.sqrt(np.sum(orbstatevect['velocity'].values ** 2., axis=1))
-        iv = np.clip(np.searchsorted(azi_times, azimuth_time) - 1, 0, azi_times.size - 2)
-        _vels = vels[iv] + (azimuth_time - azi_times[iv]) * \
-                (vels[iv + 1] - vels[iv]) / (azi_times[iv + 1] - azi_times[iv])
-        return _vels
-
-
-    

@@ -8,6 +8,7 @@ from scipy.interpolate import RectBivariateSpline, interp1d
 from shapely.geometry import box
 import pandas as pd
 import xarray as xr
+from numpy.polynomial import Polynomial
 import warnings
 import geopandas as gpd
 from shapely.geometry import Polygon, Point
@@ -25,6 +26,7 @@ namespaces = {
 
 # xpath convertion function: they take only one args (list returned by xpath)
 scalar = lambda x: x[0]
+scalar_int = lambda x: int(x[0])
 scalar_float = lambda x: float(x[0])
 date_converter = lambda x: datetime.strptime(x[0], '%Y-%m-%dT%H:%M:%S.%f')
 datetime64_array = lambda x: np.array([np.datetime64(date_converter([sx])) for sx in x])
@@ -34,6 +36,7 @@ int_1Darray_from_join_strings = lambda x: np.fromstring(" ".join(x), dtype=int, 
 float_1Darray_from_join_strings = lambda x: np.fromstring(" ".join(x), dtype=float, sep=' ')
 int_array = lambda x: np.array(x, dtype=int)
 float_array = lambda x: np.array(x, dtype=float)
+bool_array = lambda x: np.array(x, dtype=bool)
 uniq_sorted = lambda x: np.array(sorted(set(x)))
 ordered_category = lambda x: pd.Categorical(x).reorder_categories(x, ordered=True)
 normpath = lambda paths: [os.path.normpath(p) for p in paths]
@@ -140,6 +143,28 @@ xpath_mappings = {
         'orbit_vel_x': (float_array, '//product/generalAnnotation/orbitList/orbit/velocity/x'),
         'orbit_vel_y': (float_array, '//product/generalAnnotation/orbitList/orbit/velocity/y'),
         'orbit_vel_z': (float_array, '//product/generalAnnotation/orbitList/orbit/velocity/z'),
+        'nb_dcestimate': (scalar_int, '/product/dopplerCentroid/dcEstimateList/@count'),
+        'nb_geoDcPoly': (
+            scalar_int, '/product/dopplerCentroid/dcEstimateList/dcEstimate[1]/geometryDcPolynomial/@count'),
+        'nb_dataDcPoly': (scalar_int, '/product/dopplerCentroid/dcEstimateList/dcEstimate[1]/dataDcPolynomial/@count'),
+        'nb_fineDce': (scalar_int, '/product/dopplerCentroid/dcEstimateList/dcEstimate[1]/fineDceList/@count'),
+        'dc_azimuth_time': (datetime64_array, '//product/dopplerCentroid/dcEstimateList/dcEstimate/azimuthTime'),
+        'dc_t0': (np.array, '//product/dopplerCentroid/dcEstimateList/dcEstimate/t0'),
+        'dc_geoDcPoly': (
+            float_2Darray_from_string_list, '//product/dopplerCentroid/dcEstimateList/dcEstimate/geometryDcPolynomial'),
+        'dc_dataDcPoly': (
+            float_2Darray_from_string_list, '//product/dopplerCentroid/dcEstimateList/dcEstimate/dataDcPolynomial'),
+        'dc_rmserr': (np.array, '//product/dopplerCentroid/dcEstimateList/dcEstimate/dataDcRmsError'),
+        'dc_rmserrAboveThres': (
+            bool_array, '//product/dopplerCentroid/dcEstimateList/dcEstimate/dataDcRmsErrorAboveThreshold'),
+        'dc_azstarttime': (
+        datetime64_array, '//product/dopplerCentroid/dcEstimateList/dcEstimate/fineDceAzimuthStartTime'),
+        'dc_azstoptime': (
+        datetime64_array, '//product/dopplerCentroid/dcEstimateList/dcEstimate/fineDceAzimuthStopTime'),
+        'dc_slantRangeTime': (
+            float_array, '///product/dopplerCentroid/dcEstimateList/dcEstimate/fineDceList/fineDce/slantRangeTime'),
+        'dc_frequency': (
+            float_array, '///product/dopplerCentroid/dcEstimateList/dcEstimate/fineDceList/fineDce/frequency'),
     }
 }
 
@@ -378,6 +403,56 @@ def orbit(time, frame, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z,orbit_pass,platf
     return gdf
 
 
+def doppler_centroid_estimates(nb_dcestimate,nb_geoDcPoly,nb_dataDcPoly,
+                nb_fineDce,dc_azimuth_time,dc_t0,dc_geoDcPoly,
+                dc_dataDcPoly,dc_rmserr,dc_rmserrAboveThres,dc_azstarttime,
+                dc_azstoptime,dc_slantRangeTime,dc_frequency):
+    """
+
+    :param nb_dcestimate:
+    :param nb_geoDcPoly:
+    :param nb_dataDcPoly:
+    :param nb_fineDce:
+    :param dc_azimuth_time:
+    :param dc_t0:
+    :param dc_geoDcPoly:
+    :param dc_dataDcPoly:
+    :param dc_rmserr:
+    :param dc_rmserrAboveThres:
+    :param dc_azstarttime:
+    :param dc_azstoptime:
+    :param dc_slantRangeTime:
+    :param dc_frequency:
+    :return:
+    """
+    ds = xr.Dataset()
+    ds['t0'] = xr.DataArray(dc_t0.astype(float),dims=['n_estimates'])
+    ds['geo_polynom'] = xr.DataArray([Polynomial(p) for p in dc_geoDcPoly],dims=['n_estimates'])
+    ds['data_polynom'] = xr.DataArray([Polynomial(p) for p in dc_dataDcPoly],dims=['n_estimates'])
+    dims = (nb_dcestimate, nb_fineDce)
+    ds['azimuth_time'] = xr.DataArray(dc_azimuth_time,dims=['n_estimates'])
+    ds['azimuth_time_start'] =  xr.DataArray(dc_azstarttime,dims=['n_estimates'])
+    ds['azimuth_time_stop'] = xr.DataArray(dc_azstoptime, dims=['n_estimates'])
+    ds['data_rms'] = xr.DataArray(dc_rmserr.astype(float),dims=['n_estimates'])
+    ds['slant_range_time'] = xr.DataArray(dc_slantRangeTime.reshape(dims),dims=['n_estimates','nb_fine_dce'])
+    ds['frequency'] = xr.DataArray(dc_frequency.reshape(dims), dims=['n_estimates', 'nb_fine_dce'])
+    ds['data_rms_threshold'] = xr.DataArray(dc_rmserrAboveThres,dims=['n_estimates'])
+
+    # for iline in range(nb_dcestimate):
+    #     strtime = dc_azimuth_time[iline]
+    #     ds['azimuth_time'].values[iline, :] = strtime2numtime(strtime)
+    #     strtime = dc_azstarttime[iline]
+    #     ds['azimuth_time_start'].values[iline] = strtime2numtime(strtime)
+    #     strtime = dc_azstoptime[iline]
+    #     ds['azimuth_time_stop'].values[iline] = strtime2numtime(strtime)
+    ds.attrs['description'] = 'annotations for Doppler centroid estimates'
+    #ds.attrs['n_estimates'] = len(ds['t0'])
+    #ds.attrs['n_fineDCE'] = nb_fineDce
+    #ds.attrs['ngeocoeffs'] = nb_geoDcPoly
+    #ds.attrs['ndatacoeffs'] = nb_dataDcPoly
+    return ds
+
+
 # dict of compounds variables.
 # compounds variables are variables composed of several variables.
 # the key is the variable name, and the value is a python structure,
@@ -428,6 +503,16 @@ compounds_vars = {
     'elevation': {
         'func': annotation_angle,
         'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.elevation')
+    },
+    'doppler_estimate': {
+        'func': doppler_centroid_estimates,
+        'args': ('annotation.nb_dcestimate', 'annotation.nb_geoDcPoly', 'annotation.nb_dataDcPoly',
+                 'annotation.nb_fineDce', 'annotation.dc_azimuth_time', 'annotation.dc_t0', 'annotation.dc_geoDcPoly',
+                 'annotation.dc_dataDcPoly', 'annotation.dc_rmserr', 'annotation.dc_rmserrAboveThres',
+                 'annotation.dc_azstarttime',
+                 'annotation.dc_azstoptime', 'annotation.dc_slantRangeTime', 'annotation.dc_frequency'
+
+                 ),
     },
     'orbit': {
         'func': orbit,

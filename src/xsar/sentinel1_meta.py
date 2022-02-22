@@ -931,3 +931,7 @@ class Sentinel1Meta:
             }
         return self._geoloc
 
+    @property
+    def doppler_estimate(self):
+        return self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'doppler_estimate')
+

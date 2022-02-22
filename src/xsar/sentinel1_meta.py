@@ -626,6 +626,10 @@ class Sentinel1Meta:
         return img_dict
 
     @property
+    def azimuth_fmrate(self):
+        return self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'azimuth_fmrate')
+
+    @property
     def _dict_coords2ll(self):
         """
         dict with keys ['longitude', 'latitude'] with interpolation function (RectBivariateSpline) as values.

@@ -5,6 +5,7 @@ xpath mapping from xml file, with convertion functions
 from datetime import datetime
 import numpy as np
 from scipy.interpolate import RectBivariateSpline, interp1d
+from numpy.polynomial import Polynomial
 from shapely.geometry import box
 import pandas as pd
 import xarray as xr
@@ -25,6 +26,7 @@ namespaces = {
 
 # xpath convertion function: they take only one args (list returned by xpath)
 scalar = lambda x: x[0]
+scalar_int = lambda x: int(x[0])
 scalar_float = lambda x: float(x[0])
 date_converter = lambda x: datetime.strptime(x[0], '%Y-%m-%dT%H:%M:%S.%f')
 datetime64_array = lambda x: np.array([np.datetime64(date_converter([sx])) for sx in x])
@@ -147,6 +149,16 @@ xpath_mappings = {
         'orbit_vel_x': (float_array, '//product/generalAnnotation/orbitList/orbit/velocity/x'),
         'orbit_vel_y': (float_array, '//product/generalAnnotation/orbitList/orbit/velocity/y'),
         'orbit_vel_z': (float_array, '//product/generalAnnotation/orbitList/orbit/velocity/z'),
+        'nb_fmrate': (scalar_int, '/product/generalAnnotation/azimuthFmRateList/@count'),
+        'fmrate_azimuthtime': (
+        datetime64_array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/azimuthTime'),
+        'fmrate_t0': (float_array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/t0'),
+        'fmrate_c0': (np.array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/c0'),
+        'fmrate_c1': (np.array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/c1'),
+        'fmrate_c2': (np.array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/c2'),
+        'fmrate_azimuthFmRatePolynomial': (
+            float_2Darray_from_string_list,
+            '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/azimuthFmRatePolynomial'),
     }
 }
 
@@ -384,6 +396,34 @@ def orbit(time, frame, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z,orbit_pass,platf
 
     return gdf
 
+def azimuth_fmrate(azimuthtime, t0, c0, c1, c2, polynomial):
+    """
+
+    :param azimuthtime:
+    :param t0:
+    :param c0:
+    :param c1:
+    :param c2:
+    :param polynomial:
+    :return:
+    """
+    if ( np.sum([c.size for c in [c0,c1,c2]]) != 0) and (polynomial.size == 0):
+        # old IPF annotation
+        polynomial = np.stack([c0, c1, c2], axis=1)
+    else:
+        c0 = polynomial[:,0]
+        c1 = polynomial[:,1]
+        c2 = polynomial[:,2]
+    res = xr.Dataset()
+    res['t0'] = xr.DataArray(t0,dims=['azimuth_time'],coords={'azimuth_time':azimuthtime})
+    res['c0'] = xr.DataArray(c0,dims=['azimuth_time'],coords={'azimuth_time':azimuthtime})
+    res['c1'] = xr.DataArray(c1, dims=['azimuth_time'],coords={'azimuth_time':azimuthtime})
+    res['c2'] = xr.DataArray(c2, dims=['azimuth_time'],coords={'azimuth_time':azimuthtime})
+    res['polynomial'] = xr.DataArray([Polynomial(p) for p in polynomial],
+                                     dims=['azimuth_time'],
+                                     coords={'azimuth_time':azimuthtime})
+    return res
+
 def image(atrack_time_range, atrack_size, xtrack_size, incidence_angle_mid_swath, azimuth_time_interval,
           slant_range_time_image, azimuthPixelSpacing, rangePixelSpacing):
 
@@ -459,5 +499,12 @@ compounds_vars = {
         'args': ('annotation.atrack_time_range', 'annotation.atrack_size', 'annotation.xtrack_size',
                  'annotation.incidence_angle_mid_swath', 'annotation.azimuth_time_interval',
                  'annotation.slant_range_time_image', 'annotation.azimuthPixelSpacing', 'annotation.rangePixelSpacing')
-    }
+    },
+    'azimuth_fmrate': {
+        'func': azimuth_fmrate,
+        'args': (
+            'annotation.fmrate_azimuthtime', 'annotation.fmrate_t0',
+            'annotation.fmrate_c0', 'annotation.fmrate_c1', 'annotation.fmrate_c2',
+            'annotation.fmrate_azimuthFmRatePolynomial')
+    },
 }

@@ -445,7 +445,6 @@ def bursts(lines_per_burst, samples_per_burst, burst_azimuthTime, burst_azimuthA
                                                'description': 'start atrack index, start xtrack index, stop atrack index, stop xtrack index'}),
         }
     )
-    da.attrs = {'lines_per_burst':lines_per_burst}
     return da
 
 

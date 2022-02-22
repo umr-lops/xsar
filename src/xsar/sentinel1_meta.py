@@ -122,8 +122,6 @@ class Sentinel1Meta:
         # get defaults masks from class attribute
         for name, feature in self.__class__._mask_features_raw.items():
             self.set_mask_feature(name, feature)
-        # self._number_of_samples = None
-        self._geoloc = None
 
         self.rasters = self.__class__.rasters.copy()
         """pandas dataframe for rasters (see `xsar.Sentinel1Meta.set_raster`)"""
@@ -263,69 +261,31 @@ class Sentinel1Meta:
                 res_dict[k] = getattr(self, k)
             elif k in self.manifest_attrs.keys():
                 res_dict[k] = self.manifest_attrs[k]
-            elif k in self.subswath_image.keys():
-                res_dict[k] = self.subswath_image[k]
-            elif k in self.orbit.attrs.keys():
-                res_dict[k] = self.orbit.attrs[k]
             else:
                 raise KeyError('Unable to find key/attr "%s" in Sentinel1Meta' % k)
         return res_dict
 
-
     @property
-    def geoloc(self):
+    def orbit_pass(self):
         """
-        xarray.Dataset with `['longitude', 'latitude', 'height', 'azimuth_time', 'slant_range_time','incidence','elevation' ]` variables
-        and `['atrack', 'xtrack'] coordinates, at the geolocation grid
+        Orbit pass, i.e 'Ascending' or 'Descending'
         """
+
         if self.multidataset:
-            raise TypeError('geolocation_grid not available for multidataset')
-        if self._geoloc is None:
-            xml_annotation = self.files['annotation'].iloc[0]
-            da_var_list = []
-            for var_name in ['longitude', 'latitude', 'height', 'azimuth_time', 'slant_range_time','incidence','elevation']:
-                # TODO: we should use dask.array.from_delayed so xml files are read on demand
-                da_var = self.xml_parser.get_compound_var(xml_annotation, var_name)
-                da_var.name = var_name
-                # FIXME: waiting for merge from upstream
-                # da_var['history'] = self.xml_parser.get_compound_var(xml_annotation, var_name, describe=True)
-                #logger.debug('%s %s',var_name,da_var)
-                da_var_list.append(da_var)
+            return None  # not defined for multidataset
 
-            self._geoloc = xr.merge(da_var_list)
-
-            self._geoloc.attrs = {
-                'pixel_atrack_m': self.xml_parser.get_var(xml_annotation, 'annotation.azimuthPixelSpacing'),
-                'pixel_xtrack_m': self.xml_parser.get_var(xml_annotation, 'annotation.rangePixelSpacing'),
-                'number_pts_geolocation_grid': self.xml_parser.get_var(xml_annotation, 'annotation.number_pts_geolocation_grid'),
-                'npixels': len(self._geoloc['xtrack']),
-                'nlines': len(self._geoloc['atrack']),
-            }
-        return self._geoloc
+        return self.orbit.attrs['orbit_pass']
 
     @property
-    def subswath_image(self):
-        return self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'subswath_image')
+    def platform_heading(self):
+        """
+        Platform heading, relative to north
+        """
 
-    @property
-    def bursts(self):
-        if self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.number_of_bursts') > 0:
-            return self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts')
-        else:
-            # no burst, return empty dataframe with 'burst' column
-            return pd.DataFrame({'burst': []})
+        if self.multidataset:
+            return None  # not defined for multidataset
 
-    @property
-    def orbit(self):
-        return self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'orbit')
-
-    @property
-    def doppler_estimate(self):
-        return self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'doppler_estimate')
-
-    @property
-    def azimuth_fmrate(self):
-        return self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'azimuth_fmrate')
+        return self.orbit.attrs['platform_heading']
 
     @property
     def rio(self):
@@ -587,7 +547,6 @@ class Sentinel1Meta:
             return None  # not defined for multidataset
         return self.gcps.attrs['pixel_xtrack_m']
 
-
     @property
     def time_range(self):
         """time range as pd.Interval"""
@@ -633,6 +592,38 @@ class Sentinel1Meta:
     def cross_antemeridian(self):
         """True if footprint cross antemeridian"""
         return ((np.max(self.gcps['longitude']) - np.min(self.gcps['longitude'])) > 180).item()
+
+    @property
+    def orbit(self):
+        """
+        orbit, as a geopandas.GeoDataFrame, with columns:
+          - 'velocity' : shapely.geometry.Point with velocity in x, y, z direction
+          - 'geometry' : shapely.geometry.Point with position in x, y, z direction
+
+        crs is set to 'geocentric'
+
+        attrs keys:
+          - 'orbit_pass': 'Ascending' or 'Descending'
+          - 'platform_heading': in degrees, relative to north
+
+        Notes
+        -----
+        orbit is longer than the SAFE, because it belongs to all datatakes, not only this slice
+
+        """
+        if self.multidataset:
+            return None  # not defined for multidataset
+        gdf_orbit = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'orbit')
+        gdf_orbit.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'orbit', describe=True)
+        return gdf_orbit
+
+    @property
+    def image(self):
+        if self.multidataset:
+            return None
+        img_dict = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'image')
+        img_dict['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'image', describe=True)
+        return img_dict
 
     @property
     def _dict_coords2ll(self):
@@ -914,55 +905,4 @@ class Sentinel1Meta:
         new = cls(minidict['name'])
         new.__dict__.update(minidict)
         return new
-
-    def burst_azitime(self, line):
-        """
-        Get azimuth time for bursts (TOPS SLC).
-        To be used for locations of interpolation since line indices will not handle
-        properly overlap.
-        """
-        # For consistency, azimuth time is derived from the one given in
-        # geolocation grid (the one given in burst_list do not always perfectly
-        # match).
-        burst_nlines = self.bursts.attrs['lines_per_burst']
-        azi_time_int = self.subswath_image['azimuth_time_interval']
-        azi_time_int = np.timedelta64(int(azi_time_int*1e12),'ps') #turn this interval float/seconds into timedelta/picoseconds
-        geoloc_line = self.geoloc['atrack'].values
-        geoloc_iburst = np.floor(geoloc_line / float(burst_nlines)).astype('int32') # find the indice of the bursts in the geolocation grid
-        iburst = np.floor(line / float(burst_nlines)).astype('int32') # find the indices of the bursts in the high resolution grid
-        ind = np.searchsorted(geoloc_iburst, iburst, side='left') # find the indices of the burst transitions
-        geoloc_azitime = self.geoloc['azimuth_time'].values[:, int((self.geoloc.attrs['npixels'] - 1) / 2)]
-        azitime = geoloc_azitime[ind] + (line - geoloc_line[ind]) * azi_time_int.astype('<m8[ns]') #compute the azimuth time by adding a step function (first term) and a growing term (second term)
-        logger.debug('azitime %s %s %s',azitime,type(azitime),azitime.dtype)
-        return azitime
-
-    def extent_burst(self, burst, valid=True):
-        """Get extent for a SAR image burst.
-        copy pasted from sarimage.py ODL
-        """
-        nbursts = self.bursts.burst.size
-        if nbursts == 0:
-            raise Exception('No bursts in SAR image')
-        if burst < 0 or burst >= nbursts:
-            raise Exception('Invalid burst index number')
-        if valid is True:
-            burst_list = self.bursts
-            extent = np.copy(burst_list['valid_location'].values[burst, :])
-        else:
-            extent = self._extent_max()
-            nlines = self.bursts.attrs['lines_per_burst']
-            extent[0:3:2] = [nlines*burst, nlines*(burst+1)-1]
-        return extent
-
-
-    def _extent_max(self):
-        """Get extent for the whole SAR image.
-        copy/pasted from cerbere
-        """
-        return np.array((0, 0, self.number_of_lines-1, #TODO see whether it is still needed if gcp a set on integer index (instead of x.5 index)
-                         self.number_of_samples-1))
-
-
-
-
 

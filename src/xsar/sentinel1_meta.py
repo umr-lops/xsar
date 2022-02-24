@@ -832,7 +832,7 @@ class Sentinel1Meta:
         return heading
 
     @property
-    def bursts(self):
+    def _bursts(self):
         if self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.number_of_bursts') > 0:
             return self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts')
         else:

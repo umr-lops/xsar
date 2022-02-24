@@ -398,14 +398,12 @@ class Sentinel1Meta:
 
             self._geoloc.attrs = {}
             # compute attributes (footprint, coverage, pixel_size)
-            lons = [self._geoloc['longitude'].values.max(), self._geoloc['longitude'].values.max(),
-                    self._geoloc['longitude'].values.min(), self._geoloc['longitude'].values.min(),
-                    self._geoloc['longitude'].values.max()]
-            lats = [self._geoloc['latitude'].values.min(), self._geoloc['latitude'].values.max(),
-                    self._geoloc['latitude'].values.max(), self._geoloc['latitude'].values.min(),
-                    self._geoloc['latitude'].values.min()]
-            logger.debug('lons : %s', lons)
-            corners = list(zip(lons, lats))
+            footprint_dict = {}
+            for ll in ['longitude', 'latitude']:
+                footprint_dict[ll] = [
+                    self._geoloc[ll].isel(atrack=a, xtrack=x).values for a, x in [(0, 0), (0, -1), (-1, -1), (-1, 0)]
+                ]
+            corners = list(zip(footprint_dict['longitude'], footprint_dict['latitude']))
             p = Polygon(corners)
             logger.debug('polyon : %s', p)
             self._geoloc.attrs['footprint'] = p

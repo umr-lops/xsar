@@ -11,9 +11,7 @@ __version__ = metadata.version('xsar')
 
 import logging
 from .utils import timing
-import numpy as np
 import os
-import numbers
 import yaml
 from importlib_resources import files
 from pathlib import Path
@@ -90,63 +88,8 @@ def open_dataset(*args, **kwargs):
     else:
         raise TypeError("Unknown dataset type from %s" % str(dataset_id))
 
-    return apply_cf_convention(sar_obj.dataset)
+    return sar_obj.dataset
 
-
-@timing
-def apply_cf_convention(dataset):
-    """
-    Apply `CF-1.7 convention <http://cfconventions.org/Data/cf-conventions/cf-conventions-1.7/cf-conventions.html>`_ to a dataset
-
-    Parameters
-    ----------
-    dataset
-
-    Returns
-    -------
-    dataset wtih the cf convention
-    """
-
-    def to_cf(attr):
-        if not isinstance(attr, (str, numbers.Number, np.ndarray, np.number, list, tuple)):
-            return str(attr)
-        else:
-            return attr
-
-    attr_dict = {
-        'atrack': {
-            'units': '1'
-        },
-        'xtrack': {
-            'units': '1'
-        },
-        'longitude': {
-            'standard_name': 'longitude',
-            'units': 'degrees_east'
-        },
-        'latitude': {
-            'standard_name': 'latitude',
-            'units': 'degrees_north'
-        },
-        'sigma0_raw': {
-            'units': 'm2/m2'
-        },
-        'gamma0_raw': {
-            'units': 'm2/m2'
-        },
-    }
-
-    for k, v in dataset.attrs.items():
-        dataset.attrs[k] = to_cf(dataset.attrs[k])
-
-    dataset.attrs['Conventions'] = 'CF-1.7'
-
-    for key, attribute in attr_dict.items():
-        for key_attr, value in attribute.items():
-            if key in dataset:
-                dataset[key].attrs[key_attr] = value
-
-    return dataset
 
 def product_info(path, columns='minimal', include_multi=False, _xml_parser=None):
     """

@@ -18,6 +18,8 @@ from . import sentinel1_xml_mappings
 from .xml_parser import XmlParser
 from affine import Affine
 import os
+from datetime import datetime
+from collections import OrderedDict
 from .ipython_backends import repr_mimebundle
 
 logger = logging.getLogger('xsar.sentinel1_meta')
@@ -113,7 +115,6 @@ class Sentinel1Meta:
         self.platform = self.manifest_attrs['mission'] + self.manifest_attrs['satellite']
         """Mission platform"""
         self._gcps = None
-        self._geoloc = None
         self._time_range = None
         self._mask_features_raw = {}
         self._mask_features = {}
@@ -123,7 +124,7 @@ class Sentinel1Meta:
         # get defaults masks from class attribute
         for name, feature in self.__class__._mask_features_raw.items():
             self.set_mask_feature(name, feature)
-
+        self._geoloc = None
         self.rasters = self.__class__.rasters.copy()
         """pandas dataframe for rasters (see `xsar.Sentinel1Meta.set_raster`)"""
 
@@ -374,6 +375,49 @@ class Sentinel1Meta:
         return self.footprint
 
     @property
+    def geoloc(self):
+        """
+        xarray.Dataset with `['longitude', 'latitude', 'height', 'azimuth_time', 'slant_range_time','incidence','elevation' ]` variables
+        and `['atrack', 'xtrack'] coordinates, at the geolocation grid
+        """
+        if self.multidataset:
+            raise TypeError('geolocation_grid not available for multidataset')
+        if self._geoloc is None:
+            xml_annotation = self.files['annotation'].iloc[0]
+            da_var_list = []
+            for var_name in ['longitude', 'latitude', 'height', 'azimuth_time', 'slant_range_time','incidence','elevation']:
+                # TODO: we should use dask.array.from_delayed so xml files are read on demand
+                da_var = self.xml_parser.get_compound_var(xml_annotation, var_name)
+                da_var.name = var_name
+                # FIXME: waiting for merge from upstream
+                # da_var['history'] = self.xml_parser.get_compound_var(xml_annotation, var_name, describe=True)
+                #logger.debug('%s %s',var_name,da_var)
+                da_var_list.append(da_var)
+
+            self._geoloc = xr.merge(da_var_list)
+
+            self._geoloc.attrs = {
+                #'pixel_atrack_m': self.xml_parser.get_var(xml_annotation, 'annotation.azimuthPixelSpacing'),
+                #'pixel_xtrack_m': self.xml_parser.get_var(xml_annotation, 'annotation.rangePixelSpacing'),
+                #'number_pts_geolocation_grid': self.xml_parser.get_var(xml_annotation, 'annotation.number_pts_geolocation_grid'),
+                #'npixels': len(self._geoloc['xtrack']),
+                #'nlines': len(self._geoloc['atrack']),
+            }
+            # compute attributes (footprint, coverage, pixel_size)
+            lons = [self._geoloc['longitude'].values.max(), self._geoloc['longitude'].values.max(),
+                    self._geoloc['longitude'].values.min(), self._geoloc['longitude'].values.min(),
+                    self._geoloc['longitude'].values.max()]
+            lats = [self._geoloc['latitude'].values.min(), self._geoloc['latitude'].values.max(),
+                    self._geoloc['latitude'].values.max(), self._geoloc['latitude'].values.min(),
+                    self._geoloc['latitude'].values.min()]
+            logger.debug('lons : %s', lons)
+            corners = list(zip(lons, lats))
+            p = Polygon(corners)
+            logger.debug('polyon : %s', p)
+            self._geoloc.attrs['footprint'] = p
+        return self._geoloc
+
+    @property
     def _footprints(self):
         """footprints as list. should len 1 for single meta, or len(self.subdatasets) for multi meta"""
         return self.manifest_attrs['footprints']
@@ -617,6 +661,14 @@ class Sentinel1Meta:
         gdf_orbit = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'orbit')
         gdf_orbit.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'orbit', describe=True)
         return gdf_orbit
+
+    @property
+    def image(self):
+        if self.multidataset:
+            return None
+        img_dict = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'image')
+        img_dict['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'image', describe=True)
+        return img_dict
 
     @property
     def _dict_coords2ll(self):
@@ -899,48 +951,4 @@ class Sentinel1Meta:
         new.__dict__.update(minidict)
         return new
 
-    @property
-    def geoloc(self):
-        """
-        xarray.Dataset with `['longitude', 'latitude', 'height', 'azimuth_time', 'slant_range_time','incidence','elevation' ]` variables
-        and `['atrack', 'xtrack'] coordinates, at the geolocation grid
-        """
-        if self.multidataset:
-            raise TypeError('geolocation_grid not available for multidataset')
-        if self._geoloc is None:
-            xml_annotation = self.files['annotation'].iloc[0]
-            da_var_list = []
-            for var_name in ['longitude', 'latitude', 'height', 'azimuth_time', 'slant_range_time', 'incidence',
-                             'elevation']:
-                # TODO: we should use dask.array.from_delayed so xml files are read on demand
-                da_var = self.xml_parser.get_compound_var(xml_annotation, var_name)
-                da_var.name = var_name
-                # FIXME: waiting for merge from upstream
-                # da_var['history'] = self.xml_parser.get_compound_var(xml_annotation, var_name, describe=True)
-                # logger.debug('%s %s',var_name,da_var)
-                da_var_list.append(da_var)
-
-            self._geoloc = xr.merge(da_var_list)
-
-            self._geoloc.attrs = {
-                'pixel_atrack_m': self.xml_parser.get_var(xml_annotation, 'annotation.azimuthPixelSpacing'),
-                'pixel_xtrack_m': self.xml_parser.get_var(xml_annotation, 'annotation.rangePixelSpacing'),
-                'number_pts_geolocation_grid': self.xml_parser.get_var(xml_annotation,
-                                                                       'annotation.number_pts_geolocation_grid'),
-                #'npixels': len(self._geoloc['xtrack']),
-                #'nlines': len(self._geoloc['atrack']),
-            }
-            # compute attributes (footprint, coverage, pixel_size)
-            lons = [self._geoloc['longitude'].values.max(),self._geoloc['longitude'].values.max(),
-                    self._geoloc['longitude'].values.min(),self._geoloc['longitude'].values.min(),
-                    self._geoloc['longitude'].values.max()]
-            lats = [self._geoloc['latitude'].values.min(),self._geoloc['latitude'].values.max(),
-                    self._geoloc['latitude'].values.max(),self._geoloc['latitude'].values.min(),
-                    self._geoloc['latitude'].values.min()]
-            logger.debug('lons : %s',lons)
-            corners = list(zip(lons, lats))
-            p = Polygon(corners)
-            logger.debug('polyon : %s',p)
-            self._geoloc.attrs['footprint'] = p
-        return self._geoloc
-
+  

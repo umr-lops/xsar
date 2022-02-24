@@ -22,7 +22,6 @@ namespaces = {
     "safe": "http://www.esa.int/safe/sentinel-1.0",
     "gml": "http://www.opengis.net/gml"
 }
-
 # xpath convertion function: they take only one args (list returned by xpath)
 scalar = lambda x: x[0]
 scalar_int = lambda x: int(x[0])
@@ -34,6 +33,7 @@ float_2Darray_from_string_list = lambda x: np.vstack([np.fromstring(e, dtype=flo
 int_1Darray_from_join_strings = lambda x: np.fromstring(" ".join(x), dtype=int, sep=' ')
 float_1Darray_from_join_strings = lambda x: np.fromstring(" ".join(x), dtype=float, sep=' ')
 int_array = lambda x: np.array(x, dtype=int)
+bool_array = lambda x: np.array(x, dtype=bool)
 float_array = lambda x: np.array(x, dtype=float)
 uniq_sorted = lambda x: np.array(sorted(set(x)))
 ordered_category = lambda x: pd.Categorical(x).reorder_categories(x, ordered=True)
@@ -122,6 +122,8 @@ xpath_mappings = {
     'annotation': {
         'atrack': (uniq_sorted, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/line'),
         'xtrack': (uniq_sorted, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/pixel'),
+        'atrack_grid': (int_array, '//product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/line'),
+        'xtrack_grid': (int_array, '//product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/pixel'),
         'incidence': (
             float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/incidenceAngle'),
         'elevation': (
@@ -133,10 +135,16 @@ xpath_mappings = {
             float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/slantRangeTime'),
         'longitude': (float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/longitude'),
         'latitude': (float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/latitude'),
-        'number_pts_geolocation_grid': (scalar_int, '/product/geolocationGrid/geolocationGridPointList/@count'),
         'polarization': (scalar, '/product/adsHeader/polarisation'),
         'atrack_time_range': (
             datetime64_array, '/product/imageAnnotation/imageInformation/*[contains(name(),"LineUtcTime")]'),
+        'atrack_size': (scalar, '/product/imageAnnotation/imageInformation/numberOfLines'),
+        'xtrack_size': (scalar, '/product/imageAnnotation/imageInformation/numberOfSamples'),
+        'incidence_angle_mid_swath': (scalar_float, '/product/imageAnnotation/imageInformation/incidenceAngleMidSwath'),
+        'azimuth_time_interval': (scalar_float, '/product/imageAnnotation/imageInformation/azimuthTimeInterval'),
+        'slant_range_time_image': (scalar_float, '/product/imageAnnotation/imageInformation/slantRangeTime'),
+        'rangePixelSpacing': (scalar_float, '/product/imageAnnotation/imageInformation/rangePixelSpacing'),
+        'azimuthPixelSpacing': (scalar_float, '/product/imageAnnotation/imageInformation/azimuthPixelSpacing'),
         'denoised': (scalar, '/product/imageAnnotation/processingInformation/thermalNoiseCorrectionPerformed'),
         'pol': (scalar, '/product/adsHeader/polarisation'),
         'pass': (scalar, '/product/generalAnnotation/productInformation/pass'),
@@ -149,8 +157,6 @@ xpath_mappings = {
         'orbit_vel_x': (float_array, '//product/generalAnnotation/orbitList/orbit/velocity/x'),
         'orbit_vel_y': (float_array, '//product/generalAnnotation/orbitList/orbit/velocity/y'),
         'orbit_vel_z': (float_array, '//product/generalAnnotation/orbitList/orbit/velocity/z'),
-        'rangePixelSpacing': (scalar_float, '/product/imageAnnotation/imageInformation/rangePixelSpacing'),
-        'azimuthPixelSpacing': (scalar_float, '/product/imageAnnotation/imageInformation/azimuthPixelSpacing'),
     }
 }
 
@@ -388,6 +394,19 @@ def orbit(time, frame, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z,orbit_pass,platf
 
     return gdf
 
+def image(atrack_time_range, atrack_size, xtrack_size, incidence_angle_mid_swath, azimuth_time_interval,
+          slant_range_time_image, azimuthPixelSpacing, rangePixelSpacing):
+
+    return {
+        'atrack_time_range': atrack_time_range,
+        'shape': (atrack_size, xtrack_size),
+        'pixel_spacing': (azimuthPixelSpacing, rangePixelSpacing),
+        'incidence_angle_mid_swath': incidence_angle_mid_swath,
+        'azimuth_time_interval': azimuth_time_interval,
+        'slant_range_time_image': slant_range_time_image,
+    }
+
+
 def geolocation_grid(atrack, xtrack, values):
     """
 
@@ -406,6 +425,7 @@ def geolocation_grid(atrack, xtrack, values):
     shape = (atrack.size, xtrack.size)
     values = np.reshape(values, shape)
     return xr.DataArray(values, dims=['atrack', 'xtrack'], coords={'atrack': atrack, 'xtrack': xtrack})
+
 
 
 # dict of compounds variables.
@@ -486,4 +506,10 @@ compounds_vars = {
                  'annotation.orbit_vel_x', 'annotation.orbit_vel_y', 'annotation.orbit_vel_z',
                  'annotation.pass','annotation.platform_heading')
     },
+    'image': {
+        'func': image,
+        'args': ('annotation.atrack_time_range', 'annotation.atrack_size', 'annotation.xtrack_size',
+                 'annotation.incidence_angle_mid_swath', 'annotation.azimuth_time_interval',
+                 'annotation.slant_range_time_image', 'annotation.azimuthPixelSpacing', 'annotation.rangePixelSpacing')
+    }
 }

@@ -389,20 +389,14 @@ class Sentinel1Meta:
                 # TODO: we should use dask.array.from_delayed so xml files are read on demand
                 da_var = self.xml_parser.get_compound_var(xml_annotation, var_name)
                 da_var.name = var_name
-                # FIXME: waiting for merge from upstream
-                # da_var['history'] = self.xml_parser.get_compound_var(xml_annotation, var_name, describe=True)
-                #logger.debug('%s %s',var_name,da_var)
+                da_var.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0],
+                                                                                 var_name,
+                                                                                 describe=True)
                 da_var_list.append(da_var)
 
             self._geoloc = xr.merge(da_var_list)
 
-            self._geoloc.attrs = {
-                #'pixel_atrack_m': self.xml_parser.get_var(xml_annotation, 'annotation.azimuthPixelSpacing'),
-                #'pixel_xtrack_m': self.xml_parser.get_var(xml_annotation, 'annotation.rangePixelSpacing'),
-                #'number_pts_geolocation_grid': self.xml_parser.get_var(xml_annotation, 'annotation.number_pts_geolocation_grid'),
-                #'npixels': len(self._geoloc['xtrack']),
-                #'nlines': len(self._geoloc['atrack']),
-            }
+            self._geoloc.attrs = {}
             # compute attributes (footprint, coverage, pixel_size)
             lons = [self._geoloc['longitude'].values.max(), self._geoloc['longitude'].values.max(),
                     self._geoloc['longitude'].values.min(), self._geoloc['longitude'].values.min(),
@@ -415,6 +409,7 @@ class Sentinel1Meta:
             p = Polygon(corners)
             logger.debug('polyon : %s', p)
             self._geoloc.attrs['footprint'] = p
+
         return self._geoloc
 
     @property

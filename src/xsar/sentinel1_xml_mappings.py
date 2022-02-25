@@ -472,11 +472,11 @@ compounds_vars = {
     },
     'denoised': ('annotation.pol', 'annotation.denoised'),
     'incidence': {
-        'func': geolocation_grid,
+        'func': annotation_angle,
         'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.incidence')
     },
     'elevation': {
-        'func': geolocation_grid,
+        'func': annotation_angle,
         'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.elevation')
     },
     'longitude': {

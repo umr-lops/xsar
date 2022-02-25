@@ -161,7 +161,6 @@ xpath_mappings = {
         'number_of_bursts': (scalar_int, '/product/swathTiming/burstList/@count'),
         'lines_per_burst': (scalar, '/product/swathTiming/linesPerBurst'),
         'samples_per_burst': (scalar, '/product/swathTiming/samplesPerBurst'),
-        'azimuth_time_interval': (scalar_float, '/product/imageAnnotation/imageInformation/azimuthTimeInterval'),
         'all_bursts': (np.array, '//product/swathTiming/burstList/burst'),
         'burst_azimuthTime': (datetime64_array, '//product/swathTiming/burstList/burst/azimuthTime'),
         'burst_azimuthAnxTime': (float_array, '//product/swathTiming/burstList/burst/azimuthAnxTime'),
@@ -455,6 +454,7 @@ def bursts(lines_per_burst, samples_per_burst, burst_azimuthTime, burst_azimuthA
                                                'description': 'start atrack index, start xtrack index, stop atrack index, stop xtrack index'}),
         }
     )
+    da.attrs['lines_per_burst'] = lines_per_burst
     return da
 
 
@@ -521,10 +521,18 @@ compounds_vars = {
     },
     'denoised': ('annotation.pol', 'annotation.denoised'),
     'incidence': {
-        'func': annotation_angle,
+        'func': geolocation_grid,
         'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.incidence')
     },
     'elevation': {
+        'func': geolocation_grid,
+        'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.elevation')
+    },
+    'incidence_gcp': {
+        'func': annotation_angle,
+        'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.incidence')
+    },
+    'elevation_gcp': {
         'func': annotation_angle,
         'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.elevation')
     },

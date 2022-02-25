@@ -385,7 +385,7 @@ class Sentinel1Meta:
         if self._geoloc is None:
             xml_annotation = self.files['annotation'].iloc[0]
             da_var_list = []
-            for var_name in ['longitude', 'latitude', 'height', 'azimuth_time', 'slant_range_time']:
+            for var_name in ['longitude', 'latitude', 'height', 'azimuth_time', 'slant_range_time','incidence','elevation']:
                 # TODO: we should use dask.array.from_delayed so xml files are read on demand
                 da_var = self.xml_parser.get_compound_var(xml_annotation, var_name)
                 da_var.name = var_name
@@ -952,4 +952,56 @@ class Sentinel1Meta:
         new.__dict__.update(minidict)
         return new
 
-  
+    def burst_azitime(self, line):
+        """
+        Get azimuth time for bursts (TOPS SLC).
+        To be used for locations of interpolation since line indices will not handle
+        properly overlap.
+        """
+        # For consistency, azimuth time is derived from the one given in
+        # geolocation grid (the one given in burst_list do not always perfectly
+        # match).
+        burst_nlines = self._bursts.attrs['lines_per_burst']
+        azi_time_int = self.image['azimuth_time_interval']
+        azi_time_int = np.timedelta64(int(azi_time_int*1e12),'ps') #turn this interval float/seconds into timedelta/picoseconds
+        geoloc_line = self.geoloc['atrack'].values
+        geoloc_iburst = np.floor(geoloc_line / float(burst_nlines)).astype('int32') # find the indice of the bursts in the geolocation grid
+        iburst = np.floor(line / float(burst_nlines)).astype('int32') # find the indices of the bursts in the high resolution grid
+        ind = np.searchsorted(geoloc_iburst, iburst, side='left') # find the indices of the burst transitions
+        #n_pixels = int((self.geoloc.attrs['npixels'] - 1) / 2)
+        n_pixels = int((len(self.geoloc['atrack']) - 1 ) / 2)
+        geoloc_azitime = self.geoloc['azimuth_time'].values[:, n_pixels]
+        azitime = geoloc_azitime[ind] + (line - geoloc_line[ind]) * azi_time_int.astype('<m8[ns]') #compute the azimuth time by adding a step function (first term) and a growing term (second term)
+        logger.debug('azitime %s %s %s',azitime,type(azitime),azitime.dtype)
+        return azitime
+
+    def extent_burst(self, burst, valid=True):
+        """Get extent for a SAR image burst.
+        copy pasted from sarimage.py ODL
+        """
+        nbursts = self._bursts.burst.size
+        if nbursts == 0:
+            raise Exception('No bursts in SAR image')
+        if burst < 0 or burst >= nbursts:
+            raise Exception('Invalid burst index number')
+        if valid is True:
+            burst_list = self._bursts
+            extent = np.copy(burst_list['valid_location'].values[burst, :])
+        else:
+            extent = self._extent_max()
+            nlines = self._bursts.attrs['lines_per_burst']
+            extent[0:3:2] = [nlines*burst, nlines*(burst+1)-1]
+        return extent
+
+
+    def _extent_max(self):
+        """Get extent for the whole SAR image.
+        copy/pasted from cerbere
+        """
+        return np.array((0, 0, self.number_of_lines-1, #TODO see whether it is still needed if gcp a set on integer index (instead of x.5 index)
+                         self.number_of_samples-1))
+
+
+
+
+

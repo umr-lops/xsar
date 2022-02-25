@@ -5,7 +5,7 @@ import warnings
 import copy
 import numpy as np
 import xarray as xr
-import pandas as pd
+import pandas as pd/
 import geopandas as gpd
 import rasterio
 from scipy.interpolate import RectBivariateSpline
@@ -836,7 +836,7 @@ class Sentinel1Meta:
         if self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.number_of_bursts') > 0:
             return self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts')
         else:
-            # no burst, return empty dataframe with 'burst' column
+            # no burst, return empty dataset
             return xr.Dataset()
 
     @property

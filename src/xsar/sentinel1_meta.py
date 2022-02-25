@@ -837,7 +837,7 @@ class Sentinel1Meta:
             return self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts')
         else:
             # no burst, return empty dataframe with 'burst' column
-            return pd.DataFrame({'burst': []})
+            return xr.Dataset()
 
     @property
     def approx_transform(self):

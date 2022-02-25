@@ -22,6 +22,7 @@ namespaces = {
     "safe": "http://www.esa.int/safe/sentinel-1.0",
     "gml": "http://www.opengis.net/gml"
 }
+
 # xpath convertion function: they take only one args (list returned by xpath)
 scalar = lambda x: x[0]
 scalar_int = lambda x: int(x[0])
@@ -157,6 +158,19 @@ xpath_mappings = {
         'orbit_vel_x': (float_array, '//product/generalAnnotation/orbitList/orbit/velocity/x'),
         'orbit_vel_y': (float_array, '//product/generalAnnotation/orbitList/orbit/velocity/y'),
         'orbit_vel_z': (float_array, '//product/generalAnnotation/orbitList/orbit/velocity/z'),
+        'number_of_bursts': (scalar_int, '/product/swathTiming/burstList/@count'),
+        'lines_per_burst': (scalar, '/product/swathTiming/linesPerBurst'),
+        'samples_per_burst': (scalar, '/product/swathTiming/samplesPerBurst'),
+        'azimuth_time_interval': (scalar_float, '/product/imageAnnotation/imageInformation/azimuthTimeInterval'),
+        'all_bursts': (np.array, '//product/swathTiming/burstList/burst'),
+        'burst_azimuthTime': (datetime64_array, '//product/swathTiming/burstList/burst/azimuthTime'),
+        'burst_azimuthAnxTime': (float_array, '//product/swathTiming/burstList/burst/azimuthAnxTime'),
+        'burst_sensingTime': (datetime64_array, '//product/swathTiming/burstList/burst/sensingTime'),
+        'burst_byteOffset': (np.array, '//product/swathTiming/burstList/burst/byteOffset'),
+        'burst_firstValidSample': (
+            float_2Darray_from_string_list, '//product/swathTiming/burstList/burst/firstValidSample'),
+        'burst_lastValidSample': (
+            float_2Darray_from_string_list, '//product/swathTiming/burstList/burst/lastValidSample'),
     }
 }
 
@@ -406,6 +420,43 @@ def image(atrack_time_range, atrack_size, xtrack_size, incidence_angle_mid_swath
         'slant_range_time_image': slant_range_time_image,
     }
 
+def bursts(lines_per_burst, samples_per_burst, burst_azimuthTime, burst_azimuthAnxTime, burst_sensingTime,
+           burst_byteOffset, burst_firstValidSample, burst_lastValidSample):
+    """return burst as an xarray dataset"""
+
+    if (lines_per_burst == 0) and (samples_per_burst == 0):
+        return None
+
+    # convert to float, so we can use NaN as missing value, instead of -1
+    burst_firstValidSample = burst_firstValidSample.astype(float)
+    burst_lastValidSample = burst_lastValidSample.astype(float)
+    burst_firstValidSample[burst_firstValidSample == -1] = np.nan
+    burst_lastValidSample[burst_lastValidSample == -1] = np.nan
+    nbursts = len(burst_azimuthTime)
+    valid_locations = np.empty((nbursts, 4), dtype='int32')
+    for ibur in range(nbursts):
+        fvs = burst_firstValidSample[ibur, :]
+        lvs = burst_lastValidSample[ibur, :]
+        #valind = np.where((fvs != -1) | (lvs != -1))[0]
+        valind = np.where(np.isfinite(fvs) | np.isfinite(lvs))[0]
+        valloc = [ibur * lines_per_burst + valind.min(), fvs[valind].min(),
+                  ibur * lines_per_burst + valind.max(), lvs[valind].max()]
+        valid_locations[ibur, :] = valloc
+    da = xr.Dataset(
+        {
+            'azimuthTime': ('burst', burst_azimuthTime),
+            'azimuthAnxTime': ('burst', burst_azimuthAnxTime),
+            'sensingTime': ('burst', burst_sensingTime),
+            'byteOffset': ('burst', burst_byteOffset),
+            'firstValidSample': (['burst', 'xtrack'], burst_firstValidSample),
+            'lastValidSample': (['burst', 'xtrack'], burst_lastValidSample),
+            'valid_location': xr.DataArray(dims=['burst', 'limits'], data=valid_locations,
+                                           attrs={
+                                               'description': 'start atrack index, start xtrack index, stop atrack index, stop xtrack index'}),
+        }
+    )
+    return da
+
 
 def geolocation_grid(atrack, xtrack, values):
     """
@@ -425,8 +476,6 @@ def geolocation_grid(atrack, xtrack, values):
     shape = (atrack.size, xtrack.size)
     values = np.reshape(values, shape)
     return xr.DataArray(values, dims=['atrack', 'xtrack'], coords={'atrack': atrack, 'xtrack': xtrack})
-
-
 
 # dict of compounds variables.
 # compounds variables are variables composed of several variables.
@@ -498,6 +547,12 @@ compounds_vars = {
     'slant_range_time': {
         'func': geolocation_grid,
         'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.slant_range_time')
+    },
+    'bursts': {
+        'func': bursts,
+        'args': ('annotation.lines_per_burst', 'annotation. samples_per_burst', 'annotation. burst_azimuthTime',
+                 'annotation. burst_azimuthAnxTime', 'annotation. burst_sensingTime', 'annotation.burst_byteOffset',
+                 'annotation. burst_firstValidSample', 'annotation.burst_lastValidSample')
     },
     'orbit': {
         'func': orbit,

@@ -385,7 +385,7 @@ class Sentinel1Meta:
         if self._geoloc is None:
             xml_annotation = self.files['annotation'].iloc[0]
             da_var_list = []
-            for var_name in ['longitude', 'latitude', 'height', 'azimuth_time', 'slant_range_time','incidence','elevation']:
+            for var_name in ['longitude', 'latitude', 'height', 'azimuth_time', 'slant_range_time']:
                 # TODO: we should use dask.array.from_delayed so xml files are read on demand
                 da_var = self.xml_parser.get_compound_var(xml_annotation, var_name)
                 da_var.name = var_name

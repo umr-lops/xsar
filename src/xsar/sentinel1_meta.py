@@ -5,7 +5,7 @@ import warnings
 import copy
 import numpy as np
 import xarray as xr
-import pandas as pd/
+import pandas as pd
 import geopandas as gpd
 import rasterio
 from scipy.interpolate import RectBivariateSpline

@@ -122,8 +122,8 @@ xpath_mappings = {
     'annotation': {
         'atrack': (uniq_sorted, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/line'),
         'xtrack': (uniq_sorted, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/pixel'),
-        'atrack_grid': (int_array, '//product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/line'),
-        'xtrack_grid': (int_array, '//product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/pixel'),
+        'atrack_grid': (int_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/line'),
+        'xtrack_grid': (int_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/pixel'),
         'incidence': (
             float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/incidenceAngle'),
         'elevation': (

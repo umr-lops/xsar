@@ -5,7 +5,7 @@ import warnings
 import copy
 import numpy as np
 import xarray as xr
-import pandas as pd/
+import pandas as pd
 import geopandas as gpd
 import rasterio
 from scipy.interpolate import RectBivariateSpline
@@ -18,6 +18,8 @@ from . import sentinel1_xml_mappings
 from .xml_parser import XmlParser
 from affine import Affine
 import os
+from datetime import datetime
+from collections import OrderedDict
 from .ipython_backends import repr_mimebundle
 
 logger = logging.getLogger('xsar.sentinel1_meta')
@@ -122,7 +124,7 @@ class Sentinel1Meta:
         # get defaults masks from class attribute
         for name, feature in self.__class__._mask_features_raw.items():
             self.set_mask_feature(name, feature)
-
+        self._geoloc = None
         self.rasters = self.__class__.rasters.copy()
         """pandas dataframe for rasters (see `xsar.Sentinel1Meta.set_raster`)"""
 
@@ -371,6 +373,42 @@ class Sentinel1Meta:
     def geometry(self):
         """alias for footprint"""
         return self.footprint
+
+    @property
+    def geoloc(self):
+        """
+        xarray.Dataset with `['longitude', 'latitude', 'height', 'azimuth_time', 'slant_range_time','incidence','elevation' ]` variables
+        and `['atrack', 'xtrack'] coordinates, at the geolocation grid
+        """
+        if self.multidataset:
+            raise TypeError('geolocation_grid not available for multidataset')
+        if self._geoloc is None:
+            xml_annotation = self.files['annotation'].iloc[0]
+            da_var_list = []
+            for var_name in ['longitude', 'latitude', 'height', 'azimuth_time', 'slant_range_time']:
+                # TODO: we should use dask.array.from_delayed so xml files are read on demand
+                da_var = self.xml_parser.get_compound_var(xml_annotation, var_name)
+                da_var.name = var_name
+                da_var.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0],
+                                                                                 var_name,
+                                                                                 describe=True)
+                da_var_list.append(da_var)
+
+            self._geoloc = xr.merge(da_var_list)
+
+            self._geoloc.attrs = {}
+            # compute attributes (footprint, coverage, pixel_size)
+            footprint_dict = {}
+            for ll in ['longitude', 'latitude']:
+                footprint_dict[ll] = [
+                    self._geoloc[ll].isel(atrack=a, xtrack=x).values for a, x in [(0, 0), (0, -1), (-1, -1), (-1, 0)]
+                ]
+            corners = list(zip(footprint_dict['longitude'], footprint_dict['latitude']))
+            p = Polygon(corners)
+            logger.debug('polyon : %s', p)
+            self._geoloc.attrs['footprint'] = p
+
+        return self._geoloc
 
     @property
     def _footprints(self):
@@ -914,3 +952,4 @@ class Sentinel1Meta:
         new.__dict__.update(minidict)
         return new
 
+  

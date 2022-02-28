@@ -174,7 +174,7 @@ class Sentinel1Dataset:
         # what's matter here is the shape of the image, not the values.
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", np.ComplexWarning)
-            if self.s1meta._bursts.burst.size != 0:
+            if self.s1meta._bursts['burst'].size != 0:
                 # SLC TOPS, tune the high res grid because of bursts overlapping
                 xint = self.s1meta.burst_azitime(self._dataset.digital_number.atrack.values)
                 self._da_tmpl = xr.DataArray(
@@ -680,7 +680,7 @@ class Sentinel1Dataset:
                     z_values = z_values%360
             else:
                 z_values = self.s1meta.geoloc[varname]
-            if self.s1meta._bursts.burst.size!=0:
+            if self.s1meta._bursts['burst'].size!=0:
                 # TOPS SLC
                 logger.debug(' x %s y %s z %s %s',self.s1meta.geoloc.azimuth_time.shape,
                              self.s1meta.geoloc.xtrack.shape,self.s1meta.geoloc[varname].shape,self.s1meta.geoloc[varname].dtype)
@@ -702,7 +702,7 @@ class Sentinel1Dataset:
             # interp_func(self._dataset.atrack, self.dataset.xtrack)
             typee = self.s1meta.geoloc[varname].dtype
             logger.debug('output type %s %s',varname,typee)
-            if self.s1meta._bursts.burst.size!=0:
+            if self.s1meta._bursts['burst'].size!=0:
 
                 da_var = map_blocks_coords(
                     self._da_tmpl.astype(typee),

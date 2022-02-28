@@ -875,7 +875,7 @@ class Sentinel1Meta:
             return self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts')
         else:
             # no burst, return empty dataset
-            return xr.Dataset()
+            return xr.Dataset({'azimuthTime':('burst',[])})
 
     @property
     def approx_transform(self):
@@ -952,11 +952,14 @@ class Sentinel1Meta:
         new.__dict__.update(minidict)
         return new
 
-    def burst_azitime(self, line):
+    def burst_azitime(self, atrack_values):
         """
         Get azimuth time for bursts (TOPS SLC).
         To be used for locations of interpolation since line indices will not handle
         properly overlap.
+        Parameters
+        ----------
+        atrack_values: np.array or scalar or xarray
         """
         # For consistency, azimuth time is derived from the one given in
         # geolocation grid (the one given in burst_list do not always perfectly
@@ -966,20 +969,27 @@ class Sentinel1Meta:
         azi_time_int = np.timedelta64(int(azi_time_int*1e12),'ps') #turn this interval float/seconds into timedelta/picoseconds
         geoloc_line = self.geoloc['atrack'].values
         geoloc_iburst = np.floor(geoloc_line / float(burst_nlines)).astype('int32') # find the indice of the bursts in the geolocation grid
-        iburst = np.floor(line / float(burst_nlines)).astype('int32') # find the indices of the bursts in the high resolution grid
+        iburst = np.floor(atrack_values / float(burst_nlines)).astype('int32') # find the indices of the bursts in the high resolution grid
         ind = np.searchsorted(geoloc_iburst, iburst, side='left') # find the indices of the burst transitions
         #n_pixels = int((self.geoloc.attrs['npixels'] - 1) / 2)
         n_pixels = int((len(self.geoloc['atrack']) - 1 ) / 2)
         geoloc_azitime = self.geoloc['azimuth_time'].values[:, n_pixels]
-        azitime = geoloc_azitime[ind] + (line - geoloc_line[ind]) * azi_time_int.astype('<m8[ns]') #compute the azimuth time by adding a step function (first term) and a growing term (second term)
+        azitime = geoloc_azitime[ind] + (atrack_values - geoloc_line[ind]) * azi_time_int.astype('<m8[ns]') #compute the azimuth time by adding a step function (first term) and a growing term (second term)
         logger.debug('azitime %s %s %s',azitime,type(azitime),azitime.dtype)
         return azitime
+
+    def get_bursts_polygons(self):
+        """
+
+        """
+        return None
+
 
     def extent_burst(self, burst, valid=True):
         """Get extent for a SAR image burst.
         copy pasted from sarimage.py ODL
         """
-        nbursts = self._bursts.burst.size
+        nbursts = self._bursts['burst'].size
         if nbursts == 0:
             raise Exception('No bursts in SAR image')
         if burst < 0 or burst >= nbursts:

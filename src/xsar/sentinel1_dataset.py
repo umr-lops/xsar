@@ -113,7 +113,7 @@ class Sentinel1Dataset:
             'longitude': 'f4',
             'incidence_gcp': 'f4',
             'elevation_gcp': 'f4',
-	        'incidence': 'f4', # from annotations
+            'incidence': 'f4', # from annotations
             'elevation': 'f4', # from annotations
             'height': 'f4',
             'ground_heading': 'f4',

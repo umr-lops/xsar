@@ -32,6 +32,7 @@ date_converter = lambda x: datetime.strptime(x[0], '%Y-%m-%dT%H:%M:%S.%f')
 datetime64_array = lambda x: np.array([np.datetime64(date_converter([sx])) for sx in x])
 int_1Darray_from_string = lambda x: np.fromstring(x[0], dtype=int, sep=' ')
 float_2Darray_from_string_list = lambda x: np.vstack([np.fromstring(e, dtype=float, sep=' ') for e in x])
+float_list_of_list_from_string = lambda x: [np.fromstring(e, dtype=float, sep=' ') for e in x] #usefull in case of count that can change from one element to the other
 int_1Darray_from_join_strings = lambda x: np.fromstring(" ".join(x), dtype=int, sep=' ')
 float_1Darray_from_join_strings = lambda x: np.fromstring(" ".join(x), dtype=float, sep=' ')
 int_array = lambda x: np.array(x, dtype=int)
@@ -153,11 +154,11 @@ xpath_mappings = {
         'fmrate_azimuthtime': (
         datetime64_array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/azimuthTime'),
         'fmrate_t0': (float_array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/t0'),
-        'fmrate_c0': (np.array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/c0'),
-        'fmrate_c1': (np.array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/c1'),
-        'fmrate_c2': (np.array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/c2'),
+        'fmrate_c0': (float_array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/c0'),
+        'fmrate_c1': (float_array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/c1'),
+        'fmrate_c2': (float_array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/c2'),
         'fmrate_azimuthFmRatePolynomial': (
-            float_2Darray_from_string_list,
+            float_list_of_list_from_string,
             '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/azimuthFmRatePolynomial'),
     }
 }
@@ -398,27 +399,25 @@ def orbit(time, frame, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z,orbit_pass,platf
 
 def azimuth_fmrate(azimuthtime, t0, c0, c1, c2, polynomial):
     """
+    decode FM rate information from xml annotations
+    Parameters
+    ----------
+    azimuthtime
+    t0
+    c0
+    c1
+    c2
+    polynomial
 
-    :param azimuthtime:
-    :param t0:
-    :param c0:
-    :param c1:
-    :param c2:
-    :param polynomial:
-    :return:
+    Returns
+    -------
+
     """
-    if ( np.sum([c.size for c in [c0,c1,c2]]) != 0) and (polynomial.size == 0):
+    if ( np.sum([c.size for c in [c0,c1,c2]]) != 0) and (len(polynomial) == 0):
         # old IPF annotation
         polynomial = np.stack([c0, c1, c2], axis=1)
-    else:
-        c0 = polynomial[:,0]
-        c1 = polynomial[:,1]
-        c2 = polynomial[:,2]
     res = xr.Dataset()
     res['t0'] = xr.DataArray(t0,dims=['azimuth_time'],coords={'azimuth_time':azimuthtime})
-    res['c0'] = xr.DataArray(c0,dims=['azimuth_time'],coords={'azimuth_time':azimuthtime})
-    res['c1'] = xr.DataArray(c1, dims=['azimuth_time'],coords={'azimuth_time':azimuthtime})
-    res['c2'] = xr.DataArray(c2, dims=['azimuth_time'],coords={'azimuth_time':azimuthtime})
     res['polynomial'] = xr.DataArray([Polynomial(p) for p in polynomial],
                                      dims=['azimuth_time'],
                                      coords={'azimuth_time':azimuthtime})

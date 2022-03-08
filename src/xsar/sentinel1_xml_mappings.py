@@ -479,6 +479,41 @@ def bursts(lines_per_burst, samples_per_burst, burst_azimuthTime, burst_azimuthA
     )
     return da
 
+def doppler_centroid_estimates(nb_dcestimate,nb_geoDcPoly,nb_dataDcPoly,
+                nb_fineDce,dc_azimuth_time,dc_t0,dc_geoDcPoly,
+                dc_dataDcPoly,dc_rmserr,dc_rmserrAboveThres,dc_azstarttime,
+                dc_azstoptime,dc_slantRangeTime,dc_frequency):
+    """
+    :param nb_dcestimate:
+    :param nb_geoDcPoly:
+    :param nb_dataDcPoly:
+    :param nb_fineDce:
+    :param dc_azimuth_time:
+    :param dc_t0:
+    :param dc_geoDcPoly:
+    :param dc_dataDcPoly:
+    :param dc_rmserr:
+    :param dc_rmserrAboveThres:
+    :param dc_azstarttime:
+    :param dc_azstoptime:
+    :param dc_slantRangeTime:
+    :param dc_frequency:
+    :return:
+    """
+    ds = xr.Dataset()
+    ds['t0'] = xr.DataArray(dc_t0.astype(float),dims=['n_estimates'])
+    ds['geo_polynom'] = xr.DataArray([Polynomial(p) for p in dc_geoDcPoly],dims=['n_estimates'])
+    ds['data_polynom'] = xr.DataArray([Polynomial(p) for p in dc_dataDcPoly],dims=['n_estimates'])
+    dims = (nb_dcestimate, nb_fineDce)
+    ds['azimuth_time'] = xr.DataArray(dc_azimuth_time,dims=['n_estimates'])
+    ds['azimuth_time_start'] =  xr.DataArray(dc_azstarttime,dims=['n_estimates'])
+    ds['azimuth_time_stop'] = xr.DataArray(dc_azstoptime, dims=['n_estimates'])
+    ds['data_rms'] = xr.DataArray(dc_rmserr.astype(float),dims=['n_estimates'])
+    ds['slant_range_time'] = xr.DataArray(dc_slantRangeTime.reshape(dims),dims=['n_estimates','nb_fine_dce'])
+    ds['frequency'] = xr.DataArray(dc_frequency.reshape(dims), dims=['n_estimates', 'nb_fine_dce'])
+    ds['data_rms_threshold'] = xr.DataArray(dc_rmserrAboveThres,dims=['n_estimates'])
+    return ds
+
 
 def geolocation_grid(atrack, xtrack, values):
     """
@@ -588,5 +623,15 @@ compounds_vars = {
         'args': ('annotation.atrack_time_range', 'annotation.atrack_size', 'annotation.xtrack_size',
                  'annotation.incidence_angle_mid_swath', 'annotation.azimuth_time_interval',
                  'annotation.slant_range_time_image', 'annotation.azimuthPixelSpacing', 'annotation.rangePixelSpacing')
-    }
+    },
+    'doppler_estimate': {
+        'func': doppler_centroid_estimates,
+        'args': ('annotation.nb_dcestimate', 'annotation.nb_geoDcPoly', 'annotation.nb_dataDcPoly',
+                 'annotation.nb_fineDce', 'annotation.dc_azimuth_time', 'annotation.dc_t0', 'annotation.dc_geoDcPoly',
+                 'annotation.dc_dataDcPoly', 'annotation.dc_rmserr', 'annotation.dc_rmserrAboveThres',
+                 'annotation.dc_azstarttime',
+                 'annotation.dc_azstoptime', 'annotation.dc_slantRangeTime', 'annotation.dc_frequency'
+
+                 ),
+    },
 }

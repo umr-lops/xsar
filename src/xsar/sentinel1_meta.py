@@ -18,6 +18,8 @@ from . import sentinel1_xml_mappings
 from .xml_parser import XmlParser
 from affine import Affine
 import os
+from datetime import datetime
+from collections import OrderedDict
 from .ipython_backends import repr_mimebundle
 
 logger = logging.getLogger('xsar.sentinel1_meta')
@@ -122,10 +124,7 @@ class Sentinel1Meta:
         # get defaults masks from class attribute
         for name, feature in self.__class__._mask_features_raw.items():
             self.set_mask_feature(name, feature)
-
-        self._orbit_pass = None
-        self._platform_heading = None
-
+        self._geoloc = None
         self.rasters = self.__class__.rasters.copy()
         """pandas dataframe for rasters (see `xsar.Sentinel1Meta.set_raster`)"""
 
@@ -905,12 +904,6 @@ class Sentinel1Meta:
         """
         return self.gcps.attrs['approx_transform']
 
-    @property
-    def _doppler_estimate(self):
-        dce = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'doppler_estimate')
-        dce.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'doppler_estimate',describe=True)
-        return dce
-
     def __repr__(self):
         if self.multidataset:
             meta_type = "multi (%d)" % len(self.subdatasets)
@@ -959,8 +952,10 @@ class Sentinel1Meta:
         new.__dict__.update(minidict)
         return new
 
-
     @property
-    def doppler_estimate(self):
-        return self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'doppler_estimate')
+    def _doppler_estimate(self):
+        dce = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'doppler_estimate')
+        dce.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'doppler_estimate',describe=True)
+        return dce
 
+  

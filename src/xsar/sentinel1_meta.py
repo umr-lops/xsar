@@ -18,6 +18,8 @@ from . import sentinel1_xml_mappings
 from .xml_parser import XmlParser
 from affine import Affine
 import os
+from datetime import datetime
+from collections import OrderedDict
 from .ipython_backends import repr_mimebundle
 
 logger = logging.getLogger('xsar.sentinel1_meta')
@@ -122,7 +124,7 @@ class Sentinel1Meta:
         # get defaults masks from class attribute
         for name, feature in self.__class__._mask_features_raw.items():
             self.set_mask_feature(name, feature)
-
+        self._geoloc = None
         self.rasters = self.__class__.rasters.copy()
         """pandas dataframe for rasters (see `xsar.Sentinel1Meta.set_raster`)"""
 
@@ -373,6 +375,42 @@ class Sentinel1Meta:
         return self.footprint
 
     @property
+    def geoloc(self):
+        """
+        xarray.Dataset with `['longitude', 'latitude', 'height', 'azimuth_time', 'slant_range_time','incidence','elevation' ]` variables
+        and `['atrack', 'xtrack'] coordinates, at the geolocation grid
+        """
+        if self.multidataset:
+            raise TypeError('geolocation_grid not available for multidataset')
+        if self._geoloc is None:
+            xml_annotation = self.files['annotation'].iloc[0]
+            da_var_list = []
+            for var_name in ['longitude', 'latitude', 'height', 'azimuth_time', 'slant_range_time']:
+                # TODO: we should use dask.array.from_delayed so xml files are read on demand
+                da_var = self.xml_parser.get_compound_var(xml_annotation, var_name)
+                da_var.name = var_name
+                da_var.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0],
+                                                                                 var_name,
+                                                                                 describe=True)
+                da_var_list.append(da_var)
+
+            self._geoloc = xr.merge(da_var_list)
+
+            self._geoloc.attrs = {}
+            # compute attributes (footprint, coverage, pixel_size)
+            footprint_dict = {}
+            for ll in ['longitude', 'latitude']:
+                footprint_dict[ll] = [
+                    self._geoloc[ll].isel(atrack=a, xtrack=x).values for a, x in [(0, 0), (0, -1), (-1, -1), (-1, 0)]
+                ]
+            corners = list(zip(footprint_dict['longitude'], footprint_dict['latitude']))
+            p = Polygon(corners)
+            logger.debug('polyon : %s', p)
+            self._geoloc.attrs['footprint'] = p
+
+        return self._geoloc
+
+    @property
     def _footprints(self):
         """footprints as list. should len 1 for single meta, or len(self.subdatasets) for multi meta"""
         return self.manifest_attrs['footprints']
@@ -618,6 +656,14 @@ class Sentinel1Meta:
         return gdf_orbit
 
     @property
+    def image(self):
+        if self.multidataset:
+            return None
+        img_dict = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'image')
+        img_dict['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'image', describe=True)
+        return img_dict
+
+    @property
     def _dict_coords2ll(self):
         """
         dict with keys ['longitude', 'latitude'] with interpolation function (RectBivariateSpline) as values.
@@ -824,6 +870,14 @@ class Sentinel1Meta:
         return heading
 
     @property
+    def _bursts(self):
+        if self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.number_of_bursts') > 0:
+            return self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts')
+        else:
+            # no burst, return empty dataset
+            return xr.Dataset()
+
+    @property
     def approx_transform(self):
         """
         Affine transfom from gcps.
@@ -849,6 +903,12 @@ class Sentinel1Meta:
 
         """
         return self.gcps.attrs['approx_transform']
+
+    @property
+    def _doppler_estimate(self):
+        dce = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'doppler_estimate')
+        dce.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'doppler_estimate',describe=True)
+        return dce
 
     def __repr__(self):
         if self.multidataset:
@@ -898,40 +958,4 @@ class Sentinel1Meta:
         new.__dict__.update(minidict)
         return new
 
-    @property
-    def geoloc(self):
-        """
-        xarray.Dataset with `['longitude', 'latitude', 'height', 'azimuth_time', 'slant_range_time','incidence','elevation' ]` variables
-        and `['atrack', 'xtrack'] coordinates, at the geolocation grid
-        """
-        if self.multidataset:
-            raise TypeError('geolocation_grid not available for multidataset')
-        if self._geoloc is None:
-            xml_annotation = self.files['annotation'].iloc[0]
-            da_var_list = []
-            for var_name in ['longitude', 'latitude', 'height', 'azimuth_time', 'slant_range_time', 'incidence',
-                             'elevation']:
-                # TODO: we should use dask.array.from_delayed so xml files are read on demand
-                da_var = self.xml_parser.get_compound_var(xml_annotation, var_name)
-                da_var.name = var_name
-                # FIXME: waiting for merge from upstream
-                # da_var['history'] = self.xml_parser.get_compound_var(xml_annotation, var_name, describe=True)
-                # logger.debug('%s %s',var_name,da_var)
-                da_var_list.append(da_var)
-
-            self._geoloc = xr.merge(da_var_list)
-
-            self._geoloc.attrs = {
-                'pixel_atrack_m': self.xml_parser.get_var(xml_annotation, 'annotation.azimuthPixelSpacing'),
-                'pixel_xtrack_m': self.xml_parser.get_var(xml_annotation, 'annotation.rangePixelSpacing'),
-                'number_pts_geolocation_grid': self.xml_parser.get_var(xml_annotation,
-                                                                       'annotation.number_pts_geolocation_grid'),
-                #'npixels': len(self._geoloc['xtrack']),
-                #'nlines': len(self._geoloc['atrack']),
-            }
-        return self._geoloc
-
-    @property
-    def doppler_estimate(self):
-        return self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'doppler_estimate')
-
+  

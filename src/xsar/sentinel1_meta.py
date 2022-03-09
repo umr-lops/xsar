@@ -666,8 +666,6 @@ class Sentinel1Meta:
     @property
     def azimuth_fmrate(self):
         """
-        Annotation records for azimuth Frequency Modulation rate
-        Returns
         xarray.Dataset()
             Frequency Modulation rate annotations such as t0 (azimuth time reference) and polynomial coefficients: Azimuth FM rate = c0 + c1(tSR - t0) + c2(tSR - t0)^2)
         -------

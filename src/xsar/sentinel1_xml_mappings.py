@@ -32,7 +32,7 @@ date_converter = lambda x: datetime.strptime(x[0], '%Y-%m-%dT%H:%M:%S.%f')
 datetime64_array = lambda x: np.array([np.datetime64(date_converter([sx])) for sx in x])
 int_1Darray_from_string = lambda x: np.fromstring(x[0], dtype=int, sep=' ')
 float_2Darray_from_string_list = lambda x: np.vstack([np.fromstring(e, dtype=float, sep=' ') for e in x])
-float_list_of_list_from_string = lambda x: [np.fromstring(e, dtype=float, sep=' ') for e in x] #usefull in case of count that can change from one element to the other
+list_of_float_1D_array_from_string = lambda x: [np.fromstring(e, dtype=float, sep=' ') for e in x]
 int_1Darray_from_join_strings = lambda x: np.fromstring(" ".join(x), dtype=int, sep=' ')
 float_1Darray_from_join_strings = lambda x: np.fromstring(" ".join(x), dtype=float, sep=' ')
 int_array = lambda x: np.array(x, dtype=int)
@@ -433,7 +433,8 @@ def azimuth_fmrate(azimuthtime, t0, c0, c1, c2, polynomial):
 
     Returns
     -------
-
+    xarray.Dataset
+        containing the polynomial coefficient for each of the FM rate along azimuth time coordinates
     """
     if ( np.sum([c.size for c in [c0,c1,c2]]) != 0) and (len(polynomial) == 0):
         # old IPF annotation

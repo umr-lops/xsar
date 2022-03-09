@@ -665,6 +665,12 @@ class Sentinel1Meta:
 
     @property
     def azimuth_fmrate(self):
+        """
+        Annotation records for azimuth Frequency Modulation rate
+        Returns
+        -------
+
+        """
         fmrates = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'azimuth_fmrate')
         fmrates.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'azimuth_fmrate', describe=True)
         return fmrates

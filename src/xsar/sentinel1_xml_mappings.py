@@ -179,7 +179,7 @@ xpath_mappings = {
         'fmrate_c1': (float_array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/c1'),
         'fmrate_c2': (float_array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/c2'),
         'fmrate_azimuthFmRatePolynomial': (
-            float_list_of_list_from_string,
+            list_of_float_1D_array_from_string,
             '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/azimuthFmRatePolynomial'),
     
     }

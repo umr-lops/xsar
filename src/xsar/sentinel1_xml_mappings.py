@@ -32,7 +32,7 @@ date_converter = lambda x: datetime.strptime(x[0], '%Y-%m-%dT%H:%M:%S.%f')
 datetime64_array = lambda x: np.array([np.datetime64(date_converter([sx])) for sx in x])
 int_1Darray_from_string = lambda x: np.fromstring(x[0], dtype=int, sep=' ')
 float_2Darray_from_string_list = lambda x: np.vstack([np.fromstring(e, dtype=float, sep=' ') for e in x])
-float_list_of_list_from_string = lambda x: [np.fromstring(e, dtype=float, sep=' ') for e in x]
+list_of_float_1D_array_from_string = lambda x: [np.fromstring(e, dtype=float, sep=' ') for e in x]
 int_1Darray_from_join_strings = lambda x: np.fromstring(" ".join(x), dtype=int, sep=' ')
 float_1Darray_from_join_strings = lambda x: np.fromstring(" ".join(x), dtype=float, sep=' ')
 int_array = lambda x: np.array(x, dtype=int)
@@ -178,9 +178,9 @@ xpath_mappings = {
         'dc_azimuth_time': (datetime64_array, '//product/dopplerCentroid/dcEstimateList/dcEstimate/azimuthTime'),
         'dc_t0': (np.array, '//product/dopplerCentroid/dcEstimateList/dcEstimate/t0'),
         'dc_geoDcPoly': (
-            float_list_of_list_from_string, '//product/dopplerCentroid/dcEstimateList/dcEstimate/geometryDcPolynomial'),
+            list_of_float_1D_array_from_string, '//product/dopplerCentroid/dcEstimateList/dcEstimate/geometryDcPolynomial'),
         'dc_dataDcPoly': (
-            float_list_of_list_from_string, '//product/dopplerCentroid/dcEstimateList/dcEstimate/dataDcPolynomial'),
+            list_of_float_1D_array_from_string, '//product/dopplerCentroid/dcEstimateList/dcEstimate/dataDcPolynomial'),
         'dc_rmserr': (np.array, '//product/dopplerCentroid/dcEstimateList/dcEstimate/dataDcRmsError'),
         'dc_rmserrAboveThres': (
             bool_array, '//product/dopplerCentroid/dcEstimateList/dcEstimate/dataDcRmsErrorAboveThreshold'),
@@ -478,26 +478,32 @@ def bursts(lines_per_burst, samples_per_burst, burst_azimuthTime, burst_azimuthA
     )
     return da
 
-def doppler_centroid_estimates(nb_dcestimate,nb_geoDcPoly,nb_dataDcPoly,
+def doppler_centroid_estimates(nb_dcestimate,
                 nb_fineDce,dc_azimuth_time,dc_t0,dc_geoDcPoly,
                 dc_dataDcPoly,dc_rmserr,dc_rmserrAboveThres,dc_azstarttime,
                 dc_azstoptime,dc_slantRangeTime,dc_frequency):
     """
-    :param nb_dcestimate:
-    :param nb_geoDcPoly:
-    :param nb_dataDcPoly:
-    :param nb_fineDce:
-    :param dc_azimuth_time:
-    :param dc_t0:
-    :param dc_geoDcPoly:
-    :param dc_dataDcPoly:
-    :param dc_rmserr:
-    :param dc_rmserrAboveThres:
-    :param dc_azstarttime:
-    :param dc_azstoptime:
-    :param dc_slantRangeTime:
-    :param dc_frequency:
-    :return:
+    decoding Doppler Centroid estimates information from xml annotation files
+    Parameters
+    ----------
+    nb_dcestimate
+    nb_geoDcPoly
+    nb_dataDcPoly
+    nb_fineDce
+    dc_azimuth_time
+    dc_t0
+    dc_geoDcPoly
+    dc_dataDcPoly
+    dc_rmserr
+    dc_rmserrAboveThres
+    dc_azstarttime
+    dc_azstoptime
+    dc_slantRangeTime
+    dc_frequency
+
+    Returns
+    -------
+
     """
     ds = xr.Dataset()
     ds['t0'] = xr.DataArray(dc_t0.astype(float),dims=['n_estimates'])
@@ -625,7 +631,7 @@ compounds_vars = {
     },
     'doppler_estimate': {
         'func': doppler_centroid_estimates,
-        'args': ('annotation.nb_dcestimate', 'annotation.nb_geoDcPoly', 'annotation.nb_dataDcPoly',
+        'args': ('annotation.nb_dcestimate',
                  'annotation.nb_fineDce', 'annotation.dc_azimuth_time', 'annotation.dc_t0', 'annotation.dc_geoDcPoly',
                  'annotation.dc_dataDcPoly', 'annotation.dc_rmserr', 'annotation.dc_rmserrAboveThres',
                  'annotation.dc_azstarttime',

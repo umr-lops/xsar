@@ -5,6 +5,7 @@ xpath mapping from xml file, with convertion functions
 from datetime import datetime
 import numpy as np
 from scipy.interpolate import RectBivariateSpline, interp1d
+from numpy.polynomial import Polynomial
 from shapely.geometry import box
 import pandas as pd
 import xarray as xr
@@ -31,6 +32,7 @@ date_converter = lambda x: datetime.strptime(x[0], '%Y-%m-%dT%H:%M:%S.%f')
 datetime64_array = lambda x: np.array([np.datetime64(date_converter([sx])) for sx in x])
 int_1Darray_from_string = lambda x: np.fromstring(x[0], dtype=int, sep=' ')
 float_2Darray_from_string_list = lambda x: np.vstack([np.fromstring(e, dtype=float, sep=' ') for e in x])
+list_of_float_1D_array_from_string = lambda x: [np.fromstring(e, dtype=float, sep=' ') for e in x]
 int_1Darray_from_join_strings = lambda x: np.fromstring(" ".join(x), dtype=int, sep=' ')
 float_1Darray_from_join_strings = lambda x: np.fromstring(" ".join(x), dtype=float, sep=' ')
 int_array = lambda x: np.array(x, dtype=int)
@@ -123,8 +125,6 @@ xpath_mappings = {
     'annotation': {
         'atrack': (uniq_sorted, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/line'),
         'xtrack': (uniq_sorted, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/pixel'),
-        'atrack_grid': (int_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/line'),
-        'xtrack_grid': (int_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/pixel'),
         'incidence': (
             float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/incidenceAngle'),
         'elevation': (
@@ -171,6 +171,17 @@ xpath_mappings = {
             float_2Darray_from_string_list, '//product/swathTiming/burstList/burst/firstValidSample'),
         'burst_lastValidSample': (
             float_2Darray_from_string_list, '//product/swathTiming/burstList/burst/lastValidSample'),
+        'nb_fmrate': (scalar_int, '/product/generalAnnotation/azimuthFmRateList/@count'),
+        'fmrate_azimuthtime': (
+        datetime64_array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/azimuthTime'),
+        'fmrate_t0': (float_array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/t0'),
+        'fmrate_c0': (float_array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/c0'),
+        'fmrate_c1': (float_array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/c1'),
+        'fmrate_c2': (float_array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/c2'),
+        'fmrate_azimuthFmRatePolynomial': (
+            list_of_float_1D_array_from_string,
+            '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/azimuthFmRatePolynomial'),
+    
     }
 }
 
@@ -408,6 +419,33 @@ def orbit(time, frame, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z,orbit_pass,platf
 
     return gdf
 
+def azimuth_fmrate(azimuthtime, t0, c0, c1, c2, polynomial):
+    """
+    decode FM rate information from xml annotations
+    Parameters
+    ----------
+    azimuthtime
+    t0
+    c0
+    c1
+    c2
+    polynomial
+
+    Returns
+    -------
+    xarray.Dataset
+        containing the polynomial coefficient for each of the FM rate along azimuth time coordinates
+    """
+    if ( np.sum([c.size for c in [c0,c1,c2]]) != 0) and (len(polynomial) == 0):
+        # old IPF annotation
+        polynomial = np.stack([c0, c1, c2], axis=1)
+    res = xr.Dataset()
+    res['t0'] = xr.DataArray(t0,dims=['azimuth_time'],coords={'azimuth_time':azimuthtime})
+    res['polynomial'] = xr.DataArray([Polynomial(p) for p in polynomial],
+                                     dims=['azimuth_time'],
+                                     coords={'azimuth_time':azimuthtime})
+    return res
+
 def image(atrack_time_range, atrack_size, xtrack_size, incidence_angle_mid_swath, azimuth_time_interval,
           slant_range_time_image, azimuthPixelSpacing, rangePixelSpacing):
 
@@ -566,5 +604,12 @@ compounds_vars = {
         'args': ('annotation.atrack_time_range', 'annotation.atrack_size', 'annotation.xtrack_size',
                  'annotation.incidence_angle_mid_swath', 'annotation.azimuth_time_interval',
                  'annotation.slant_range_time_image', 'annotation.azimuthPixelSpacing', 'annotation.rangePixelSpacing')
-    }
+    },
+    'azimuth_fmrate': {
+        'func': azimuth_fmrate,
+        'args': (
+            'annotation.fmrate_azimuthtime', 'annotation.fmrate_t0',
+            'annotation.fmrate_c0', 'annotation.fmrate_c1', 'annotation.fmrate_c2',
+            'annotation.fmrate_azimuthFmRatePolynomial')
+    },
 }

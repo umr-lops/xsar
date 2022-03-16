@@ -209,7 +209,7 @@ xpath_mappings = {
 # compounds variables converters
 
 def signal_lut(atrack, xtrack, lut):
-        lut_f = RectBivariateSpline(atrack, xtrack, lut, kx=1, ky=1)
+    lut_f = RectBivariateSpline(atrack, xtrack, lut, kx=1, ky=1)
     return lut_f
 
 

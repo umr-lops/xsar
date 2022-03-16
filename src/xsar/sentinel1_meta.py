@@ -664,6 +664,16 @@ class Sentinel1Meta:
         return img_dict
 
     @property
+    def azimuth_fmrate(self):
+        """
+        xarray.Dataset
+            Frequency Modulation rate annotations such as t0 (azimuth time reference) and polynomial coefficients: Azimuth FM rate = c0 + c1(tSR - t0) + c2(tSR - t0)^2
+        """
+        fmrates = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'azimuth_fmrate')
+        fmrates.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'azimuth_fmrate', describe=True)
+        return fmrates
+
+    @property
     def _dict_coords2ll(self):
         """
         dict with keys ['longitude', 'latitude'] with interpolation function (RectBivariateSpline) as values.
@@ -872,7 +882,9 @@ class Sentinel1Meta:
     @property
     def _bursts(self):
         if self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.number_of_bursts') > 0:
-            return self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts')
+            bursts = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts')
+            bursts.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts', describe=True)
+            return bursts
         else:
             # no burst, return empty dataset
             return xr.Dataset()

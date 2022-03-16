@@ -23,7 +23,6 @@ namespaces = {
     "safe": "http://www.esa.int/safe/sentinel-1.0",
     "gml": "http://www.opengis.net/gml"
 }
-
 # xpath convertion function: they take only one args (list returned by xpath)
 scalar = lambda x: x[0]
 scalar_int = lambda x: int(x[0])
@@ -192,6 +191,17 @@ xpath_mappings = {
             float_array, '///product/dopplerCentroid/dcEstimateList/dcEstimate/fineDceList/fineDce/slantRangeTime'),
         'dc_frequency': (
             float_array, '///product/dopplerCentroid/dcEstimateList/dcEstimate/fineDceList/fineDce/frequency'),
+        'nb_fmrate': (scalar_int, '/product/generalAnnotation/azimuthFmRateList/@count'),
+        'fmrate_azimuthtime': (
+        datetime64_array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/azimuthTime'),
+        'fmrate_t0': (float_array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/t0'),
+        'fmrate_c0': (float_array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/c0'),
+        'fmrate_c1': (float_array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/c1'),
+        'fmrate_c2': (float_array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/c2'),
+        'fmrate_azimuthFmRatePolynomial': (
+            list_of_float_1D_array_from_string,
+            '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/azimuthFmRatePolynomial'),
+    
     }
 }
 
@@ -199,7 +209,7 @@ xpath_mappings = {
 # compounds variables converters
 
 def signal_lut(atrack, xtrack, lut):
-    lut_f = RectBivariateSpline(atrack, xtrack, lut, kx=1, ky=1)
+        lut_f = RectBivariateSpline(atrack, xtrack, lut, kx=1, ky=1)
     return lut_f
 
 
@@ -429,6 +439,33 @@ def orbit(time, frame, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z,orbit_pass,platf
 
     return gdf
 
+def azimuth_fmrate(azimuthtime, t0, c0, c1, c2, polynomial):
+    """
+    decode FM rate information from xml annotations
+    Parameters
+    ----------
+    azimuthtime
+    t0
+    c0
+    c1
+    c2
+    polynomial
+
+    Returns
+    -------
+    xarray.Dataset
+        containing the polynomial coefficient for each of the FM rate along azimuth time coordinates
+    """
+    if ( np.sum([c.size for c in [c0,c1,c2]]) != 0) and (len(polynomial) == 0):
+        # old IPF annotation
+        polynomial = np.stack([c0, c1, c2], axis=1)
+    res = xr.Dataset()
+    res['t0'] = xr.DataArray(t0,dims=['azimuth_time'],coords={'azimuth_time':azimuthtime})
+    res['polynomial'] = xr.DataArray([Polynomial(p) for p in polynomial],
+                                     dims=['azimuth_time'],
+                                     coords={'azimuth_time':azimuthtime})
+    return res
+
 def image(atrack_time_range, atrack_size, xtrack_size, incidence_angle_mid_swath, azimuth_time_interval,
           slant_range_time_image, azimuthPixelSpacing, rangePixelSpacing):
 
@@ -628,6 +665,13 @@ compounds_vars = {
         'args': ('annotation.atrack_time_range', 'annotation.atrack_size', 'annotation.xtrack_size',
                  'annotation.incidence_angle_mid_swath', 'annotation.azimuth_time_interval',
                  'annotation.slant_range_time_image', 'annotation.azimuthPixelSpacing', 'annotation.rangePixelSpacing')
+    },
+    'azimuth_fmrate': {
+        'func': azimuth_fmrate,
+        'args': (
+            'annotation.fmrate_azimuthtime', 'annotation.fmrate_t0',
+            'annotation.fmrate_c0', 'annotation.fmrate_c1', 'annotation.fmrate_c2',
+            'annotation.fmrate_azimuthFmRatePolynomial')
     },
     'doppler_estimate': {
         'func': doppler_centroid_estimates,

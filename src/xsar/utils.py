@@ -218,6 +218,7 @@ def map_blocks_coords(da, func, withburst=False, func_kwargs={}, **kwargs):
             result = result.astype(dtype)
 
         return result
+    
     def _evaluate_from_azimuth_time(block, f, coords,azimuthtime, block_info=None, dtype=None):
         # get loc ((dim_0_start,dim_0_stop),(dim_1_start,dim_1_stop),...)
         try:

@@ -22,7 +22,7 @@ Getting Started
 
    Quick install:
 
-   .. program-output:: cat scripts/conda_create_activate scripts/conda_install_recommended scripts/pip_install
+   .. program-output:: cat scripts/conda_create_activate scripts/conda_install_recommended
 
 Overview
 ~~~~~~~~

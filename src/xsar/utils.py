@@ -76,17 +76,22 @@ def to_lon180(lon):
 
     Parameters
     ----------
-    lon: array_like of float
+    lon: array_like of float, or float
         longitudes in [0, 360] range
 
     Returns
     -------
-    array_like
+    array_like, or float
         longitude in [-180, 180] range
 
     """
     change = lon > 180
-    lon[change] = lon[change] - 360
+    try:
+        lon[change] = lon[change] - 360
+    except TypeError:
+        # scalar input
+        if change:
+            lon = lon - 360
     return lon
 
 

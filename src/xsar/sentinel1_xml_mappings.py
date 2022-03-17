@@ -5,10 +5,10 @@ xpath mapping from xml file, with convertion functions
 from datetime import datetime
 import numpy as np
 from scipy.interpolate import RectBivariateSpline, interp1d
-from numpy.polynomial import Polynomial
 from shapely.geometry import box
 import pandas as pd
 import xarray as xr
+from numpy.polynomial import Polynomial
 import warnings
 import geopandas as gpd
 from shapely.geometry import Polygon, Point
@@ -23,7 +23,6 @@ namespaces = {
     "safe": "http://www.esa.int/safe/sentinel-1.0",
     "gml": "http://www.opengis.net/gml"
 }
-
 # xpath convertion function: they take only one args (list returned by xpath)
 scalar = lambda x: x[0]
 scalar_int = lambda x: int(x[0])
@@ -161,7 +160,6 @@ xpath_mappings = {
         'number_of_bursts': (scalar_int, '/product/swathTiming/burstList/@count'),
         'lines_per_burst': (scalar, '/product/swathTiming/linesPerBurst'),
         'samples_per_burst': (scalar, '/product/swathTiming/samplesPerBurst'),
-        'azimuth_time_interval': (scalar_float, '/product/imageAnnotation/imageInformation/azimuthTimeInterval'),
         'all_bursts': (np.array, '//product/swathTiming/burstList/burst'),
         'burst_azimuthTime': (datetime64_array, '//product/swathTiming/burstList/burst/azimuthTime'),
         'burst_azimuthAnxTime': (float_array, '//product/swathTiming/burstList/burst/azimuthAnxTime'),
@@ -171,6 +169,28 @@ xpath_mappings = {
             float_2Darray_from_string_list, '//product/swathTiming/burstList/burst/firstValidSample'),
         'burst_lastValidSample': (
             float_2Darray_from_string_list, '//product/swathTiming/burstList/burst/lastValidSample'),
+        'nb_dcestimate': (scalar_int, '/product/dopplerCentroid/dcEstimateList/@count'),
+        'nb_geoDcPoly': (
+            scalar_int, '/product/dopplerCentroid/dcEstimateList/dcEstimate[1]/geometryDcPolynomial/@count'),
+        'nb_dataDcPoly': (scalar_int, '/product/dopplerCentroid/dcEstimateList/dcEstimate[1]/dataDcPolynomial/@count'),
+        'nb_fineDce': (scalar_int, '/product/dopplerCentroid/dcEstimateList/dcEstimate[1]/fineDceList/@count'),
+        'dc_azimuth_time': (datetime64_array, '//product/dopplerCentroid/dcEstimateList/dcEstimate/azimuthTime'),
+        'dc_t0': (np.array, '//product/dopplerCentroid/dcEstimateList/dcEstimate/t0'),
+        'dc_geoDcPoly': (
+            list_of_float_1D_array_from_string, '//product/dopplerCentroid/dcEstimateList/dcEstimate/geometryDcPolynomial'),
+        'dc_dataDcPoly': (
+            list_of_float_1D_array_from_string, '//product/dopplerCentroid/dcEstimateList/dcEstimate/dataDcPolynomial'),
+        'dc_rmserr': (np.array, '//product/dopplerCentroid/dcEstimateList/dcEstimate/dataDcRmsError'),
+        'dc_rmserrAboveThres': (
+            bool_array, '//product/dopplerCentroid/dcEstimateList/dcEstimate/dataDcRmsErrorAboveThreshold'),
+        'dc_azstarttime': (
+            datetime64_array, '//product/dopplerCentroid/dcEstimateList/dcEstimate/fineDceAzimuthStartTime'),
+        'dc_azstoptime': (
+            datetime64_array, '//product/dopplerCentroid/dcEstimateList/dcEstimate/fineDceAzimuthStopTime'),
+        'dc_slantRangeTime': (
+            float_array, '///product/dopplerCentroid/dcEstimateList/dcEstimate/fineDceList/fineDce/slantRangeTime'),
+        'dc_frequency': (
+            float_array, '///product/dopplerCentroid/dcEstimateList/dcEstimate/fineDceList/fineDce/frequency'),
         'nb_fmrate': (scalar_int, '/product/generalAnnotation/azimuthFmRateList/@count'),
         'fmrate_azimuthtime': (
         datetime64_array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/azimuthTime'),
@@ -495,6 +515,47 @@ def bursts(lines_per_burst, samples_per_burst, burst_azimuthTime, burst_azimuthA
     )
     return da
 
+def doppler_centroid_estimates(nb_dcestimate,
+                nb_fineDce,dc_azimuth_time,dc_t0,dc_geoDcPoly,
+                dc_dataDcPoly,dc_rmserr,dc_rmserrAboveThres,dc_azstarttime,
+                dc_azstoptime,dc_slantRangeTime,dc_frequency):
+    """
+    decoding Doppler Centroid estimates information from xml annotation files
+    Parameters
+    ----------
+    nb_dcestimate
+    nb_geoDcPoly
+    nb_dataDcPoly
+    nb_fineDce
+    dc_azimuth_time
+    dc_t0
+    dc_geoDcPoly
+    dc_dataDcPoly
+    dc_rmserr
+    dc_rmserrAboveThres
+    dc_azstarttime
+    dc_azstoptime
+    dc_slantRangeTime
+    dc_frequency
+
+    Returns
+    -------
+
+    """
+    ds = xr.Dataset()
+    ds['t0'] = xr.DataArray(dc_t0.astype(float),dims=['n_estimates'])
+    ds['geo_polynom'] = xr.DataArray([Polynomial(p) for p in dc_geoDcPoly],dims=['n_estimates'])
+    ds['data_polynom'] = xr.DataArray([Polynomial(p) for p in dc_dataDcPoly],dims=['n_estimates'])
+    dims = (nb_dcestimate, nb_fineDce)
+    ds['azimuth_time'] = xr.DataArray(dc_azimuth_time,dims=['n_estimates'])
+    ds['azimuth_time_start'] =  xr.DataArray(dc_azstarttime,dims=['n_estimates'])
+    ds['azimuth_time_stop'] = xr.DataArray(dc_azstoptime, dims=['n_estimates'])
+    ds['data_rms'] = xr.DataArray(dc_rmserr.astype(float),dims=['n_estimates'])
+    ds['slant_range_time'] = xr.DataArray(dc_slantRangeTime.reshape(dims),dims=['n_estimates','nb_fine_dce'])
+    ds['frequency'] = xr.DataArray(dc_frequency.reshape(dims), dims=['n_estimates', 'nb_fine_dce'])
+    ds['data_rms_threshold'] = xr.DataArray(dc_rmserrAboveThres,dims=['n_estimates'])
+    return ds
+
 
 def geolocation_grid(atrack, xtrack, values):
     """
@@ -611,5 +672,15 @@ compounds_vars = {
             'annotation.fmrate_azimuthtime', 'annotation.fmrate_t0',
             'annotation.fmrate_c0', 'annotation.fmrate_c1', 'annotation.fmrate_c2',
             'annotation.fmrate_azimuthFmRatePolynomial')
+    },
+    'doppler_estimate': {
+        'func': doppler_centroid_estimates,
+        'args': ('annotation.nb_dcestimate',
+                 'annotation.nb_fineDce', 'annotation.dc_azimuth_time', 'annotation.dc_t0', 'annotation.dc_geoDcPoly',
+                 'annotation.dc_dataDcPoly', 'annotation.dc_rmserr', 'annotation.dc_rmserrAboveThres',
+                 'annotation.dc_azstarttime',
+                 'annotation.dc_azstoptime', 'annotation.dc_slantRangeTime', 'annotation.dc_frequency'
+
+                 ),
     },
 }

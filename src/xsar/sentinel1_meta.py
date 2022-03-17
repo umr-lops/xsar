@@ -964,4 +964,16 @@ class Sentinel1Meta:
         new.__dict__.update(minidict)
         return new
 
-  
+
+    @property
+    def _doppler_estimate(self):
+        """
+        xarray.Dataset
+            with Doppler Centroid Estimates from annotations such as geo_polynom,data_polynom or frequency
+
+        """
+        dce = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'doppler_estimate')
+        dce.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'doppler_estimate',
+                                                                describe=True)
+        return dce
+

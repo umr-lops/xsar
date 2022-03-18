@@ -31,7 +31,7 @@ setup(
         'importlib-resources',
         'pyyaml',
         'fsspec',
-        'aiohttp'
+        'aiohttp',
         'pytz',
     ],
     entry_points={

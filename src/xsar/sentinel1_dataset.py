@@ -873,6 +873,22 @@ class Sentinel1Dataset:
             lut = self._luts[lut_name]
         except KeyError:
             raise ValueError("can't find lut from name '%s' for variable '%s' " % (lut_name, var_name))
+        if self.s1meta.swath == 'WV':
+            if var_name [ 'sigma0_raw','gamma0_raw']  and self.s1meta.ipf in [2.9, 2.91] and self.s1meta.platform in ['SENTINEL-1A','SENTINEL-1B']:
+                noise_calibration_cst_pp1 = {'SENTINEL-1A': # patch proposed by MPC Sentinel-1 : https://jira-projects.cls.fr/browse/MPCS-2007
+                                                 {'WV1': 38.13,
+                                                  'WV2':  36.84
+                                                  },
+                                             'SENTINEL-1B':
+                                                 {'WV1':  39.30,
+                                                  'WV2':  37.44,
+                                                  }
+                                             }
+                cst = noise_calibration_cst_pp1[self.s1meta.platform][self.s1meta.image['swath_subswath']]
+                histo = lut.attrs['history']
+                lut = lut * cst
+                lut.attrs['comment'] = 'patch on the noise_lut_range : %s'%cst
+                lut.attrs['history'] = histo
         return lut
 
     def _apply_calibration_lut(self, var_name):

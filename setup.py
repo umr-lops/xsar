@@ -31,7 +31,8 @@ setup(
         'importlib-resources',
         'pyyaml',
         'fsspec',
-        'aiohttp',
+        'aiohttp'
+        'pytz',
     ],
     entry_points={
         "xarray.backends": ["xsar=xsar.xarray_backends:XsarXarrayBackend"]

@@ -1,6 +1,10 @@
 
 try:
     # will fall back to repr if some modules are missing
+
+    # make sure we are running from a notebook
+    # if test fail, nothing will be imported, and that will save lot of importtime
+    assert get_ipython() is not None
     import cartopy
     import holoviews as hv
     import geoviews as gv
@@ -10,7 +14,7 @@ try:
     import holoviews.ipython.display_hooks as display_hooks
     from shapely.geometry import Polygon, Point
     import pyproj
-except ModuleNotFoundError as e:
+except (ModuleNotFoundError, AssertionError, NameError) as e:
     pass
 
 def repr_mimebundle_Sentinel1Meta(self, include=None, exclude=None):

@@ -62,6 +62,8 @@ Examples
 
 * :doc:`examples/xsar_multiple`
 
+* :doc:`examples/xsar_batch_datarmor`
+
 Reference
 .........
 
@@ -93,6 +95,7 @@ Last documentation build: |today|
    examples/xsar_advanced
    examples/mask
    examples/xsar_multiple
+   examples/xsar_batch_datarmor
 
 .. toctree::
    :maxdepth: 1

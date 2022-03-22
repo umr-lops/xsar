@@ -71,7 +71,7 @@ class Sentinel1Dataset:
 
     patch_variable: bool, optional
 
-        activate or not the noise lut correction for IPF2.9X
+        activate or not variable pathching ( currently noise lut correction for IPF2.9X)
 
     See Also
     --------

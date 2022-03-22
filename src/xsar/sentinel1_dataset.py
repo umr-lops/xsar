@@ -464,7 +464,7 @@ class Sentinel1Dataset:
                 cst_db = noise_calibration_cst_pp1[self.s1meta.platform][self.s1meta.image['swath_subswath']]
                 cst_lin = 10 ** (cst_db / 10)
                 lut = lut * cst_lin
-                lut.attrs['comment'] = 'patch on the noise_lut_range : %s dB' % cst_db
+                lut.attrs['comment'] = 'patch on the noise_lut_azi : %s dB' % cst_db
         return lut
 
     @timing

@@ -435,14 +435,13 @@ class Sentinel1Dataset:
         attrs['footprint'] = self.footprint
         return attrs
 
-    def _patch_lut(self,lut_name,lut):
+    def _patch_lut(self,lut):
         """
         patch proposed by MPC Sentinel-1 : https://jira-projects.cls.fr/browse/MPCS-2007 for noise vectors of WV SLC IPF2.9X products
         adjustement proposed by BAE are the same for HH and VV, and suppose to work for both old and new WV2 EAP
         they were estimated using WV image with very low NRCS (black images) and computing std(sigma0).
         Parameters
         ----------
-        lut_name str such as noise_lut_azi
         lut xarray.Dataset
 
         Returns
@@ -450,7 +449,7 @@ class Sentinel1Dataset:
         lut xarray.Dataset
         """
         if self.s1meta.swath == 'WV':
-            if lut_name in ['noise_lut_azi'] and self.s1meta.ipf in [2.9,2.91] and\
+            if lut.name in ['noise_lut_azi'] and self.s1meta.ipf in [2.9,2.91] and\
                     self.s1meta.platform in ['SENTINEL-1A','SENTINEL-1B']:
                 noise_calibration_cst_pp1 = {
                     'SENTINEL-1A':
@@ -519,10 +518,11 @@ class Sentinel1Dataset:
                 # set xml file and xpath used as history
                 histo = self.s1meta.xml_parser.get_compound_var(xml_file, lut_name,
                                                                 describe=True)
+                lut.name = lut_name
                 if self._patch_variable:
-                    lut = self._patch_lut(lut_name,lut)
+                    lut = self._patch_lut(lut)
                 lut.attrs['history'] = histo
-                lut = lut.to_dataset(name=lut_name)
+                lut = lut.to_dataset()
 
 
 

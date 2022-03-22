@@ -222,7 +222,6 @@ class Sentinel1Dataset:
         # variables not returned to the user (unless luts=True)
         self._hidden_vars = ['sigma0_lut', 'gamma0_lut', 'noise_lut', 'noise_lut_range', 'noise_lut_azi']
         # attribute to activate correction on variables, if available
-
         self._patch_variable = patch_variable
 
         self._luts = self._lazy_load_luts(self._map_lut_files.keys())

@@ -122,6 +122,7 @@ xpath_mappings = {
         }
     },
     'annotation': {
+        'swath_subswath':(scalar, '/product/adsHeader/swath'),
         'atrack': (uniq_sorted, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/line'),
         'xtrack': (uniq_sorted, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/pixel'),
         'incidence': (
@@ -467,7 +468,7 @@ def azimuth_fmrate(azimuthtime, t0, c0, c1, c2, polynomial):
     return res
 
 def image(atrack_time_range, atrack_size, xtrack_size, incidence_angle_mid_swath, azimuth_time_interval,
-          slant_range_time_image, azimuthPixelSpacing, rangePixelSpacing):
+          slant_range_time_image, azimuthPixelSpacing, rangePixelSpacing,swath_subswath):
 
     return {
         'atrack_time_range': atrack_time_range,
@@ -476,6 +477,7 @@ def image(atrack_time_range, atrack_size, xtrack_size, incidence_angle_mid_swath
         'incidence_angle_mid_swath': incidence_angle_mid_swath,
         'azimuth_time_interval': azimuth_time_interval,
         'slant_range_time_image': slant_range_time_image,
+        'swath_subswath':swath_subswath,
     }
 
 def bursts(lines_per_burst, samples_per_burst, burst_azimuthTime, burst_azimuthAnxTime, burst_sensingTime,
@@ -681,7 +683,8 @@ compounds_vars = {
         'func': image,
         'args': ('annotation.atrack_time_range', 'annotation.atrack_size', 'annotation.xtrack_size',
                  'annotation.incidence_angle_mid_swath', 'annotation.azimuth_time_interval',
-                 'annotation.slant_range_time_image', 'annotation.azimuthPixelSpacing', 'annotation.rangePixelSpacing')
+                 'annotation.slant_range_time_image', 'annotation.azimuthPixelSpacing', 'annotation.rangePixelSpacing',
+                 'annotation.swath_subswath')
     },
     'azimuth_fmrate': {
         'func': azimuth_fmrate,

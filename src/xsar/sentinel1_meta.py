@@ -379,7 +379,7 @@ class Sentinel1Meta:
     def geoloc(self):
         """
         xarray.Dataset with `['longitude', 'latitude', 'height', 'azimuth_time', 'slant_range_time','incidence','elevation' ]` variables
-        and `['atrack', 'xtrack'] coordinates, at the geolocation grid
+        and `['atrack', 'xtrack']` coordinates, at the geolocation grid
         """
         if self.multidataset:
             raise TypeError('geolocation_grid not available for multidataset')

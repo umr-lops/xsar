@@ -153,7 +153,7 @@ def minigrid(x, y, z, method='linear', dims=['x', 'y']):
     return xr.DataArray(ngrid, dims=dims, coords={dims[0]: x_u, dims[1]: y_u})
 
 
-def map_blocks_coords(da, func, withburst=False, func_kwargs={}, **kwargs):
+def map_blocks_coords(da, func, withburst=False,use_evaluate_from_azimuth_time=False, func_kwargs={}, **kwargs):
     """
     like `dask.map_blocks`, but `func` parameters are dimensions coordinates belonging to the block.
 
@@ -199,6 +199,7 @@ def map_blocks_coords(da, func, withburst=False, func_kwargs={}, **kwargs):
         Unless manualy providing block_info,
         this function should be called from 'xarray.DataArray.map_blocks' with coords preset with functools.partial
         """
+        print('f inside',f)
 
         # get loc ((dim_0_start,dim_0_stop),(dim_1_start,dim_1_stop),...)
         try:
@@ -211,7 +212,9 @@ def map_blocks_coords(da, func, withburst=False, func_kwargs={}, **kwargs):
 
         # use loc to get corresponding coordinates
         coords_sel = tuple(c[loc[i][0]:loc[i][1]] for i, c in enumerate(coords))
-
+        print('coords_sel',coords_sel)
+        print('coords sel 0:',len(coords_sel[0]))
+        print('coords sel 1:', len(coords_sel[1]))
         result = f(*coords_sel, **func_kwargs)
 
         if dtype is not None:
@@ -219,7 +222,7 @@ def map_blocks_coords(da, func, withburst=False, func_kwargs={}, **kwargs):
 
         return result
 
-    def _evaluate_from_azimuth_time(block, f, coords,azimuthtime, block_info=None, dtype=None):
+    def _evaluate_from_azimuth_time(block, f, coords, block_info=None, dtype=None): #azimuthtime
         # get loc ((dim_0_start,dim_0_stop),(dim_1_start,dim_1_stop),...)
         try:
             loc = block_info[None]['array-location']
@@ -229,13 +232,13 @@ def map_blocks_coords(da, func, withburst=False, func_kwargs={}, **kwargs):
             # (Note : dummy coords are 0 sized if dummy block is empty)
             loc = tuple(zip((0,) * len(block.shape), block.shape))
         logger.debug('loc %s',loc)
-        azaz = azimuthtime[loc[0][0]:loc[0][1]].astype(float) # cast float before interpolation
-        logger.debug('azaz : %s %s',azaz,azaz.shape)
+        #azaz = azimuthtime[loc[0][0]:loc[0][1]].astype(float) # cast float before interpolation
+        #logger.debug('azaz : %s %s',azaz,azaz.shape)
         coords_sel = []
         for i, c in enumerate(coords):
             tmptmp = c[loc[i][0]:loc[i][1]]
             coords_sel.append(tmptmp)
-
+        azaz = coords_sel[0]
         range_coords = coords_sel[1]
         logger.debug('range coords %s %s',range_coords,range_coords.shape)
         logger.debug('block %s %s %s',block,type(block),block.shape)
@@ -258,9 +261,12 @@ def map_blocks_coords(da, func, withburst=False, func_kwargs={}, **kwargs):
     meta = da.data
     dtype = meta.dtype
 
-    if withburst:
+    if withburst and use_evaluate_from_azimuth_time is True:
         #TOPS SLC
-        from_coords = bind(_evaluate_from_azimuth_time, ..., ..., coords_4_interpolation.values(),azimuthtime=coords_4_interpolation['xint'], dtype=dtype)
+        from_coords = bind(_evaluate_from_azimuth_time, ..., ..., coords_4_interpolation.values(), dtype=dtype) #azimuthtime=coords_4_interpolation['xint']
+    elif withburst and use_evaluate_from_azimuth_time is False:
+        print('func outside',func)
+        from_coords = bind(_evaluate_from_coords, ..., ..., coords_4_interpolation.values(), dtype=dtype)
     else:
         from_coords = bind(_evaluate_from_coords, ..., ..., coords_4_interpolation.values(), dtype=dtype)
 

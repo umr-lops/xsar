@@ -115,6 +115,8 @@ class Sentinel1Dataset:
             'elevation_gcp': 'f4',
             'incidence': 'f4', # from annotations
             'elevation': 'f4', # from annotations
+            'incidence_2': 'f4', # from annotations
+            'elevation_2': 'f4', # from annotations
             'height': 'f4',
             'ground_heading': 'f4',
             'nesz': None,
@@ -233,6 +235,8 @@ class Sentinel1Dataset:
             'noise_lut_azi': True,
             'incidence': False,
             'elevation': False,
+            'incidence_2': False,
+            'elevation_2': False,
             'incidence_gcp': False,
             'elevation_gcp': False,
             'height': False,
@@ -283,6 +287,7 @@ class Sentinel1Dataset:
 
         self._dataset = self._dataset.merge(self._load_from_geoloc(['height', 'azimuth_time', 'slant_range_time',
                                                                     'incidence','elevation','longitude','latitude']))
+        self._dataset = self._dataset.merge(self._load_from_geoloc2([ 'incidence_2','elevation_2']))
         self._dataset = self._add_denoised(self._dataset)
         self._dataset.attrs = self._recompute_attrs()
 
@@ -707,7 +712,87 @@ class Sentinel1Dataset:
                 da_var = map_blocks_coords(
                     self._da_tmpl.astype(typee),
                     interp_func,
-                    withburst=True,func_kwargs={'grid':False},
+                    withburst=True,use_evaluate_from_azimuth_time=True,
+                    func_kwargs={'grid':False},
+                )
+            else:
+                da_var = map_blocks_coords(
+                    self._da_tmpl.astype(typee),
+                    interp_func
+                )
+            if varname == 'longitude':
+                if self.s1meta.cross_antemeridian:
+                    logger.debug('transform back longitudes between -180 and 180')
+                    logger.debug('da_var : %s %s',da_var,type(da_var))
+                    remove360 = da_var.where(da_var<=180,360) # i put 360 for all the points > 180
+                    remove360 = remove360.where(remove360==360,0) # I put 0 for all the points <=180
+                    da_var = da_var - remove360
+
+            da_var.name = varname
+
+            # copy history
+            try:
+                da_var.attrs['history'] = self.s1meta.geoloc[varname].attrs['history']
+            except KeyError:
+                pass
+
+            da_list.append(da_var)
+
+        return xr.merge(da_list)
+    
+    def _load_from_geoloc2(self, varnames):
+        """
+        2nd implementation of the rasterization without touching at the map_block_coords low level dask method
+        Interpolate (with RectBiVariateSpline) variables from `self.s1meta.geoloc` to `self._dataset`
+
+        Parameters
+        ----------
+        varnames: list of str
+            subset of variables names in `self.s1meta.geoloc`
+
+        Returns
+        -------
+        xarray.Dataset
+            With interpolated vaiables
+
+        """
+
+        da_list = []
+        for varname in varnames:
+            logger.debug('varname : %s',varname)
+            if varname in ['azimuth_time']:
+                z_values = self.s1meta.geoloc[varname].astype(float)
+            elif varname == 'longitude':
+                z_values = self.s1meta.geoloc[varname]
+                if self.s1meta.cross_antemeridian:
+                    logger.debug('translate longitudes between 0 and 360')
+                    z_values = z_values%360
+            else:
+                z_values = self.s1meta.geoloc[varname]
+            if self.s1meta._bursts['burst'].size!=0:
+                # TOPS SLC
+                fct_rasterize =self.s1meta.get_bursts_polygons(self._dataset.atrack,
+                            self._dataset.xtrack,varname)
+                azitime_hr = self.s1meta.burst_azitime(self._dataset.atrack).astype(float)
+                interp_func = dask.delayed(fct_rasterize)(self._dataset.atrack,self._dataset.xtrack,azitime_hr) # same as in _lazy_load_lut() L.500
+            else:
+                interp_func = RectBivariateSpline(
+                    self.s1meta.geoloc.atrack,
+                    self.s1meta.geoloc.xtrack,
+                    z_values,
+                    kx=1, ky=1
+                )
+            logger.debug('%s %s',varname,interp_func)
+            # the following take much cpu and memory, so we want to use dask
+            # interp_func(self._dataset.atrack, self.dataset.xtrack)
+            typee = self.s1meta.geoloc[varname].dtype
+            logger.debug('output type %s %s',varname,typee)
+            if self.s1meta._bursts['burst'].size!=0:
+
+                da_var = map_blocks_coords(
+                    self._da_tmpl.astype(typee),
+                    interp_func,
+                    withburst=True#,func_kwargs={'grid':False},
                 )
             else:
                 da_var = map_blocks_coords(

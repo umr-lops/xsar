@@ -386,7 +386,7 @@ class Sentinel1Meta:
         if self._geoloc is None:
             xml_annotation = self.files['annotation'].iloc[0]
             da_var_list = []
-            for var_name in ['longitude', 'latitude', 'height', 'azimuth_time', 'slant_range_time','incidence','elevation']:
+            for var_name in ['longitude', 'latitude', 'height', 'azimuth_time', 'slant_range_time','incidence','elevation','incidence_2','elevation_2']:
                 # TODO: we should use dask.array.from_delayed so xml files are read on demand
                 da_var = self.xml_parser.get_compound_var(xml_annotation, var_name)
                 da_var.name = var_name
@@ -979,9 +979,9 @@ class Sentinel1Meta:
 
     def burst_azitime(self, atrack_values,return_all=False):
         """
-        Get azimuth time for bursts (TOPS SLC).
+        Get azimuth time at hig resolution for bursts (TOPS SLC).
         To be used for locations of interpolation since line indices will not handle
-        properly overlap.
+        properly overlapping areas.
         Parameters
         ----------
         atrack_values: np.array or scalar or xarray
@@ -1004,11 +1004,13 @@ class Sentinel1Meta:
             print('security ind',ind)
             ind[ind>=len(geoloc_azitime)] = len(geoloc_azitime)-1
         azitime = geoloc_azitime[ind] + (atrack_values - geoloc_line[ind]) * azi_time_int.astype('<m8[ns]') #compute the azimuth time by adding a step function (first term) and a growing term (second term)
+        azitime = xr.DataArray(azitime,coords={'atrack':atrack_values},dims=['atrack'])
         logger.debug('azitime %s %s %s',azitime,type(azitime),azitime.dtype)
         if return_all:
             return azitime,ind,geoloc_azitime[ind],geoloc_iburst
         else:
             return azitime
+        
     def get_bursts_polygons(self,atracks, xtracks, name):
         """
         idea of this method is to prepare a geopandas containing boxes (shapely) for the 10 bursts of a subswath
@@ -1062,16 +1064,18 @@ class Sentinel1Meta:
                     #self.atracks = np.arange(a_start, a_stop)
                     # interpolation needs to be done on azimuth time not on atrack (contrarily to the intersection of burst and box)
                     #self.azitimes = azimuth_time_lr[a_start:a_stop,x[0]:x[-1]]
-                    self.azitimes = np.array([a_start.values,a_stop]).astype(float)
-                    tiled_xtrack_lr = np.tile(x, (len(np.unique(inds_burst)), 1))
-                    self.xtracks = tiled_xtrack_lr
+                    self.azitimes = np.array([a_start.values,a_stop.values]).astype(float)
+                    #tiled_xtrack_lr = np.tile(x, (len(np.unique(inds_burst)), 1))
+                    self.xtracks = x
                     self.area = box(atrack_hr[0], xtrack_hr[0], atrack_hr[-1], xtrack_hr[-1]) #keep atrack xtrack geometry
                     # self.variable_interp_f = interp1d(x, l, kind='linear', fill_value=np.nan, assume_sorted=True,
                     #                       bounds_error=False)
-                    print('interp func def %s %s %s',self.azitimes.shape,x.shape,l.shape)
-                    self.variable_interp_f = RectBivariateSpline(self.azitimes[:, np.newaxis],tiled_xtrack_lr[np.newaxis,:],l,kx=1,ky=1)
+                    #print('interp func def x:%s y:%s z:%s'%(self.azitimes.shape,x.shape,l.shape))
+                    self.variable_interp_f = RectBivariateSpline(self.azitimes[:, np.newaxis],x[np.newaxis,:],l,kx=1,ky=1)
+                    
                 def __call__(self, azitime, xtracks):
                     """
+                    parameters needed for compute() interpolation
                     azitime: azimuth time 2D matrix at high resolution
                     xtracks:  azimuth time 2D matrix at high resolution
                     """
@@ -1097,7 +1101,6 @@ class Sentinel1Meta:
             end_burst_time = []
             start_burst_time = []
             burst_variable_matrix_lr = []
-            print('go for burst definition',geoloc_iburst)
             for uu in np.unique(inds_burst):
                 inds_one_val = np.where(inds_burst == uu)[0]
                 bursts_az_inds[uu] = inds_one_val
@@ -1115,12 +1118,9 @@ class Sentinel1Meta:
             #atracks_stop[-1] = 65535  # be sure to include all image if last azimuth line, is not last azimuth image
             #TODO Fix this security to include the whole image
             cpt_burst = 0
-            print("self.geoloc.xtrack,",self.geoloc.xtrack,)
-            #tiled_xtrack_lr = np.tile(self.geoloc.xtrack.values, (len(np.unique(inds_burst)), 1))
-            #print('tiled_xtrack_lr',tiled_xtrack_lr.shape)
-            for a_start, a_stop, xx, l in zip(azimuth_time_start_bursts, azimuth_time_stop_bursts, self.geoloc.xtrack.values, burst_variable_matrix_lr):
-                print('a_start ',a_start,type(a_start))
-                variable_f = box_burst(bursts_az_inds[cpt_burst],xtracks,a_start, a_stop, xx, l)
+            for a_start, a_stop, l in zip(azimuth_time_start_bursts, azimuth_time_stop_bursts , burst_variable_matrix_lr):
+                print('a_start',a_start)
+                variable_f = box_burst(bursts_az_inds[cpt_burst],xtracks,a_start, a_stop, self.geoloc.xtrack.values, l)
                 burst = pd.Series(dict([
                     ('variable_interp_f', variable_f),
                     ('geometry', variable_f.area)]))
@@ -1130,7 +1130,7 @@ class Sentinel1Meta:
             blocks = pd.concat(bursts, axis=1).T
             blocks = gpd.GeoDataFrame(blocks)
             res = _HRvariablesFromGeoloc(blocks)
-        return res
+        return res#,blocks
 
 
     def extent_burst(self, burst, valid=True):
@@ -1163,7 +1163,10 @@ class Sentinel1Meta:
 
 
 class _HRvariablesFromGeoloc:
-    """small internal class that return a function(atracks, xtracks) defined on all the image, from blocks in the image"""
+    """
+    small internal class that return a function(atracks, xtracks) defined on all the image, from blocks in the image
+    exactly same principle than _NoiseLut class in sentinel1_xml_mappings.py
+    """
 
     def __init__(self, bursts):
         """
@@ -1205,10 +1208,12 @@ class _HRvariablesFromGeoloc:
                 sub_a = azimuthtimeHR[(atracks >= sub_a_min) & (atracks <= sub_a_max)]
                 sub_x = xtracks[(xtracks >= sub_x_min) & (xtracks <= sub_x_max)]
                 print('sub_a',sub_a.shape)
+                print('sub_a_min',sub_a_min,'sub_x_min',sub_x_min)
                 print('sub_x ,',sub_x.shape)
+                print('block.variable_interp_f',type(block.variable_interp_f),block.variable_interp_f)
                 tmptmp = block.variable_interp_f(sub_a, sub_x)
                 logger.debug('i %s tmptmp: %s',i,tmptmp.shape)
                 variable.loc[dict(atrack=sub_a_final, xtrack=sub_x)] = tmptmp
 
         # values returned as np array
-        return variable.values
+        return variable # .values

@@ -1135,5 +1135,5 @@ class Sentinel1Meta:
         """Get extent for the whole SAR image.
         copy/pasted from cerbere
         """
-        return np.array((0, 0, self.image.atrack_size-1, #TODO see whether it is still needed if gcp a set on integer index (instead of x.5 index)
-                         self.image.xtrack_size-1))
+        return np.array((0, 0, self.image['shape'][0]-1, #TODO see whether it is still needed if gcp a set on integer index (instead of x.5 index)
+                         self.image['shape'][1]-1))

@@ -186,10 +186,9 @@ class Sentinel1Dataset:
                         dtype=np.int8, name="empty_var_tmpl-%s" % dask.base.tokenize(self.s1meta.name)),
                     dims=('atrack', 'xtrack'),
                     coords={'atrack': self._dataset.digital_number.atrack,
-                            'xtrack': self._dataset.digital_number.xtrack},
-                    #attrs={'xint':xint}
+                            'xtrack': self._dataset.digital_number.xtrack,
+                            'xint':xint},
                 )
-                self._da_tmpl['xint'] = xr.DataArray(xint,dims=['atrack'])
             else:
 
                 self._da_tmpl = xr.DataArray(
@@ -746,11 +745,11 @@ class Sentinel1Dataset:
             typee = self.s1meta.geoloc[varname].dtype
             logger.debug('output type %s %s',varname,typee)
             if self.s1meta._bursts['burst'].size!=0:
-
+                datemplate = self._da_tmpl.astype(typee).copy()
+                datemplate.attrs['withBursts'] = True
                 da_var = map_blocks_coords(
-                    self._da_tmpl.astype(typee),
+                    datemplate,
                     interp_func,
-                    withburst=True,use_evaluate_from_azimuth_time=True,
                     func_kwargs={'grid':False},
                 )
             else:

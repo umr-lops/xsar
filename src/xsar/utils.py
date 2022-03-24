@@ -199,7 +199,6 @@ def map_blocks_coords(da, func, withburst=False,use_evaluate_from_azimuth_time=F
         Unless manualy providing block_info,
         this function should be called from 'xarray.DataArray.map_blocks' with coords preset with functools.partial
         """
-        print('f inside',f)
 
         # get loc ((dim_0_start,dim_0_stop),(dim_1_start,dim_1_stop),...)
         try:
@@ -212,9 +211,6 @@ def map_blocks_coords(da, func, withburst=False,use_evaluate_from_azimuth_time=F
 
         # use loc to get corresponding coordinates
         coords_sel = tuple(c[loc[i][0]:loc[i][1]] for i, c in enumerate(coords))
-        print('coords_sel',coords_sel)
-        print('coords sel 0:',len(coords_sel[0]))
-        print('coords sel 1:', len(coords_sel[1]))
         result = f(*coords_sel, **func_kwargs)
 
         if dtype is not None:
@@ -232,8 +228,6 @@ def map_blocks_coords(da, func, withburst=False,use_evaluate_from_azimuth_time=F
             # (Note : dummy coords are 0 sized if dummy block is empty)
             loc = tuple(zip((0,) * len(block.shape), block.shape))
         logger.debug('loc %s',loc)
-        #azaz = azimuthtime[loc[0][0]:loc[0][1]].astype(float) # cast float before interpolation
-        #logger.debug('azaz : %s %s',azaz,azaz.shape)
         coords_sel = []
         for i, c in enumerate(coords):
             tmptmp = c[loc[i][0]:loc[i][1]]
@@ -265,7 +259,6 @@ def map_blocks_coords(da, func, withburst=False,use_evaluate_from_azimuth_time=F
         #TOPS SLC
         from_coords = bind(_evaluate_from_azimuth_time, ..., ..., coords_4_interpolation.values(), dtype=dtype) #azimuthtime=coords_4_interpolation['xint']
     elif withburst and use_evaluate_from_azimuth_time is False:
-        print('func outside',func)
         from_coords = bind(_evaluate_from_coords, ..., ..., coords_4_interpolation.values(), dtype=dtype)
     else:
         from_coords = bind(_evaluate_from_coords, ..., ..., coords_4_interpolation.values(), dtype=dtype)

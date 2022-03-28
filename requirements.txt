@@ -9,12 +9,12 @@ cartopy
 fiona
 pyproj
 geopandas
-jinja2
+jinja2==3.0.3
 matplotlib
 graphviz
 cachey
 psutil
-sphinx
+sphinx==4.5.0
 numpydoc
 sphinx-rtd-theme
 rasterio

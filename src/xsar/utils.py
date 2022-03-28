@@ -1,5 +1,5 @@
 """miscellaneous functions"""
-
+import warnings
 from functools import wraps
 import time
 import os
@@ -13,7 +13,11 @@ from functools import wraps, partial
 import rasterio
 import shutil
 import glob
-import gc
+import yaml
+import re
+import datetime
+import string
+import pytz
 
 logger = logging.getLogger('xsar.utils')
 logger.addHandler(logging.NullHandler())
@@ -38,6 +42,13 @@ class bind(partial):
         iargs = iter(args)
         args = (next(iargs) if arg is ... else arg for arg in self.args)
         return self.func(*args, *iargs, **keywords)
+
+
+class class_or_instancemethod(classmethod):
+    # see https://stackoverflow.com/a/28238047/5988771
+    def __get__(self, instance, type_):
+        descr_get = super().__get__ if instance is None else self.__func__.__get__
+        return descr_get(instance, type_)
 
 
 def timing(f):
@@ -68,17 +79,22 @@ def to_lon180(lon):
 
     Parameters
     ----------
-    lon: array_like of float
+    lon: array_like of float, or float
         longitudes in [0, 360] range
 
     Returns
     -------
-    array_like
+    array_like, or float
         longitude in [-180, 180] range
 
     """
     change = lon > 180
-    lon[change] = lon[change] - 360
+    try:
+        lon[change] = lon[change] - 360
+    except TypeError:
+        # scalar input
+        if change:
+            lon = lon - 360
     return lon
 
 
@@ -347,7 +363,6 @@ class BlockingActorProxy():
             logger.debug('BlockingActorProxy: Reusing existing actor')
             self._actor = actor
 
-
         if self._dask_client is not None:
             logger.debug('submit new actor')
             self._actor_future = self._dask_client.submit(self._cls, *args, **kwargs, actors=True)
@@ -377,6 +392,7 @@ class BlockingActorProxy():
                 else:
                     # transparent proxy
                     return res
+
             return func
 
     def __reduce__(self):
@@ -385,3 +401,117 @@ class BlockingActorProxy():
         kwargs = self._kwargs
         kwargs['actor'] = self._actor
         return partial(BlockingActorProxy, **kwargs), (self._cls, *self._args)
+
+
+def merge_yaml(yaml_strings_list,section=None):
+    # merge a list of yaml strings in one string
+
+    dict_like = yaml.safe_load(
+        '\n'.join(yaml_strings_list)
+    )
+    if section is not None:
+        dict_like = {section: dict_like}
+
+    return yaml.safe_dump(dict_like)
+
+def get_glob(strlist):
+    # from list of str, replace diff by '?'
+    def _get_glob(st):
+        stglob = ''.join(
+            [
+                '?' if len(charlist) > 1 else charlist[0]
+                for charlist in [list(set(charset)) for charset in zip(*st)]
+            ]
+        )
+        return re.sub(r'\?+', '*', stglob)
+
+    strglob = _get_glob(strlist)
+    if strglob.endswith('*'):
+        strglob += _get_glob(s[::-1] for s in strlist)[::-1]
+        strglob = strglob.replace('**', '*')
+
+    return strglob
+
+
+def safe_dir(filename, path='.', only_exists=False):
+    """
+    get dir path from safe filename.
+
+    Parameters
+    ----------
+    filename: str
+        SAFE filename, with no dir, and valid nomenclature
+    path: str or list of str
+        path template
+    only_exists: bool
+        if True and path doesn't exists, return None.
+        if False, return last path found
+
+    Examples
+    --------
+    For datarmor at ifremer, path template should be:
+
+    '/home/datawork-cersat-public/cache/project/mpc-sentinel1/data/esa/${longmissionid}/L${LEVEL}/${BEAM}/${MISSIONID}_${BEAM}_${PRODUCT}${RESOLUTION}_${LEVEL}${CLASS}/${year}/${doy}/${SAFE}'
+
+    For creodias, it should be:
+
+    '/eodata/Sentinel-1/SAR/${PRODUCT}/${year}/${month}/${day}/${SAFE}'
+
+    Returns
+    -------
+    str
+        path from template
+
+    """
+
+    # this function is shared between sentinelrequest and xsar
+
+    if 'S1' in filename:
+        regex = re.compile(
+            "(...)_(..)_(...)(.)_(.)(.)(..)_(........T......)_(........T......)_(......)_(......)_(....).SAFE")
+        template = string.Template(
+            "${MISSIONID}_${BEAM}_${PRODUCT}${RESOLUTION}_${LEVEL}${CLASS}${POL}_${STARTDATE}_${STOPDATE}_${ORBIT}_${TAKEID}_${PRODID}.SAFE")
+    elif 'S2' in filename:
+        # S2B_MSIL1C_20211026T094029_N0301_R036_T33SWU_20211026T115128.SAFE
+        #YYYYMMDDHHMMSS: the datatake sensing start time
+        #Nxxyy: the PDGS Processing Baseline number (e.g. N0204)
+        #ROOO: Relative Orbit number (R001 - R143)
+        #Txxxxx: Tile Number field*
+        # second date if product discriminator
+        regex = re.compile(
+            "(...)_(MSI)(...)_(........T......)_N(....)_R(...)_T(.....)_(........T......).SAFE")
+        template = string.Template(
+            "${MISSIONID}_${PRODUCT}${LEVEL}_${STARTDATE}_${PROCESSINGBL}_${ORBIT}_${TIlE}_${PRODID}.SAFE")
+    else:
+        raise Exception('mission not handle')
+    regroups = re.search(regex, filename)
+    tags = {}
+    for itag, tag in enumerate(re.findall(r"\$\{([\w]+)\}", template.template), start=1):
+        tags[tag] = regroups.group(itag)
+
+    startdate = datetime.datetime.strptime(
+        tags["STARTDATE"], '%Y%m%dT%H%M%S').replace(tzinfo=pytz.UTC)
+    tags['SAFE'] = regroups.group(0)
+    tags["missionid"] = tags["MISSIONID"][1:3].lower() # should be replaced by tags["MISSIONID"].lower()
+    tags["longmissionid"] = 'sentinel-%s' % tags["MISSIONID"][1:3].lower()
+    tags["year"] = startdate.strftime("%Y")
+    tags["month"] = startdate.strftime("%m")
+    tags["day"] = startdate.strftime("%d")
+    tags["doy"] = startdate.strftime("%j")
+    if isinstance(path, str):
+        path = [path]
+    filepath = None
+    for p in path:
+        # deprecation warnings (see https://github.com/oarcher/sentinelrequest/issues/4)
+        if '{missionid}' in p:
+            warnings.warn('{missionid} tag is deprecated. Update your path template to use {longmissionid}')
+        filepath = string.Template(p).substitute(tags)
+        if not filepath.endswith(filename):
+            filepath = os.path.join(filepath, filename)
+        if only_exists:
+            if not os.path.isfile(os.path.join(filepath,'manifest.safe')):
+                filepath = None
+            else:
+                # a path was found. Stop iterating over path list
+                break
+    return filepath

@@ -2,9 +2,14 @@ from lxml import objectify
 import jmespath
 import logging
 from collections.abc import Iterable
+import os
+import re
+import yaml
+from .utils import get_glob
 
 logger = logging.getLogger('xsar.xml_parser')
 logger.addHandler(logging.NullHandler())
+
 
 # TODO: no variable caching is not while  https://github.com/dask/distributed/issues/5610 is not solved
 class XmlParser:
@@ -50,10 +55,10 @@ class XmlParser:
         """
 
         xml_root = self.getroot(xml_file)
-        result = [ getattr(e, 'pyval', e) for e in xml_root.xpath(path, namespaces=self._namespaces) ]
+        result = [getattr(e, 'pyval', e) for e in xml_root.xpath(path, namespaces=self._namespaces)]
         return result
 
-    def get_var(self, xml_file, jpath):
+    def get_var(self, xml_file, jpath, describe=False):
         """
         get simple variable in xml_file.
 
@@ -63,6 +68,8 @@ class XmlParser:
             xml filename
         jpath: str
             jmespath string reaching xpath in xpath_mappings
+        describe: bool
+            If True, describe the variable (ie return xpath used)
 
         Returns
         -------
@@ -78,6 +85,9 @@ class XmlParser:
         if isinstance(xpath, tuple) and callable(xpath[0]):
             func, xpath = xpath
 
+        if describe:
+            return xpath
+
         if not isinstance(xpath, str):
             raise NotImplementedError('Non leaf xpath of type "%s" instead of str' % type(xpath).__name__)
 
@@ -87,15 +97,24 @@ class XmlParser:
 
         return result
 
-    def get_compound_var(self, xml_file, var_name):
+    def get_compound_var(self, xml_file, var_name, describe=False):
         """
 
         Parameters
         ----------
         var_name: str
+
             key in self._compounds_vars
+
         xml_file: str
+
             xml_file to use.
+
+        describe: bool
+
+            If True, only returns a string describing the variable (file, xpath, etc...)
+
+
 
         Returns
         -------
@@ -103,12 +122,18 @@ class XmlParser:
 
         """
 
+        if describe:
+            # keep only informative parts in filename
+            # sub SAFE path
+            minifile = re.sub('.*SAFE/', '', xml_file)
+            minifile = re.sub(r'-.*\.xml', '.xml', minifile)
+
         var_object = self._compounds_vars[var_name]
 
         func = None
-        if isinstance(var_object,dict) and 'func' in var_object and callable(var_object['func']):
+        if isinstance(var_object, dict) and 'func' in var_object and callable(var_object['func']):
             func = var_object['func']
-            if isinstance(var_object['args'],tuple):
+            if isinstance(var_object['args'], tuple):
                 args = var_object['args']
             else:
                 raise ValueError('args must be a tuple when func is called')
@@ -119,18 +144,24 @@ class XmlParser:
         if isinstance(args, dict):
             result = {}
             for key, path in args.items():
-                result[key] = self.get_var(xml_file, path)
+                result[key] = self.get_var(xml_file, path, describe=describe)
         elif isinstance(args, Iterable):
-            result = [self.get_var(xml_file, p) for p in args]
+            result = [self.get_var(xml_file, p, describe=describe) for p in args]
 
         if isinstance(args, tuple):
             result = tuple(result)
 
-        if func is not None:
+        if func is not None and not describe:
             # apply converter
             result = func(*result)
 
-        return result
+        if describe:
+            if isinstance(result, dict):
+                result = result.values()
+            description = yaml.safe_dump({var_name: {minifile: result}})
+            return description
+        else:
+            return result
 
     def __del__(self):
         logger.debug('__del__ XmlParser')

@@ -12,11 +12,14 @@ from scipy.interpolate import RectBivariateSpline
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 import shapely
-from .utils import to_lon180, haversine, timing
+from .utils import to_lon180, haversine, timing, class_or_instancemethod
+from .raster_readers import available_rasters
 from . import sentinel1_xml_mappings
 from .xml_parser import XmlParser
 from affine import Affine
 import os
+from datetime import datetime
+from collections import OrderedDict
 from .ipython_backends import repr_mimebundle
 
 logger = logging.getLogger('xsar.sentinel1_meta')
@@ -35,6 +38,14 @@ class Sentinel1Meta:
         path or gdal identifier like `'SENTINEL1_DS:%s:WV_001' % path`
 
     """
+
+    # default mask feature (see self.set_mask_feature and cls.set_mask_feature)
+    _mask_features_raw = {
+        'land': cartopy.feature.NaturalEarthFeature('physical', 'land', '10m')
+    }
+
+    rasters = available_rasters.iloc[0:0].copy()
+
 
     # class attributes are needed to fetch instance attribute (ie self.name) with dask actors
     # ref http://distributed.dask.org/en/stable/actors.html#access-attributes
@@ -109,9 +120,13 @@ class Sentinel1Meta:
         self._mask_features = {}
         self._mask_intersecting_geometries = {}
         self._mask_geometry = {}
-        self.set_mask_feature('land', cartopy.feature.NaturalEarthFeature('physical', 'land', '10m'))
-        self._orbit_pass = None
-        self._platform_heading = None
+
+        # get defaults masks from class attribute
+        for name, feature in self.__class__._mask_features_raw.items():
+            self.set_mask_feature(name, feature)
+        self._geoloc = None
+        self.rasters = self.__class__.rasters.copy()
+        """pandas dataframe for rasters (see `xsar.Sentinel1Meta.set_raster`)"""
 
     def __del__(self):
         logger.debug('__del__')
@@ -260,9 +275,8 @@ class Sentinel1Meta:
 
         if self.multidataset:
             return None  # not defined for multidataset
-        if self._orbit_pass is None:
-            self._orbit_pass = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.pass')
-        return self._orbit_pass
+
+        return self.orbit.attrs['orbit_pass']
 
     @property
     def platform_heading(self):
@@ -272,10 +286,8 @@ class Sentinel1Meta:
 
         if self.multidataset:
             return None  # not defined for multidataset
-        if self._platform_heading is None:
-            self._platform_heading = self.xml_parser.get_var(self.files['annotation'].iloc[0],
-                                                             'annotation.platform_heading')
-        return self._platform_heading
+
+        return self.orbit.attrs['platform_heading']
 
     @property
     def rio(self):
@@ -363,11 +375,48 @@ class Sentinel1Meta:
         return self.footprint
 
     @property
+    def geoloc(self):
+        """
+        xarray.Dataset with `['longitude', 'latitude', 'height', 'azimuth_time', 'slant_range_time','incidence','elevation' ]` variables
+        and `['atrack', 'xtrack']` coordinates, at the geolocation grid
+        """
+        if self.multidataset:
+            raise TypeError('geolocation_grid not available for multidataset')
+        if self._geoloc is None:
+            xml_annotation = self.files['annotation'].iloc[0]
+            da_var_list = []
+            for var_name in ['longitude', 'latitude', 'height', 'azimuth_time', 'slant_range_time']:
+                # TODO: we should use dask.array.from_delayed so xml files are read on demand
+                da_var = self.xml_parser.get_compound_var(xml_annotation, var_name)
+                da_var.name = var_name
+                da_var.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0],
+                                                                                 var_name,
+                                                                                 describe=True)
+                da_var_list.append(da_var)
+
+            self._geoloc = xr.merge(da_var_list)
+
+            self._geoloc.attrs = {}
+            # compute attributes (footprint, coverage, pixel_size)
+            footprint_dict = {}
+            for ll in ['longitude', 'latitude']:
+                footprint_dict[ll] = [
+                    self._geoloc[ll].isel(atrack=a, xtrack=x).values for a, x in [(0, 0), (0, -1), (-1, -1), (-1, 0)]
+                ]
+            corners = list(zip(footprint_dict['longitude'], footprint_dict['latitude']))
+            p = Polygon(corners)
+            logger.debug('polyon : %s', p)
+            self._geoloc.attrs['footprint'] = p
+
+        return self._geoloc
+
+    @property
     def _footprints(self):
         """footprints as list. should len 1 for single meta, or len(self.subdatasets) for multi meta"""
         return self.manifest_attrs['footprints']
 
-    def set_mask_feature(self, name, feature):
+    @class_or_instancemethod
+    def set_mask_feature(self_or_cls, name, feature):
         """
         Set a named mask from a shapefile or a cartopy feature.
 
@@ -381,10 +430,16 @@ class Sentinel1Meta:
 
         Examples
         --------
-            Add an 'ocean' mask:
+            Add an 'ocean' mask at class level (ie as default mask):
             ```
-            >>> self.set_mask_feature('ocean', cartopy.feature.OCEAN)
+            >>> xsar.Sentinel1Meta.set_mask_feature('ocean', cartopy.feature.OCEAN)
             ```
+
+            Add an 'ocean' mask at instance level (ie only for this self Sentinel1Meta instance):
+            ```
+            >>> xsar.Sentinel1Meta.set_mask_feature('ocean', cartopy.feature.OCEAN)
+            ```
+
 
             High resoltion shapefiles can be found from openstreetmap.
             It is recommended to use WGS84 with large polygons split from https://osmdata.openstreetmap.de/
@@ -393,11 +448,17 @@ class Sentinel1Meta:
         --------
         xsar.Sentinel1Meta.get_mask
         """
-        self._mask_features_raw[name] = feature
-        # reset variable cache
-        self._mask_intersecting_geometries[name] = None
-        self._mask_geometry[name] = None
-        self._mask_features[name] = None
+
+        # see https://stackoverflow.com/a/28238047/5988771 for self_or_cls
+
+        self_or_cls._mask_features_raw[name] = feature
+
+        if not isinstance(self_or_cls, type):
+            # self (instance, not class)
+            self_or_cls._mask_intersecting_geometries[name] = None
+            self_or_cls._mask_geometry[name] = None
+            self_or_cls._mask_features[name] = None
+
 
     @property
     def mask_names(self):
@@ -411,7 +472,7 @@ class Sentinel1Meta:
         return self._mask_features.keys()
 
     @timing
-    def get_mask(self, name):
+    def get_mask(self, name, describe=False):
         """
         Get mask from `name` (e.g. 'land') as a shapely Polygon.
         The resulting polygon is contained in the footprint.
@@ -425,15 +486,34 @@ class Sentinel1Meta:
         shapely.geometry.Polygon
 
         """
+
+        if describe:
+            descr = self._mask_features_raw[name]
+            try:
+                # nice repr for a class (like 'cartopy.feature.NaturalEarthFeature land')
+                descr = '%s.%s %s' % (descr.__module__, descr.__class__.__name__ , descr.name)
+            except AttributeError:
+                pass
+            return descr
+
+
         if self._mask_geometry[name] is None:
-            self._mask_geometry[name] = self._get_mask_intersecting_geometries(name).unary_union.intersection(
-                self.footprint)
+            poly = self._get_mask_intersecting_geometries(name)\
+                .unary_union.intersection(self.footprint)
+
+            if poly.is_empty:
+                poly = Polygon()
+
+            self._mask_geometry[name] = poly
         return self._mask_geometry[name]
 
     def _get_mask_intersecting_geometries(self, name):
         if self._mask_intersecting_geometries[name] is None:
-            self._mask_intersecting_geometries[name] = gpd.GeoSeries(
-                self._get_mask_feature(name).intersecting_geometries(self.footprint.bounds))
+            gseries = gpd.GeoSeries(self._get_mask_feature(name).intersecting_geometries(self.footprint.bounds))
+            if len(gseries) == 0:
+                # no intersection with mask, but we want at least one geometry in the serie (an empty one)
+                gseries = gpd.GeoSeries([Polygon()])
+            self._mask_intersecting_geometries[name] = gseries
         return self._mask_intersecting_geometries[name]
 
     def _get_mask_feature(self, name):
@@ -471,7 +551,17 @@ class Sentinel1Meta:
 
         return self._mask_features[name]
 
+    @class_or_instancemethod
+    def set_raster(self_or_cls, name, resource, read_function=None, get_function=None):
+        # get defaults if exists
+        default = available_rasters.loc[name:name]
 
+        # set from params, or from default
+        self_or_cls.rasters.loc[name, 'resource'] = resource or default.loc[name, 'resource']
+        self_or_cls.rasters.loc[name, 'read_function'] = read_function or default.loc[name, 'read_function']
+        self_or_cls.rasters.loc[name, 'get_function'] = get_function or default.loc[name, 'get_function']
+
+        return
 
     @property
     def coverage(self):
@@ -539,7 +629,49 @@ class Sentinel1Meta:
     @property
     def cross_antemeridian(self):
         """True if footprint cross antemeridian"""
-        return (np.max(self.gcps['longitude']) - np.min(self.gcps['longitude'])) > 180
+        return ((np.max(self.gcps['longitude']) - np.min(self.gcps['longitude'])) > 180).item()
+
+    @property
+    def orbit(self):
+        """
+        orbit, as a geopandas.GeoDataFrame, with columns:
+          - 'velocity' : shapely.geometry.Point with velocity in x, y, z direction
+          - 'geometry' : shapely.geometry.Point with position in x, y, z direction
+
+        crs is set to 'geocentric'
+
+        attrs keys:
+          - 'orbit_pass': 'Ascending' or 'Descending'
+          - 'platform_heading': in degrees, relative to north
+
+        Notes
+        -----
+        orbit is longer than the SAFE, because it belongs to all datatakes, not only this slice
+
+        """
+        if self.multidataset:
+            return None  # not defined for multidataset
+        gdf_orbit = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'orbit')
+        gdf_orbit.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'orbit', describe=True)
+        return gdf_orbit
+
+    @property
+    def image(self):
+        if self.multidataset:
+            return None
+        img_dict = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'image')
+        img_dict['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'image', describe=True)
+        return img_dict
+
+    @property
+    def azimuth_fmrate(self):
+        """
+        xarray.Dataset
+            Frequency Modulation rate annotations such as t0 (azimuth time reference) and polynomial coefficients: Azimuth FM rate = c0 + c1(tSR - t0) + c2(tSR - t0)^2
+        """
+        fmrates = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'azimuth_fmrate')
+        fmrates.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'azimuth_fmrate', describe=True)
+        return fmrates
 
     @property
     def _dict_coords2ll(self):
@@ -748,6 +880,16 @@ class Sentinel1Meta:
         return heading
 
     @property
+    def _bursts(self):
+        if self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.number_of_bursts') > 0:
+            bursts = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts')
+            bursts.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts', describe=True)
+            return bursts
+        else:
+            # no burst, return empty dataset
+            return xr.Dataset()
+
+    @property
     def approx_transform(self):
         """
         Affine transfom from gcps.
@@ -802,6 +944,7 @@ class Sentinel1Meta:
             '_mask_features': {},
             '_mask_intersecting_geometries': {},
             '_mask_geometry': {},
+            'rasters': self.rasters
         }
         for name in minidict['_mask_features_raw'].keys():
             minidict['_mask_intersecting_geometries'][name] = None
@@ -813,8 +956,24 @@ class Sentinel1Meta:
     def from_dict(cls, minidict):
         # like copy constructor, but take a dict from Sentinel1Meta.dict
         # https://github.com/umr-lops/xsar/issues/23
+        for name in minidict['_mask_features_raw'].keys():
+            assert minidict['_mask_geometry'][name] is None
+            assert minidict['_mask_features'][name] is None
         minidict = copy.copy(minidict)
         new = cls(minidict['name'])
         new.__dict__.update(minidict)
         return new
+
+
+    @property
+    def _doppler_estimate(self):
+        """
+        xarray.Dataset
+            with Doppler Centroid Estimates from annotations such as geo_polynom,data_polynom or frequency
+
+        """
+        dce = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'doppler_estimate')
+        dce.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'doppler_estimate',
+                                                                describe=True)
+        return dce
 

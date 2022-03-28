@@ -150,6 +150,9 @@ xpath_mappings = {
         'pol': (scalar, '/product/adsHeader/polarisation'),
         'pass': (scalar, '/product/generalAnnotation/productInformation/pass'),
         'platform_heading': (scalar_float, '/product/generalAnnotation/productInformation/platformHeading'),
+        'radar_frequency':(scalar_float,'/product/generalAnnotation/productInformation/radarFrequency'),
+        'range_sampling_rate':(scalar_float,'/product/generalAnnotation/productInformation/rangeSamplingRate'),
+        'azimuth_steering_rate':(scalar_float,'/product/generalAnnotation/productInformation/azimuthSteeringRate'),
         'orbit_time': (datetime64_array, '//product/generalAnnotation/orbitList/orbit/time'),
         'orbit_frame': (np.array, '//product/generalAnnotation/orbitList/orbit/frame'),
         'orbit_pos_x': (float_array, '//product/generalAnnotation/orbitList/orbit/position/x'),
@@ -426,7 +429,7 @@ def orbit(time, frame, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z,orbit_pass,platf
 
     gdf = gpd.GeoDataFrame(
         {
-            'velocity': list(map(Point, zip(vel_x,vel_y,vel_z)))
+            'velocity': list(zip(vel_x,vel_y,vel_z))
         },
         geometry=list(map(Point, zip(pos_x,pos_y,pos_z))),
         crs=crs,
@@ -468,7 +471,8 @@ def azimuth_fmrate(azimuthtime, t0, c0, c1, c2, polynomial):
     return res
 
 def image(atrack_time_range, atrack_size, xtrack_size, incidence_angle_mid_swath, azimuth_time_interval,
-          slant_range_time_image, azimuthPixelSpacing, rangePixelSpacing,swath_subswath):
+          slant_range_time_image, azimuthPixelSpacing, rangePixelSpacing,swath_subswath,radar_frequency,
+          range_sampling_rate,azimuth_steering_rate):
 
     return {
         'atrack_time_range': atrack_time_range,
@@ -478,6 +482,9 @@ def image(atrack_time_range, atrack_size, xtrack_size, incidence_angle_mid_swath
         'azimuth_time_interval': azimuth_time_interval,
         'slant_range_time_image': slant_range_time_image,
         'swath_subswath':swath_subswath,
+        'radar_frequency':radar_frequency,
+        'range_sampling_rate':range_sampling_rate,
+        'azimuth_steering_rate':azimuth_steering_rate,
     }
 
 def bursts(lines_per_burst, samples_per_burst, burst_azimuthTime, burst_azimuthAnxTime, burst_sensingTime,
@@ -684,7 +691,8 @@ compounds_vars = {
         'args': ('annotation.atrack_time_range', 'annotation.atrack_size', 'annotation.xtrack_size',
                  'annotation.incidence_angle_mid_swath', 'annotation.azimuth_time_interval',
                  'annotation.slant_range_time_image', 'annotation.azimuthPixelSpacing', 'annotation.rangePixelSpacing',
-                 'annotation.swath_subswath')
+                 'annotation.swath_subswath','annotation.radar_frequency','annotation.range_sampling_rate',
+                 'annotation.azimuth_steering_rate')
     },
     'azimuth_fmrate': {
         'func': azimuth_fmrate,

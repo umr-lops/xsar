@@ -244,7 +244,6 @@ def map_blocks_coords(da, func, func_kwargs={}, **kwargs):
         range_coords = coords_sel[1]
         logger.debug('range coords %s %s',range_coords,range_coords.shape)
         logger.debug('block %s %s %s',block,type(block),block.shape)
-        #logger.debug('func kwargs %s',**func_kwargs)
         result = f(aztimes[:, np.newaxis],range_coords[np.newaxis,:],**func_kwargs)
         if dtype is not None:
             result = result.astype(dtype)

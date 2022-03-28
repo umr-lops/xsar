@@ -409,6 +409,15 @@ class Sentinel1Meta:
             logger.debug('polyon : %s', p)
             self._geoloc.attrs['footprint'] = p
 
+            # compute acquisition size/resolution in meters
+            # first vector is on xtrack
+            acq_xtrack_meters, _ = haversine(*corners[0], *corners[1])
+            # second vector is on atrack
+            acq_atrack_meters, _ = haversine(*corners[1], *corners[2])
+            self._geoloc.attrs['coverage'] = "%dkm * %dkm (atrack * xtrack )" % (
+                acq_atrack_meters / 1000, acq_xtrack_meters / 1000)
+
+
         return self._geoloc
 
     @property
@@ -1137,3 +1146,20 @@ class Sentinel1Meta:
         """
         return np.array((0, 0, self.image['shape'][0]-1, #TODO see whether it is still needed if gcp a set on integer index (instead of x.5 index)
                          self.image['shape'][1]-1))
+
+    def get_sensor_velocity(self, azimuth_time):
+        """Interpolate sensor velocity at given azimuth time
+        Parameters
+        ----------
+            azimuth_time (int):
+        Returns
+        -------
+        """
+        orbstatevect = self.orbit
+        azi_times = orbstatevect.index.values
+        velos = np.array([list(uu) for uu in orbstatevect['velocity'].values])
+        vels = np.sqrt(np.sum(velos ** 2., axis=1))
+        iv = np.clip(np.searchsorted(azi_times, azimuth_time) - 1, 0, azi_times.size - 2)
+        _vels = vels[iv] + (azimuth_time - azi_times[iv]) * \
+                (vels[iv + 1] - vels[iv]) / (azi_times[iv + 1] - azi_times[iv])
+        return _vels

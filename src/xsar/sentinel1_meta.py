@@ -988,6 +988,20 @@ class Sentinel1Meta:
 
     def burst_azitime(self, atrack_values,return_all=False):
         """
+
+        Parameters
+        ----------
+        atrack_values: np.ndarray or scalar or xarray
+            coordinates in the azimuth dimension of the image
+        return_all : bool
+            True -> return 4 outputs, [False] -> return only the azimuth time vector
+        Returns
+        -------
+        np.ndarray
+            the high resolution azimuth time vector interpolated at the midle of the subswath
+        """
+
+        """
         Get azimuth time at hig resolution for bursts (TOPS SLC).
         To be used for locations of interpolation since line indices will not handle
         properly overlapping areas.
@@ -1017,18 +1031,10 @@ class Sentinel1Meta:
         else:
             return azitime
         
-    def get_bursts_polygons(self,atracks, xtracks, name):
+    def bursts(self,atracks, xtracks, name):
         """
-        idea of this method is to prepare a geopandas containing boxes (shapely) for the 10 bursts of a subswath
-        on which we perform interp1d to get the high resolution fields from geolocationGrid annotations.
-        this method is meant to replace the map_block_coords() from utils.py used so far in the
-        first implementation for SLC TOPS products
-        the philosophy of this method is also to mimick method noise_lut_azi() in sentinel1_xml_mappings.py
-        steps:
-        1) get the indice of start and stop of each burst in axtrack low resolution geometry
-        2) compute the 10 bursts interp functions+ area in image xtrack/atrack geometry
-        3) store them in a geopandas
-         Parameters
+        get the polygons of radar bursts in the image geometry
+        Parameters
         ----------
         atracks : np.ndarray
             1D array of atrack coordinates at high resolution image
@@ -1041,8 +1047,7 @@ class Sentinel1Meta:
         -------
         geopandas.GeoDataframe
             noise range geometry.
-            'geometry' is the polygon where 'variable_f' is defined.
-            attrs['type'] set to 'xtrack'
+            'geometry' is the polygon
         """
         blocks = None
         if self._bursts['burst'].size==0:
@@ -1058,61 +1063,23 @@ class Sentinel1Meta:
                 logger.warning('xsar limit the computation to the image extent.')
                 xtracks = xtracks[xtracks < self.image['shape'][1]]
             class box_burst:
-                def __init__(self, atrack_hr,xtrack_hr,a_start, a_stop, x, l):
+                def __init__(self, atrack_hr,xtrack_hr):
                     """
                     atrack_hr : atrack values of the burst considered HR 1D
                     xtrack_hr : xtrack values of the burst considered HR 2D
-                    a_start: atrack start burst aztime at low resolution (annotation geoloc grid)
-                    a_stop: atrack stop burst aztime at low resolution (annotation geoloc grid)
-                    x: geoloc['xtrack']  indices (1D vector) at low resolution (annotation geoloc grid)
-                    l: values of one of the variable defined in the geolocation grid (xml annotations)
-                    azimuth_time_lr : azimuth time at low resolution from geolocation grid (full matric 2D 10x20)
                     """
-                    self.azitimes = np.array([a_start.values,a_stop.values]).astype(float)
-                    self.xtracks = x
-                    self.area = box(atrack_hr[0], xtrack_hr[0], atrack_hr[-1], xtrack_hr[-1]) #keep atrack xtrack geometry
-                    self.variable_interp_f = RectBivariateSpline(self.azitimes[:, np.newaxis],x[np.newaxis,:],l,kx=1,ky=1)
-                    
-                def __call__(self, azitime, xtracks):
-                    """
-                    parameters needed for compute() interpolation
-                    azitime: azimuth time 2D matrix at high resolution
-                    xtracks:  azimuth time 2D matrix at high resolution
-                    """
-                    azaz,rara = np.meshgrid(azitime,xtracks)
-                    varhr = self.variable_interp_f(azaz,rara,grid=False).T
-                    return varhr
+                    self.area = box(atrack_hr[0], xtrack_hr[0], atrack_hr[-1], xtrack_hr[-1])
 
             bursts = []
             azitime_hr, inds_burst, _, geoloc_iburst = self.burst_azitime(atracks,return_all=True)
-            geoloc_iburst = geoloc_iburst.astype(int) #for indexing
-            azimuth_time_start_bursts = self._bursts.azimuthTime
             bursts_az_inds = {}
-            end_burst_time = []
-            start_burst_time = []
-            burst_variable_matrix_lr = []
             for uu in np.unique(inds_burst):
                 inds_one_val = np.where(inds_burst == uu)[0]
                 bursts_az_inds[uu] = inds_one_val
-                #mini_burst_azi = inds_one_val.min()
-                #maxi_burst_azi = inds_one_val.max()
-                end_burst_time.append(inds_one_val.max())
-                start_burst_time.append(inds_one_val.min())
-                logger.debug('geoloc_iburst %s',geoloc_iburst)
-                burst_variable_matrix_lr.append(geoloc_vars_LR[geoloc_iburst[uu]:geoloc_iburst[uu]+2])
-                logger.debug('variable shape lr: %s',len(burst_variable_matrix_lr))
-            azimuth_time_stop_bursts = azitime_hr[np.array(end_burst_time)]
-            logger.info('azimuth_time_stop_bursts %s',azimuth_time_stop_bursts.shape)
-            logger.info('azimuth_time_start_bursts %s',azimuth_time_start_bursts.shape)
-            #azimuth_time_start_bursts = azitime_hr[np.array(start_burst_time)]
-            #atracks_stop[-1] = 65535  # be sure to include all image if last azimuth line, is not last azimuth image
-            #TODO Fix this security to include the whole image
-            cpt_burst = 0
-            for a_start, a_stop, l in zip(azimuth_time_start_bursts, azimuth_time_stop_bursts , burst_variable_matrix_lr):
-                variable_f = box_burst(bursts_az_inds[cpt_burst],xtracks,a_start, a_stop, self.geoloc.xtrack.values, l)
+            for cpt_burst in range(len(np.unique(inds_burst))):
+                instance_box = box_burst(bursts_az_inds[cpt_burst],xtracks)
                 burst = pd.Series(dict([
-                    ('variable_interp_f', variable_f),
-                    ('geometry', variable_f.area)]))
+                    ('geometry', instance_box.area)]))
                 bursts.append(burst)
                 cpt_burst += 1
             # to geopandas

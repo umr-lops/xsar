@@ -12,7 +12,7 @@ import rioxarray
 from scipy.interpolate import interp1d
 from shapely.geometry import Polygon
 import shapely
-from .utils import timing, haversine, map_blocks_coords, bbox_coords, BlockingActorProxy, merge_yaml, get_glob
+from .utils import timing, haversine, map_blocks_coords, bbox_coords, BlockingActorProxy, merge_yaml, get_glob,to_lon180
 from numpy import asarray
 from affine import Affine
 from .sentinel1_meta import Sentinel1Meta
@@ -129,8 +129,6 @@ class Sentinel1Dataset:
             'noise_lut_azi': 'f4',
             'sigma0_lut': 'f8',
             'gamma0_lut': 'f8',
-            'digital_number_grd': 'f8',
-            'digital_number_slc': np.complex_,
             'azimuth_time':np.datetime64,
             'slant_range_time':None
         }
@@ -179,15 +177,17 @@ class Sentinel1Dataset:
             warnings.simplefilter("ignore", np.ComplexWarning)
             if self.s1meta._bursts['burst'].size != 0:
                 # SLC TOPS, tune the high res grid because of bursts overlapping
-                xint = self.s1meta.burst_azitime(self._dataset.digital_number.atrack.values)
+                atrack_time = self.s1meta.burst_azitime(self._dataset.digital_number.atrack.values)
                 self._da_tmpl = xr.DataArray(
                     dask.array.empty_like(
-                        np.empty((len(xint),len(self._dataset.digital_number.xtrack))),
+                        np.empty((len(atrack_time),len(self._dataset.digital_number.xtrack))),
                         dtype=np.int8, name="empty_var_tmpl-%s" % dask.base.tokenize(self.s1meta.name)),
                     dims=('atrack', 'xtrack'),
-                    coords={'atrack': self._dataset.digital_number.atrack,
+                    coords={
+                            'atrack': self._dataset.digital_number.atrack,
                             'xtrack': self._dataset.digital_number.xtrack,
-                            'xint':xint},
+                            'atrack_time': atrack_time.astype(float),
+                            },
                 )
             else:
 
@@ -684,10 +684,6 @@ class Sentinel1Dataset:
             )
         }
         ds = dn.to_dataset(name=var_name)
-        if self.s1meta.product == 'SLC':
-            var_name = 'digital_number_slc'
-        else:
-            var_name = 'digital_number_grd'
         astype = self._dtypes.get(var_name)
         if astype is not None:
             ds = ds.astype(self._dtypes[var_name])
@@ -711,6 +707,26 @@ class Sentinel1Dataset:
         """
 
         da_list = []
+
+        def interp_func_slc(vect1dazti, vect1dxtrac, **kwargs):
+            """
+
+            Parameters
+            ----------
+            vect1dazti (np.ndarray) : azimuth times at high resolution
+            vect1dxtrac (np.ndarray): range coords
+
+            Returns
+            -------
+
+            """
+            # exterieur de boucle
+            rbs = kwargs['rbs']
+            def wrapperfunc(*args, **kwargs):
+                rbs2 = args[2]
+                return rbs2(args[0],args[1],grid=False)
+            return wrapperfunc(vect1dazti[:, np.newaxis], vect1dxtrac[np.newaxis, :], rbs)
+
         for varname in varnames:
             logger.debug('varname : %s',varname)
             if varname in ['azimuth_time']:
@@ -724,14 +740,13 @@ class Sentinel1Dataset:
                 z_values = self.s1meta.geoloc[varname]
             if self.s1meta._bursts['burst'].size!=0:
                 # TOPS SLC
-                logger.debug(' x %s y %s z %s %s',self.s1meta.geoloc.azimuth_time.shape,
-                             self.s1meta.geoloc.xtrack.shape,self.s1meta.geoloc[varname].shape,self.s1meta.geoloc[varname].dtype)
-                interp_func = RectBivariateSpline(
-                    self.s1meta.geoloc.azimuth_time[:,0].astype(float),
+                rbs = RectBivariateSpline(
+                    self.s1meta.geoloc.azimuth_time[:, 0].astype(float),
                     self.s1meta.geoloc.xtrack,
                     z_values,
-                    kx=1, ky=1
+                    kx=1, ky=1,
                 )
+                interp_func = interp_func_slc
             else:
                 interp_func = RectBivariateSpline(
                     self.s1meta.geoloc.atrack,
@@ -746,12 +761,13 @@ class Sentinel1Dataset:
             logger.debug('output type %s %s',varname,typee)
             if self.s1meta._bursts['burst'].size!=0:
                 datemplate = self._da_tmpl.astype(typee).copy()
-                datemplate.attrs['withBursts'] = True
+                datemplate = datemplate.assign_coords({'atrack':datemplate.coords['atrack_time']})
                 da_var = map_blocks_coords(
                     datemplate,
                     interp_func,
-                    func_kwargs={'grid':False},
+                    func_kwargs={'grid':False,'rbs':rbs,'rbs2':rbs},
                 )
+                da_var = da_var.assign_coords({'atrack': self._dataset.digital_number.atrack})
             else:
                 da_var = map_blocks_coords(
                     self._da_tmpl.astype(typee),
@@ -761,9 +777,7 @@ class Sentinel1Dataset:
                 if self.s1meta.cross_antemeridian:
                     logger.debug('transform back longitudes between -180 and 180')
                     logger.debug('da_var : %s %s',da_var,type(da_var))
-                    remove360 = da_var.where(da_var<=180,360) # i put 360 for all the points > 180
-                    remove360 = remove360.where(remove360==360,0) # I put 0 for all the points <=180
-                    da_var = da_var - remove360
+                    da_var = to_lon180(da_var)
 
             da_var.name = varname
 

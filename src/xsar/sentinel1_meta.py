@@ -378,7 +378,7 @@ class Sentinel1Meta:
     @property
     def geoloc(self):
         """
-        xarray.Dataset with `['longitude', 'latitude', 'height', 'azimuth_time', 'slant_range_time','incidence','elevation' ]` variables
+        xarray.Dataset with `['longitude', 'latitude', 'altitude', 'azimuth_time', 'slant_range_time','incidence','elevation' ]` variables
         and `['atrack', 'xtrack']` coordinates, at the geolocation grid
         """
         if self.multidataset:
@@ -386,7 +386,7 @@ class Sentinel1Meta:
         if self._geoloc is None:
             xml_annotation = self.files['annotation'].iloc[0]
             da_var_list = []
-            for var_name in ['longitude', 'latitude', 'height', 'azimuth_time', 'slant_range_time','incidence','elevation']:
+            for var_name in ['longitude', 'latitude', 'altitude', 'azimuth_time', 'slant_range_time','incidence','elevation']:
                 # TODO: we should use dask.array.from_delayed so xml files are read on demand
                 da_var = self.xml_parser.get_compound_var(xml_annotation, var_name)
                 da_var.name = var_name
@@ -986,106 +986,8 @@ class Sentinel1Meta:
                                                                 describe=True)
         return dce
 
-    def burst_azitime(self, atrack_values,return_all=False):
-        """
 
-        Parameters
-        ----------
-        atrack_values: np.ndarray or scalar or xarray
-            coordinates in the azimuth dimension of the image
-        return_all : bool
-            True -> return 4 outputs, [False] -> return only the azimuth time vector
-        Returns
-        -------
-        np.ndarray
-            the high resolution azimuth time vector interpolated at the midle of the subswath
-        """
 
-        """
-        Get azimuth time at hig resolution for bursts (TOPS SLC).
-        To be used for locations of interpolation since line indices will not handle
-        properly overlapping areas.
-        Parameters
-        ----------
-        atrack_values: np.array or scalar or xarray
-        """
-        # For consistency, azimuth time is derived from the one given in
-        # geolocation grid (the one given in burst_list do not always perfectly
-        # match).
-        burst_nlines = self._bursts.attrs['lines_per_burst']
-        azi_time_int = self.image['azimuth_time_interval']
-        azi_time_int = np.timedelta64(int(azi_time_int*1e12),'ps') #turn this interval float/seconds into timedelta/picoseconds
-        geoloc_line = self.geoloc['atrack'].values
-        geoloc_iburst = np.floor(geoloc_line / float(burst_nlines)).astype('int32') # find the indice of the bursts in the geolocation grid
-        iburst = np.floor(atrack_values / float(burst_nlines)).astype('int32') # find the indices of the bursts in the high resolution grid
-        ind = np.searchsorted(geoloc_iburst, iburst, side='left') # find the indices of the burst transitions
-        n_pixels = int((len(self.geoloc['atrack']) - 1 ) / 2)
-        geoloc_azitime = self.geoloc['azimuth_time'].values[:, n_pixels]
-        if ind.max() >= len(geoloc_azitime): #security check for unrealistic atrack_values exceeding the image extent
-            ind[ind>=len(geoloc_azitime)] = len(geoloc_azitime)-1
-        azitime = geoloc_azitime[ind] + (atrack_values - geoloc_line[ind]) * azi_time_int.astype('<m8[ns]') #compute the azimuth time by adding a step function (first term) and a growing term (second term)
-        azitime = xr.DataArray(azitime,coords={'atrack':atrack_values},dims=['atrack'])
-        logger.debug('azitime %s %s %s',azitime,type(azitime),azitime.dtype)
-        if return_all:
-            return azitime,ind,geoloc_azitime[ind],geoloc_iburst
-        else:
-            return azitime
-        
-    def bursts(self,atracks, xtracks, name):
-        """
-        get the polygons of radar bursts in the image geometry
-        Parameters
-        ----------
-        atracks : np.ndarray
-            1D array of atrack coordinates at high resolution image
-        xtracks: np.ndarray
-            1D array of xtrack coordinates at high resolution image
-        name: str
-            name of the geoloc
-
-        Returns
-        -------
-        geopandas.GeoDataframe
-            noise range geometry.
-            'geometry' is the polygon
-        """
-        blocks = None
-        if self._bursts['burst'].size==0:
-            blocks = gpd.GeoDataFrame()
-        else:
-            geoloc_vars_LR = self.geoloc[name]
-            if atracks.max()>self.image['shape'][0]:
-                logger.warning('image max atrack coordinate is %s<%s',atracks.max(),self.image['shape'][0])
-                logger.warning('xsar limit the computation to the image extent.')
-                atracks = atracks[atracks<self.image['shape'][0]]
-            if xtracks.max()>self.image['shape'][1]:
-                logger.warning('image max xtrack coordinate is %s<%s',xtracks.max(),self.image['shape'][1])
-                logger.warning('xsar limit the computation to the image extent.')
-                xtracks = xtracks[xtracks < self.image['shape'][1]]
-            class box_burst:
-                def __init__(self, atrack_hr,xtrack_hr):
-                    """
-                    atrack_hr : atrack values of the burst considered HR 1D
-                    xtrack_hr : xtrack values of the burst considered HR 2D
-                    """
-                    self.area = box(atrack_hr[0], xtrack_hr[0], atrack_hr[-1], xtrack_hr[-1])
-
-            bursts = []
-            azitime_hr, inds_burst, _, geoloc_iburst = self.burst_azitime(atracks,return_all=True)
-            bursts_az_inds = {}
-            for uu in np.unique(inds_burst):
-                inds_one_val = np.where(inds_burst == uu)[0]
-                bursts_az_inds[uu] = inds_one_val
-            for cpt_burst in range(len(np.unique(inds_burst))):
-                instance_box = box_burst(bursts_az_inds[cpt_burst],xtracks)
-                burst = pd.Series(dict([
-                    ('geometry', instance_box.area)]))
-                bursts.append(burst)
-                cpt_burst += 1
-            # to geopandas
-            blocks = pd.concat(bursts, axis=1).T
-            blocks = gpd.GeoDataFrame(blocks)
-        return blocks
 
 
     def extent_burst(self, burst, valid=True):
@@ -1102,31 +1004,11 @@ class Sentinel1Meta:
             extent = np.copy(burst_list['valid_location'].values[burst, :])
         else:
             extent = self._extent_max()
-            nlines = self._bursts.attrs['lines_per_burst']
+            nlines = self._bursts.attrs['atrack_per_burst']
             extent[0:3:2] = [nlines*burst, nlines*(burst+1)-1]
         return extent
 
 
-    def _extent_max(self):
-        """Get extent for the whole SAR image.
-        copy/pasted from cerbere
-        """
-        return np.array((0, 0, self.image['shape'][0]-1, #TODO see whether it is still needed if gcp a set on integer index (instead of x.5 index)
-                         self.image['shape'][1]-1))
 
-    def get_sensor_velocity(self, azimuth_time):
-        """Interpolate sensor velocity at given azimuth time
-        Parameters
-        ----------
-            azimuth_time (int):
-        Returns
-        -------
-        """
-        orbstatevect = self.orbit
-        azi_times = orbstatevect.index.values
-        velos = np.array([list(uu) for uu in orbstatevect['velocity'].values])
-        vels = np.sqrt(np.sum(velos ** 2., axis=1))
-        iv = np.clip(np.searchsorted(azi_times, azimuth_time) - 1, 0, azi_times.size - 2)
-        _vels = vels[iv] + (azimuth_time - azi_times[iv]) * \
-                (vels[iv + 1] - vels[iv]) / (azi_times[iv + 1] - azi_times[iv])
-        return _vels
+
+

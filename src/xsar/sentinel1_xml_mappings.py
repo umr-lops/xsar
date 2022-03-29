@@ -129,7 +129,7 @@ xpath_mappings = {
             float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/incidenceAngle'),
         'elevation': (
             float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/elevationAngle'),
-        'height': (float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/height'),
+        'altitude': (float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/height'),
         'azimuth_time': (
             datetime64_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/azimuthTime'),
         'slant_range_time': (
@@ -162,8 +162,8 @@ xpath_mappings = {
         'orbit_vel_y': (float_array, '//product/generalAnnotation/orbitList/orbit/velocity/y'),
         'orbit_vel_z': (float_array, '//product/generalAnnotation/orbitList/orbit/velocity/z'),
         'number_of_bursts': (scalar_int, '/product/swathTiming/burstList/@count'),
-        'lines_per_burst': (scalar, '/product/swathTiming/linesPerBurst'),
-        'samples_per_burst': (scalar, '/product/swathTiming/samplesPerBurst'),
+        'atrack_per_burst': (scalar, '/product/swathTiming/linesPerBurst'),
+        'xtrack_per_burst': (scalar, '/product/swathTiming/samplesPerBurst'),
         'all_bursts': (np.array, '//product/swathTiming/burstList/burst'),
         'burst_azimuthTime': (datetime64_array, '//product/swathTiming/burstList/burst/azimuthTime'),
         'burst_azimuthAnxTime': (float_array, '//product/swathTiming/burstList/burst/azimuthAnxTime'),
@@ -429,7 +429,7 @@ def orbit(time, frame, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z,orbit_pass,platf
 
     gdf = gpd.GeoDataFrame(
         {
-            'velocity': list(zip(vel_x,vel_y,vel_z))
+            'velocity': list(map(Point,zip(vel_x,vel_y,vel_z)))
         },
         geometry=list(map(Point, zip(pos_x,pos_y,pos_z))),
         crs=crs,
@@ -487,11 +487,11 @@ def image(atrack_time_range, atrack_size, xtrack_size, incidence_angle_mid_swath
         'azimuth_steering_rate':azimuth_steering_rate,
     }
 
-def bursts(lines_per_burst, samples_per_burst, burst_azimuthTime, burst_azimuthAnxTime, burst_sensingTime,
+def bursts(atrack_per_burst, xtrack_per_burst, burst_azimuthTime, burst_azimuthAnxTime, burst_sensingTime,
            burst_byteOffset, burst_firstValidSample, burst_lastValidSample):
     """return burst as an xarray dataset"""
 
-    if (lines_per_burst == 0) and (samples_per_burst == 0):
+    if (atrack_per_burst == 0) and (xtrack_per_burst == 0):
         return None
 
     # convert to float, so we can use NaN as missing value, instead of -1
@@ -506,8 +506,8 @@ def bursts(lines_per_burst, samples_per_burst, burst_azimuthTime, burst_azimuthA
         lvs = burst_lastValidSample[ibur, :]
         #valind = np.where((fvs != -1) | (lvs != -1))[0]
         valind = np.where(np.isfinite(fvs) | np.isfinite(lvs))[0]
-        valloc = [ibur * lines_per_burst + valind.min(), fvs[valind].min(),
-                  ibur * lines_per_burst + valind.max(), lvs[valind].max()]
+        valloc = [ibur * atrack_per_burst + valind.min(), fvs[valind].min(),
+                  ibur * atrack_per_burst + valind.max(), lvs[valind].max()]
         valid_locations[ibur, :] = valloc
     da = xr.Dataset(
         {
@@ -522,7 +522,8 @@ def bursts(lines_per_burst, samples_per_burst, burst_azimuthTime, burst_azimuthA
                                                'description': 'start atrack index, start xtrack index, stop atrack index, stop xtrack index'}),
         }
     )
-    da.attrs['lines_per_burst'] = lines_per_burst
+    da.attrs['atrack_per_burst'] = atrack_per_burst
+    da.attrs['xtrack_per_burst'] = xtrack_per_burst
     return da
 
 def doppler_centroid_estimates(nb_dcestimate,
@@ -661,9 +662,9 @@ compounds_vars = {
         'func': geolocation_grid,
         'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.latitude')
     },
-    'height': {
+    'altitude': {
         'func': geolocation_grid,
-        'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.height')
+        'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.altitude')
     },
     'azimuth_time': {
         'func': geolocation_grid,
@@ -675,7 +676,7 @@ compounds_vars = {
     },
     'bursts': {
         'func': bursts,
-        'args': ('annotation.lines_per_burst', 'annotation. samples_per_burst', 'annotation. burst_azimuthTime',
+        'args': ('annotation.atrack_per_burst', 'annotation. xtrack_per_burst', 'annotation. burst_azimuthTime',
                  'annotation. burst_azimuthAnxTime', 'annotation. burst_sensingTime', 'annotation.burst_byteOffset',
                  'annotation. burst_firstValidSample', 'annotation.burst_lastValidSample')
     },

@@ -5,12 +5,13 @@ import numpy as np
 from scipy.interpolate import RectBivariateSpline
 import xarray as xr
 import pandas as pd
+import geopandas as gpd
 import dask
 import rasterio
 import rasterio.features
 import rioxarray
 from scipy.interpolate import interp1d
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon,box
 import shapely
 from .utils import timing, haversine, map_blocks_coords, bbox_coords, BlockingActorProxy, merge_yaml, get_glob,to_lon180
 from numpy import asarray
@@ -118,7 +119,7 @@ class Sentinel1Dataset:
             'longitude': 'f4',
             'incidence': 'f4', # from annotations
             'elevation': 'f4', # from annotations
-            'height': 'f4',
+            'a': 'f4',
             'ground_heading': 'f4',
             'nesz': None,
             'negz': None,
@@ -177,7 +178,7 @@ class Sentinel1Dataset:
             warnings.simplefilter("ignore", np.ComplexWarning)
             if self.s1meta._bursts['burst'].size != 0:
                 # SLC TOPS, tune the high res grid because of bursts overlapping
-                atrack_time = self.s1meta.burst_azitime(self._dataset.digital_number.atrack.values)
+                atrack_time = self.burst_azitime()
                 self._da_tmpl = xr.DataArray(
                     dask.array.empty_like(
                         np.empty((len(atrack_time),len(self._dataset.digital_number.xtrack))),
@@ -233,7 +234,7 @@ class Sentinel1Dataset:
             'noise_lut_azi': True,
             'incidence': False,
             'elevation': False,
-            'height': False,
+            'altitude': False,
             'azimuth_time': False,
             'slant_range_time': False,
             'longitude': False,
@@ -281,8 +282,9 @@ class Sentinel1Dataset:
         if rasters is not None:
             self._dataset = xr.merge([self._dataset, rasters])
 
-        self._dataset = self._dataset.merge(self._load_from_geoloc(['height', 'azimuth_time', 'slant_range_time',
+        self._dataset = self._dataset.merge(self._load_from_geoloc(['altitude', 'azimuth_time', 'slant_range_time',
                                                                     'incidence','elevation','longitude','latitude']))
+        self._dataset = self._dataset.merge(self.get_sensor_velocity())
         self._dataset = self._add_denoised(self._dataset)
         self._dataset.attrs = self._recompute_attrs()
 
@@ -748,6 +750,7 @@ class Sentinel1Dataset:
                 )
                 interp_func = interp_func_slc
             else:
+                rbs = None
                 interp_func = RectBivariateSpline(
                     self.s1meta.geoloc.atrack,
                     self.s1meta.geoloc.xtrack,
@@ -761,12 +764,14 @@ class Sentinel1Dataset:
             logger.debug('output type %s %s',varname,typee)
             if self.s1meta._bursts['burst'].size!=0:
                 datemplate = self._da_tmpl.astype(typee).copy()
+                # replace the atrack coordinates by atrack_time coordinates
                 datemplate = datemplate.assign_coords({'atrack':datemplate.coords['atrack_time']})
                 da_var = map_blocks_coords(
                     datemplate,
                     interp_func,
-                    func_kwargs={'grid':False,'rbs':rbs,'rbs2':rbs},
+                    func_kwargs={"rbs":rbs}
                 )
+                # put back the real atrack coordinates
                 da_var = da_var.assign_coords({'atrack': self._dataset.digital_number.atrack})
             else:
                 da_var = map_blocks_coords(
@@ -1189,6 +1194,102 @@ class Sentinel1Dataset:
                     denoised.attrs['comment'] = 'not clipped, some values can be <0'
                 ds[varname] = denoised
         return ds
+
+
+    def burst_azitime(self,return_all=False):
+        """
+
+        Parameters
+        ----------
+        return_all : bool
+            True -> return 4 outputs, [False] -> return only the azimuth time vector
+        Returns
+        -------
+        np.ndarray
+            the high resolution azimuth time vector interpolated at the midle of the subswath
+        """
+
+        """
+        Get azimuth time at hig resolution for bursts (TOPS SLC).
+        To be used for locations of interpolation since line indices will not handle
+        properly overlapping areas.
+        Parameters
+        ----------
+        atrack_values: np.array or scalar or xarray
+        """
+        # For consistency, azimuth time is derived from the one given in
+        # geolocation grid (the one given in burst_list do not always perfectly
+        # match).
+        burst_nlines = self.s1meta._bursts.attrs['atrack_per_burst']
+        azi_time_int = self.s1meta.image['azimuth_time_interval']
+        azi_time_int = np.timedelta64(int(azi_time_int*1e12),'ps') #turn this interval float/seconds into timedelta/picoseconds
+        geoloc_line = self.s1meta.geoloc['atrack'].values
+        geoloc_iburst = np.floor(geoloc_line / float(burst_nlines)).astype('int32') # find the indice of the bursts in the geolocation grid
+        iburst = np.floor(self.dataset.atrack / float(burst_nlines)).astype('int32') # find the indices of the bursts in the high resolution grid
+        ind = np.searchsorted(geoloc_iburst, iburst, side='left') # find the indices of the burst transitions
+        n_pixels = int((len(self.s1meta.geoloc['xtrack']) - 1 ) / 2)
+        geoloc_azitime = self.s1meta.geoloc['azimuth_time'].values[:, n_pixels]
+        if ind.max() >= len(geoloc_azitime): #security check for unrealistic atrack_values exceeding the image extent
+            ind[ind>=len(geoloc_azitime)] = len(geoloc_azitime)-1
+        azitime = geoloc_azitime[ind] + (self.dataset.atrack - geoloc_line[ind]) * azi_time_int.astype('<m8[ns]') #compute the azimuth time by adding a step function (first term) and a growing term (second term)
+        azitime = xr.DataArray(azitime,coords={'atrack':self.dataset.atrack},dims=['atrack'])
+        logger.debug('azitime %s %s %s',azitime,type(azitime),azitime.dtype)
+        if return_all:
+            return azitime,ind,geoloc_azitime[ind],geoloc_iburst
+        else:
+            return azitime
+
+
+    def get_sensor_velocity(self):
+        """
+        Interpolated sensor velocity
+        Parameters
+        ----------
+            azimuth_time (np.datetime64):
+        Returns
+        -------
+        """
+        azimuth_times = self.burst_azitime()
+        orbstatevect = self.s1meta.orbit
+        azi_times = orbstatevect.index.values
+        velos = np.array([[uu.x,uu.y,uu.z] for uu in orbstatevect['velocity'].values])
+        vels = np.sqrt(np.sum(velos ** 2., axis=1))
+        iv = np.clip(np.searchsorted(azi_times, azimuth_times) - 1, 0, azi_times.size - 2)
+        _vels = vels[iv] + (azimuth_times - azi_times[iv]) * \
+                (vels[iv + 1] - vels[iv]) / (azi_times[iv + 1] - azi_times[iv])
+        res = xr.DataArray(_vels,dims=['atrack'],coords={'atrack':self.dataset.atrack})
+        return xr.Dataset({'velocity':res})
+
+    @property
+    def bursts(self):
+        """
+        get the polygons of radar bursts in the image geometry
+        Returns
+        -------
+        geopandas.GeoDataframe
+            noise range geometry.
+            'geometry' is the polygon
+        """
+        if self.s1meta._bursts['burst'].size == 0:
+            blocks = gpd.GeoDataFrame()
+        else:
+
+            bursts = []
+            azitime_hr, inds_burst, _, geoloc_iburst = self.burst_azitime( return_all=True)
+            bursts_az_inds = {}
+            for uu in np.unique(inds_burst):
+                inds_one_val = np.where(inds_burst == uu)[0]
+                bursts_az_inds[uu] = inds_one_val
+            for cpt_burst in range(len(np.unique(inds_burst))):
+                area = box(bursts_az_inds[cpt_burst][0], self.dataset.xtrack[0], bursts_az_inds[cpt_burst][-1],
+                           self.dataset.xtrack[-1])
+                burst = pd.Series(dict([
+                    ('geometry', area)]))
+                bursts.append(burst)
+            # to geopandas
+            blocks = pd.concat(bursts, axis=1).T
+            blocks = gpd.GeoDataFrame(blocks)
+        return blocks
 
     def __repr__(self):
         if self.sliced:

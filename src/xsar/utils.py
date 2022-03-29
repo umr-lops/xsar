@@ -226,46 +226,15 @@ def map_blocks_coords(da, func, func_kwargs={}, **kwargs):
 
         return result
 
-    def _evaluate_from_azimuth_time(block, f, coords, block_info=None, dtype=None): #azimuthtime
-        # get loc ((dim_0_start,dim_0_stop),(dim_1_start,dim_1_stop),...)
-        try:
-            loc = block_info[None]['array-location']
-        except TypeError:
-            # map_blocks is feeding us some dummy block data to check output type and shape
-            # so we juste generate dummy coords to be able to call f
-            # (Note : dummy coords are 0 sized if dummy block is empty)
-            loc = tuple(zip((0,) * len(block.shape), block.shape))
-        logger.debug('loc %s',loc)
-        coords_sel = []
-        for i, c in enumerate(coords):
-            tmptmp = c[loc[i][0]:loc[i][1]]
-            coords_sel.append(tmptmp)
-        aztimes = coords_sel[0]
-        range_coords = coords_sel[1]
-        logger.debug('range coords %s %s',range_coords,range_coords.shape)
-        logger.debug('block %s %s %s',block,type(block),block.shape)
-        result = f(aztimes[:, np.newaxis],range_coords[np.newaxis,:],**func_kwargs)
-        if dtype is not None:
-            result = result.astype(dtype)
-        return result
-    if 'withBursts' in da.attrs:
-        # TOPS SLC
-        coords = {c: da[c].values for c in da.dims}
-        coords_4_interpolation = {'xint': da['xint'].values.astype(float), 'xtrack': da['xtrack'].values}
-    else:
-        coords = {c: da[c].values for c in da.dims}
-        coords_4_interpolation = coords
+    coords = {c: da[c].values for c in da.dims}
+
     if 'name' not in kwargs:
         kwargs['name'] = dask.utils.funcname(func)
 
     meta = da.data
     dtype = meta.dtype
 
-    if 'withBursts' in da.attrs:
-        #TOPS SLC
-        from_coords = bind(_evaluate_from_azimuth_time, ..., ..., coords_4_interpolation.values(), dtype=dtype)
-    else:
-        from_coords = bind(_evaluate_from_coords, ..., ..., coords_4_interpolation.values(), dtype=dtype)
+    from_coords = bind(_evaluate_from_coords, ..., ..., coords.values(), dtype=dtype)
 
     daskarr = meta.map_blocks(from_coords, func, meta=meta, **kwargs)
     dataarr = xr.DataArray(daskarr,

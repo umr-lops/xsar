@@ -990,25 +990,5 @@ class Sentinel1Meta:
 
 
 
-    def extent_burst(self, burst, valid=True):
-        """Get extent for a SAR image burst.
-        copy pasted from sarimage.py ODL
-        """
-        nbursts = self._bursts['burst'].size
-        if nbursts == 0:
-            raise Exception('No bursts in SAR image')
-        if burst < 0 or burst >= nbursts:
-            raise Exception('Invalid burst index number')
-        if valid is True:
-            burst_list = self._bursts
-            extent = np.copy(burst_list['valid_location'].values[burst, :])
-        else:
-            extent = self._extent_max()
-            nlines = self._bursts.attrs['atrack_per_burst']
-            extent[0:3:2] = [nlines*burst, nlines*(burst+1)-1]
-        return extent
-
-
-
 
 

@@ -117,9 +117,9 @@ class Sentinel1Dataset:
         self._dtypes = {
             'latitude': 'f4',
             'longitude': 'f4',
-            'incidence': 'f4', # from annotations
-            'elevation': 'f4', # from annotations
-            'a': 'f4',
+            'incidence': 'f4',
+            'elevation': 'f4',
+            'altitude': 'f4',
             'ground_heading': 'f4',
             'nesz': None,
             'negz': None,
@@ -1198,7 +1198,9 @@ class Sentinel1Dataset:
 
     def burst_azitime(self,return_all=False):
         """
-
+        Get azimuth time at hig resolution for bursts (TOPS SLC).
+        To be used for locations of interpolation since line indices will not handle
+        properly overlapping areas.
         Parameters
         ----------
         return_all : bool
@@ -1208,18 +1210,6 @@ class Sentinel1Dataset:
         np.ndarray
             the high resolution azimuth time vector interpolated at the midle of the subswath
         """
-
-        """
-        Get azimuth time at hig resolution for bursts (TOPS SLC).
-        To be used for locations of interpolation since line indices will not handle
-        properly overlapping areas.
-        Parameters
-        ----------
-        atrack_values: np.array or scalar or xarray
-        """
-        # For consistency, azimuth time is derived from the one given in
-        # geolocation grid (the one given in burst_list do not always perfectly
-        # match).
         burst_nlines = self.s1meta._bursts.attrs['atrack_per_burst']
         azi_time_int = self.s1meta.image['azimuth_time_interval']
         azi_time_int = np.timedelta64(int(azi_time_int*1e12),'ps') #turn this interval float/seconds into timedelta/picoseconds
@@ -1248,6 +1238,8 @@ class Sentinel1Dataset:
             azimuth_time (np.datetime64):
         Returns
         -------
+        xarray.Dataset()
+            containing a single variable velocity
         """
         azimuth_times = self.burst_azitime()
         orbstatevect = self.s1meta.orbit
@@ -1290,6 +1282,33 @@ class Sentinel1Dataset:
             blocks = pd.concat(bursts, axis=1).T
             blocks = gpd.GeoDataFrame(blocks)
         return blocks
+
+    def extent_burst(self, burst_indice, valid=True):
+        """
+        Get extent for a SAR image burst.
+        Parameters
+        ----------
+        burst_indice: int
+
+        Returns
+        -------
+        nd.array:
+            extent of the burst considered
+        """
+        nbursts = self.s1meta._bursts['burst'].size
+        if nbursts == 0:
+            raise Exception('No bursts in SAR image')
+        if burst_indice < 0 or burst_indice >= nbursts:
+            raise Exception('Invalid burst index number')
+        if valid is True:
+            burst_list = self.s1meta._bursts
+            extent = np.copy(burst_list['valid_location'].values[burst_indice, :])
+        else:
+            #extent = self._extent_max()
+            extent = [self.dataset.atrack[0],self.dataset.xtrack[0],self.dataset.atrack[-1],self.dataset.atrack[-1]]
+            nlines = self.s1meta._bursts.attrs['atrack_per_burst']
+            extent[0:3:2] = [nlines*burst_indice, nlines*(burst_indice+1)-1]
+        return extent
 
     def __repr__(self):
         if self.sliced:

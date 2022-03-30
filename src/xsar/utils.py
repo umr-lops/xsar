@@ -219,6 +219,7 @@ def map_blocks_coords(da, func, func_kwargs={}, **kwargs):
 
         # use loc to get corresponding coordinates
         coords_sel = tuple(c[loc[i][0]:loc[i][1]] for i, c in enumerate(coords))
+
         result = f(*coords_sel, **func_kwargs)
 
         if dtype is not None:
@@ -227,7 +228,6 @@ def map_blocks_coords(da, func, func_kwargs={}, **kwargs):
         return result
 
     coords = {c: da[c].values for c in da.dims}
-
     if 'name' not in kwargs:
         kwargs['name'] = dask.utils.funcname(func)
 

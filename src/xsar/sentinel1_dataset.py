@@ -284,7 +284,7 @@ class Sentinel1Dataset:
 
         self._dataset = self._dataset.merge(self._load_from_geoloc(['altitude', 'azimuth_time', 'slant_range_time',
                                                                     'incidence','elevation','longitude','latitude']))
-        self._dataset = self._dataset.merge(self.get_sensor_velocity())
+        self._dataset = self._dataset.merge(self._get_sensor_velocity())
         self._dataset = self._add_denoised(self._dataset)
         self._dataset.attrs = self._recompute_attrs()
 
@@ -1230,7 +1230,7 @@ class Sentinel1Dataset:
             return azitime
 
 
-    def get_sensor_velocity(self):
+    def _get_sensor_velocity(self):
         """
         Interpolated sensor velocity
         Parameters
@@ -1283,7 +1283,7 @@ class Sentinel1Dataset:
             blocks = gpd.GeoDataFrame(blocks)
         return blocks
 
-    def extent_burst(self, burst_indice, valid=True):
+    def _extent_burst(self, burst_indice, valid=True):
         """
         Get extent for a SAR image burst.
         Parameters
@@ -1309,6 +1309,34 @@ class Sentinel1Dataset:
             nlines = self.s1meta._bursts.attrs['atrack_per_burst']
             extent[0:3:2] = [nlines*burst_indice, nlines*(burst_indice+1)-1]
         return extent
+
+    def _ground_spacing(self):
+        """Get SAR image ground spacing.
+
+        Parameters
+        ----------
+        Returns
+        -------
+        ground_spacing : ndarray
+            [azimuth, range] ground spacing in meters.
+
+        Notes
+        -----
+        For GRD products, range_index and extent are ignored.
+        """
+        ground_spacing = np.array(self.s1meta.image['pixel_spacing'])
+        #ground_spacing = np.array((self.s1meta.geoloc.attrs['pixel_atrack_m'],self.s1meta.geoloc.attrs['pixel_xtrack_m']))
+        if self.s1meta.product == 'SLC':
+            atrack_tmp = self._dataset['atrack']
+            xtrack_tmp = self._dataset['xtrack']
+            # get the incidence at the center of the part of image selected
+            logger.debug('inc da : %s',self._dataset['incidence'])
+            inc = self._dataset['incidence'].isel({'atrack': int(len(atrack_tmp) / 2),
+                                                   'xtrack': int(len(xtrack_tmp) / 2)
+                                                   }).values
+            logger.debug('inc : %s',inc)
+            ground_spacing[1] /= np.sin(inc * np.pi / 180.)
+        return ground_spacing
 
     def __repr__(self):
         if self.sliced:

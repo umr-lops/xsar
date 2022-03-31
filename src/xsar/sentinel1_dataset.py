@@ -247,8 +247,6 @@ class Sentinel1Dataset:
                 section='noise_lut'
             )
 
-        #lon_lat = self._load_lon_lat()
-
         self._rasterized_masks = self._load_rasterized_masks()
 
         ds_merge_list = [self._dataset, self._rasterized_masks, self._load_ground_heading(), #lon_lat
@@ -276,6 +274,7 @@ class Sentinel1Dataset:
         self._dataset = self._dataset.merge(self._load_from_geoloc(['altitude', 'azimuth_time', 'slant_range_time',
                                                                     'incidence','elevation','longitude','latitude']))
         self._dataset = self._dataset.merge(self._get_sensor_velocity())
+        self._dataset = self._dataset.merge(self._range_ground_spacing())
         self._dataset = self._add_denoised(self._dataset)
         self._dataset.attrs = self._recompute_attrs()
 
@@ -794,7 +793,7 @@ class Sentinel1Dataset:
             xarray.Dataset:
                 dataset with `longitude` and `latitude` variables, with same shape as mono-pol digital_number.
         """
-
+        raise DeprecationWarning('this method is deprecated replaced by _load_from_geoloc()')
         def coords2ll(*args):
             # *args[1:] to skip dummy 'll' dimension
             return np.stack(self.s1meta.coords2ll(*args[1:], to_grid=True))
@@ -1248,22 +1247,18 @@ class Sentinel1Dataset:
         Returns
         -------
         geopandas.GeoDataframe
-            noise range geometry.
+            polygons of the burst (valid location only) in the image ie atrack/xtrack) geometry
             'geometry' is the polygon
         """
-        if self.s1meta._bursts['burst'].size == 0:
+        burst_list = self.s1meta._bursts
+        if burst_list['burst'].size == 0:
             blocks = gpd.GeoDataFrame()
         else:
-
             bursts = []
             azitime_hr, inds_burst, _, geoloc_iburst = self._burst_azitime( return_all=True)
-            bursts_az_inds = {}
-            for uu in np.unique(inds_burst):
-                inds_one_val = np.where(inds_burst == uu)[0]
-                bursts_az_inds[uu] = inds_one_val
-            for cpt_burst in range(len(np.unique(inds_burst))):
-                area = box(bursts_az_inds[cpt_burst][0], self.dataset.xtrack[0], bursts_az_inds[cpt_burst][-1],
-                           self.dataset.xtrack[-1])
+            for burst_ind,uu in enumerate(np.unique(inds_burst)):
+                extent = np.copy(burst_list['valid_location'].values[burst_ind, :])
+                area = box(extent[0], extent[1], extent[2],extent[3])
                 burst = pd.Series(dict([
                     ('geometry', area)]))
                 bursts.append(burst)
@@ -1272,48 +1267,22 @@ class Sentinel1Dataset:
             blocks = gpd.GeoDataFrame(blocks)
         return blocks
 
-    def _extent_burst(self, burst_indice, valid=True):
+    def _range_ground_spacing(self):
         """
-        Get extent for a SAR image burst.
-        Parameters
-        ----------
-        burst_indice: int
-
-        Returns
-        -------
-        nd.array:
-            extent of the burst considered
-        """
-        nbursts = self.s1meta._bursts['burst'].size
-        if nbursts == 0:
-            raise Exception('No bursts in SAR image')
-        if burst_indice < 0 or burst_indice >= nbursts:
-            raise Exception('Invalid burst index number')
-        if valid is True:
-            burst_list = self.s1meta._bursts
-            extent = np.copy(burst_list['valid_location'].values[burst_indice, :])
-        else:
-            #extent = self._extent_max()
-            extent = [self.dataset.atrack[0],self.dataset.xtrack[0],self.dataset.atrack[-1],self.dataset.atrack[-1]]
-            nlines = self.s1meta._bursts.attrs['atrack_per_burst']
-            extent[0:3:2] = [nlines*burst_indice, nlines*(burst_indice+1)-1]
-        return extent
-
-    def _ground_spacing(self):
-        """Get SAR image ground spacing.
+        Get SAR image range ground spacing.
 
         Parameters
         ----------
         Returns
         -------
-        ground_spacing : ndarray
-            [azimuth, range] ground spacing in meters.
+        range_ground_spacing_vect : xarray.DataArray
+            range ground spacing (xtrack coordinates)
 
         Notes
         -----
-        For GRD products, range_index and extent are ignored.
+        For GRD products is it the same same value along xtrack axis
         """
-        ground_spacing = np.array(self.s1meta.image['pixel_spacing'])
+        ground_spacing = np.array(self.s1meta.image['slant_pixel_spacing'])
         if self.s1meta.product == 'SLC':
             atrack_tmp = self._dataset['atrack']
             xtrack_tmp = self._dataset['xtrack']
@@ -1321,8 +1290,16 @@ class Sentinel1Dataset:
             inc = self._dataset['incidence'].isel({'atrack': int(len(atrack_tmp) / 2),
                                                    'xtrack': int(len(xtrack_tmp) / 2)
                                                    }).values
-            ground_spacing[1] /= np.sin(inc * np.pi / 180.)
-        return ground_spacing
+            inc = self._dataset['incidence']
+            range_ground_spacing_vect = ground_spacing[1] / np.sin(np.radians(inc))
+            range_ground_spacing_vect.attrs['history'] = ''
+
+        else: #GRD
+            valuess = np.ones((len(self._dataset['atrack']),len(self._dataset['xtrack'])))*ground_spacing[1]
+            range_ground_spacing_vect = xr.DataArray(valuess,coords={'atrack':self._dataset['atrack'],
+                                                                     'xtrack':self._dataset['xtrack']},
+                                                     dims=['atrack','xtrack'])
+        return xr.Dataset({'range_ground_spacing':range_ground_spacing_vect})
 
     def __repr__(self):
         if self.sliced:

@@ -748,11 +748,9 @@ class Sentinel1Dataset:
                     z_values,
                     kx=1, ky=1
                 )
-            logger.debug('%s %s',varname,interp_func)
             # the following take much cpu and memory, so we want to use dask
             # interp_func(self._dataset.atrack, self.dataset.xtrack)
             typee = self.s1meta.geoloc[varname].dtype
-            logger.debug('output type %s %s',varname,typee)
             if self.s1meta._bursts['burst'].size!=0:
                 datemplate = self._da_tmpl.astype(typee).copy()
                 # replace the atrack coordinates by atrack_time coordinates
@@ -771,8 +769,6 @@ class Sentinel1Dataset:
                 )
             if varname == 'longitude':
                 if self.s1meta.cross_antemeridian:
-                    logger.debug('transform back longitudes between -180 and 180')
-                    logger.debug('da_var : %s %s',da_var,type(da_var))
                     da_var.data = da_var.data.map_blocks(to_lon180)
 
             da_var.name = varname
@@ -1202,19 +1198,24 @@ class Sentinel1Dataset:
         """
         burst_nlines = self.s1meta._bursts.attrs['atrack_per_burst']
         azi_time_int = self.s1meta.image['azimuth_time_interval']
-        azi_time_int = np.timedelta64(int(azi_time_int*1e12),'ps') #turn this interval float/seconds into timedelta/picoseconds
+        # turn this interval float/seconds into timedelta/picoseconds
+        azi_time_int = np.timedelta64(int(azi_time_int*1e12),'ps')
         geoloc_line = self.s1meta.geoloc['atrack'].values
-        geoloc_iburst = np.floor(geoloc_line / float(burst_nlines)).astype('int32') # find the indice of the bursts in the geolocation grid
-        iburst = np.floor(self.dataset.atrack / float(burst_nlines)).astype('int32') # find the indices of the bursts in the high resolution grid
-        ind = np.searchsorted(geoloc_iburst, iburst, side='left') # find the indices of the burst transitions
+        # find the indice of the bursts in the geolocation grid
+        geoloc_iburst = np.floor(geoloc_line / float(burst_nlines)).astype('int32')
+        # find the indices of the bursts in the high resolution grid
+        iburst = np.floor(self.dataset.atrack / float(burst_nlines)).astype('int32')
+        # find the indices of the burst transitions
+        ind = np.searchsorted(geoloc_iburst, iburst, side='left')
         n_pixels = int((len(self.s1meta.geoloc['xtrack']) - 1 ) / 2)
         geoloc_azitime = self.s1meta.geoloc['azimuth_time'].values[:, n_pixels]
-        if ind.max() >= len(geoloc_azitime): #security check for unrealistic atrack_values exceeding the image extent
+        # security check for unrealistic atrack_values exceeding the image extent
+        if ind.max() >= len(geoloc_azitime):
             ind[ind>=len(geoloc_azitime)] = len(geoloc_azitime)-1
-        azitime = geoloc_azitime[ind] + (self.dataset.atrack - geoloc_line[ind]) * azi_time_int.astype('<m8[ns]') #compute the azimuth time by adding a step function (first term) and a growing term (second term)
+        # compute the azimuth time by adding a step function (first term) and a growing term (second term)
+        azitime = geoloc_azitime[ind] + (self.dataset.atrack - geoloc_line[ind]) * azi_time_int.astype('<m8[ns]')
         azitime = xr.DataArray(azitime,coords={'atrack':self.dataset.atrack},dims=['atrack'],
                                attrs={'description':'azimuth times interpolated along atrack dimension at the middle of range dimension'})
-        logger.debug('azitime %s %s %s',azitime,type(azitime),azitime.dtype)
         if return_all:
             return azitime,ind,geoloc_azitime[ind],geoloc_iburst
         else:
@@ -1224,9 +1225,6 @@ class Sentinel1Dataset:
     def _get_sensor_velocity(self):
         """
         Interpolated sensor velocity
-        Parameters
-        ----------
-            azimuth_time (np.datetime64):
         Returns
         -------
         xarray.Dataset()
@@ -1317,16 +1315,13 @@ class Sentinel1Dataset:
         For GRD products, range_index and extent are ignored.
         """
         ground_spacing = np.array(self.s1meta.image['pixel_spacing'])
-        #ground_spacing = np.array((self.s1meta.geoloc.attrs['pixel_atrack_m'],self.s1meta.geoloc.attrs['pixel_xtrack_m']))
         if self.s1meta.product == 'SLC':
             atrack_tmp = self._dataset['atrack']
             xtrack_tmp = self._dataset['xtrack']
             # get the incidence at the center of the part of image selected
-            logger.debug('inc da : %s',self._dataset['incidence'])
             inc = self._dataset['incidence'].isel({'atrack': int(len(atrack_tmp) / 2),
                                                    'xtrack': int(len(xtrack_tmp) / 2)
                                                    }).values
-            logger.debug('inc : %s',inc)
             ground_spacing[1] /= np.sin(inc * np.pi / 180.)
         return ground_spacing
 

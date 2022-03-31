@@ -1236,9 +1236,8 @@ class Sentinel1Dataset:
         azi_times = orbstatevect.index.values
         velos = np.array([[uu.x,uu.y,uu.z] for uu in orbstatevect['velocity'].values])
         vels = np.sqrt(np.sum(velos ** 2., axis=1))
-        iv = np.clip(np.searchsorted(azi_times, azimuth_times) - 1, 0, azi_times.size - 2)
-        _vels = vels[iv] + (azimuth_times - azi_times[iv]) * \
-                (vels[iv + 1] - vels[iv]) / (azi_times[iv + 1] - azi_times[iv])
+        interp_f = interp1d(azi_times.astype(float), vels)
+        _vels = interp_f(azimuth_times.astype(float))
         res = xr.DataArray(_vels,dims=['atrack'],coords={'atrack':self.dataset.atrack})
         return xr.Dataset({'velocity':res})
 

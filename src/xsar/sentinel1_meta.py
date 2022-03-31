@@ -406,7 +406,6 @@ class Sentinel1Meta:
                 ]
             corners = list(zip(footprint_dict['longitude'], footprint_dict['latitude']))
             p = Polygon(corners)
-            logger.debug('polyon : %s', p)
             self._geoloc.attrs['footprint'] = p
 
             # compute acquisition size/resolution in meters

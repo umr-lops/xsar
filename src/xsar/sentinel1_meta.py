@@ -896,8 +896,10 @@ class Sentinel1Meta:
             bursts.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts', describe=True)
             return bursts
         else:
-            # no burst, return empty dataset
-            return xr.Dataset({'azimuthTime':('burst',[])})
+            bursts = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts_grd')
+            bursts.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts_grd',
+                                                                   describe=True)
+            return bursts
 
     @property
     def approx_transform(self):

@@ -490,38 +490,48 @@ def image(atrack_time_range, atrack_size, xtrack_size, incidence_angle_mid_swath
 def bursts(atrack_per_burst, xtrack_per_burst, burst_azimuthTime, burst_azimuthAnxTime, burst_sensingTime,
            burst_byteOffset, burst_firstValidSample, burst_lastValidSample):
     """return burst as an xarray dataset"""
-
+    da = xr.Dataset()
     if (atrack_per_burst == 0) and (xtrack_per_burst == 0):
-        return None
+        pass
+    else:
 
-    # convert to float, so we can use NaN as missing value, instead of -1
-    burst_firstValidSample = burst_firstValidSample.astype(float)
-    burst_lastValidSample = burst_lastValidSample.astype(float)
-    burst_firstValidSample[burst_firstValidSample == -1] = np.nan
-    burst_lastValidSample[burst_lastValidSample == -1] = np.nan
-    nbursts = len(burst_azimuthTime)
-    valid_locations = np.empty((nbursts, 4), dtype='int32')
-    for ibur in range(nbursts):
-        fvs = burst_firstValidSample[ibur, :]
-        lvs = burst_lastValidSample[ibur, :]
-        #valind = np.where((fvs != -1) | (lvs != -1))[0]
-        valind = np.where(np.isfinite(fvs) | np.isfinite(lvs))[0]
-        valloc = [ibur * atrack_per_burst + valind.min(), fvs[valind].min(),
-                  ibur * atrack_per_burst + valind.max(), lvs[valind].max()]
-        valid_locations[ibur, :] = valloc
-    da = xr.Dataset(
-        {
-            'azimuthTime': ('burst', burst_azimuthTime),
-            'azimuthAnxTime': ('burst', burst_azimuthAnxTime),
-            'sensingTime': ('burst', burst_sensingTime),
-            'byteOffset': ('burst', burst_byteOffset),
-            'firstValidSample': (['burst', 'xtrack'], burst_firstValidSample),
-            'lastValidSample': (['burst', 'xtrack'], burst_lastValidSample),
-            'valid_location': xr.DataArray(dims=['burst', 'limits'], data=valid_locations,
-                                           attrs={
-                                               'description': 'start atrack index, start xtrack index, stop atrack index, stop xtrack index'}),
-        }
-    )
+        # convert to float, so we can use NaN as missing value, instead of -1
+        burst_firstValidSample = burst_firstValidSample.astype(float)
+        burst_lastValidSample = burst_lastValidSample.astype(float)
+        burst_firstValidSample[burst_firstValidSample == -1] = np.nan
+        burst_lastValidSample[burst_lastValidSample == -1] = np.nan
+        nbursts = len(burst_azimuthTime)
+        valid_locations = np.empty((nbursts, 4), dtype='int32')
+        for ibur in range(nbursts):
+            fvs = burst_firstValidSample[ibur, :]
+            lvs = burst_lastValidSample[ibur, :]
+            #valind = np.where((fvs != -1) | (lvs != -1))[0]
+            valind = np.where(np.isfinite(fvs) | np.isfinite(lvs))[0]
+            valloc = [ibur * atrack_per_burst + valind.min(), fvs[valind].min(),
+                      ibur * atrack_per_burst + valind.max(), lvs[valind].max()]
+            valid_locations[ibur, :] = valloc
+        da = xr.Dataset(
+            {
+                'azimuthTime': ('burst', burst_azimuthTime),
+                'azimuthAnxTime': ('burst', burst_azimuthAnxTime),
+                'sensingTime': ('burst', burst_sensingTime),
+                'byteOffset': ('burst', burst_byteOffset),
+                'firstValidSample': (['burst', 'xtrack'], burst_firstValidSample),
+                'lastValidSample': (['burst', 'xtrack'], burst_lastValidSample),
+                'valid_location': xr.DataArray(dims=['burst', 'limits'], data=valid_locations,
+                                               attrs={
+                                                   'description': 'start atrack index, start xtrack index, stop atrack index, stop xtrack index'}),
+            }
+        )
+    da.attrs['atrack_per_burst'] = atrack_per_burst
+    da.attrs['xtrack_per_burst'] = xtrack_per_burst
+    return da
+
+
+def bursts_grd(atrack_per_burst, xtrack_per_burst):
+    """return burst as an xarray dataset"""
+    da = xr.Dataset({'azimuthTime':('burst',[])})
+
     da.attrs['atrack_per_burst'] = atrack_per_burst
     da.attrs['xtrack_per_burst'] = xtrack_per_burst
     return da
@@ -680,6 +690,11 @@ compounds_vars = {
                  'annotation. burst_azimuthAnxTime', 'annotation. burst_sensingTime', 'annotation.burst_byteOffset',
                  'annotation. burst_firstValidSample', 'annotation.burst_lastValidSample')
     },
+    'bursts_grd':{
+        'func': bursts_grd,
+        'args': ('annotation.atrack_per_burst', 'annotation. xtrack_per_burst',)
+    },
+
     'orbit': {
         'func': orbit,
         'args': ('annotation.orbit_time', 'annotation.orbit_frame',

@@ -782,7 +782,10 @@ class Sentinel1Dataset:
                 if self.s1meta.cross_antemeridian:
                     logger.debug('transform back longitudes between -180 and 180')
                     logger.debug('da_var : %s %s',da_var,type(da_var))
-                    da_var = to_lon180(da_var)
+                    print('da_var',da_var)
+                    #da_var = to_lon180(da_var)
+                    #da_var = da_var.map_blocks(to_lon180)
+                    da_var.data = da_var.data.map_blocks(to_lon180)
 
             da_var.name = varname
 

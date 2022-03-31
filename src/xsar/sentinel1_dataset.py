@@ -161,16 +161,7 @@ class Sentinel1Dataset:
             )
 
         self._dataset = self._load_digital_number(resolution=resolution, resampling=resampling, chunks=chunks)
-
-        # set time(atrack) from s1meta.time_range
-        time_range = self.s1meta.time_range
-        atrack_time = interp1d(
-            self._dataset.atrack[[0, -1]],
-            [time_range.left.to_datetime64(), time_range.right.to_datetime64()]
-        )(self._dataset.atrack)
-
-        self._dataset = self._dataset.assign(time=("atrack", pd.to_datetime(atrack_time)))
-        self._dataset['time'].attrs['comment'] = 'Simple interpolated time between start_date and stop_date'
+        self._dataset = xr.merge([xr.Dataset({'time':self._burst_azitime()}),self._dataset])
 
         # dataset no-pol template for function evaluation on coordinates (*no* values used)
         # what's matter here is the shape of the image, not the values.
@@ -178,7 +169,7 @@ class Sentinel1Dataset:
             warnings.simplefilter("ignore", np.ComplexWarning)
             if self.s1meta._bursts['burst'].size != 0:
                 # SLC TOPS, tune the high res grid because of bursts overlapping
-                atrack_time = self.burst_azitime()
+                atrack_time = self._burst_azitime()
                 self._da_tmpl = xr.DataArray(
                     dask.array.empty_like(
                         np.empty((len(atrack_time),len(self._dataset.digital_number.xtrack))),
@@ -782,9 +773,6 @@ class Sentinel1Dataset:
                 if self.s1meta.cross_antemeridian:
                     logger.debug('transform back longitudes between -180 and 180')
                     logger.debug('da_var : %s %s',da_var,type(da_var))
-                    print('da_var',da_var)
-                    #da_var = to_lon180(da_var)
-                    #da_var = da_var.map_blocks(to_lon180)
                     da_var.data = da_var.data.map_blocks(to_lon180)
 
             da_var.name = varname
@@ -1198,8 +1186,7 @@ class Sentinel1Dataset:
                 ds[varname] = denoised
         return ds
 
-
-    def burst_azitime(self,return_all=False):
+    def _burst_azitime(self,return_all=False):
         """
         Get azimuth time at hig resolution for bursts (TOPS SLC).
         To be used for locations of interpolation since line indices will not handle
@@ -1225,7 +1212,8 @@ class Sentinel1Dataset:
         if ind.max() >= len(geoloc_azitime): #security check for unrealistic atrack_values exceeding the image extent
             ind[ind>=len(geoloc_azitime)] = len(geoloc_azitime)-1
         azitime = geoloc_azitime[ind] + (self.dataset.atrack - geoloc_line[ind]) * azi_time_int.astype('<m8[ns]') #compute the azimuth time by adding a step function (first term) and a growing term (second term)
-        azitime = xr.DataArray(azitime,coords={'atrack':self.dataset.atrack},dims=['atrack'])
+        azitime = xr.DataArray(azitime,coords={'atrack':self.dataset.atrack},dims=['atrack'],
+                               attrs={'description':'azimuth times interpolated along atrack dimension at the middle of range dimension'})
         logger.debug('azitime %s %s %s',azitime,type(azitime),azitime.dtype)
         if return_all:
             return azitime,ind,geoloc_azitime[ind],geoloc_iburst
@@ -1244,7 +1232,8 @@ class Sentinel1Dataset:
         xarray.Dataset()
             containing a single variable velocity
         """
-        azimuth_times = self.burst_azitime()
+
+        azimuth_times = self._burst_azitime()
         orbstatevect = self.s1meta.orbit
         azi_times = orbstatevect.index.values
         velos = np.array([[uu.x,uu.y,uu.z] for uu in orbstatevect['velocity'].values])
@@ -1270,7 +1259,7 @@ class Sentinel1Dataset:
         else:
 
             bursts = []
-            azitime_hr, inds_burst, _, geoloc_iburst = self.burst_azitime( return_all=True)
+            azitime_hr, inds_burst, _, geoloc_iburst = self._burst_azitime( return_all=True)
             bursts_az_inds = {}
             for uu in np.unique(inds_burst):
                 inds_one_val = np.where(inds_burst == uu)[0]

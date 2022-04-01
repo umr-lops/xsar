@@ -1193,7 +1193,11 @@ class Sentinel1Dataset:
             the high resolution azimuth time vector interpolated at the middle of the sub-swath
         """
         azitime = self.s1meta._burst_azitime()
-        azitime = azitime.isel({'atrack': self._dataset.atrack.astype(int)})
+        iz = np.searchsorted(azitime.atrack,self._dataset.atrack)
+        azitime = azitime.isel({'atrack':iz})
+
+        azitime = azitime.assign_coords({"atrack":self._dataset.atrack})
+        #azitime = azitime.sel({'atrack': self._dataset.atrack})
         return azitime
 
     def _get_sensor_velocity(self):

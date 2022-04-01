@@ -984,3 +984,112 @@ class Sentinel1Meta:
         dce.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'doppler_estimate',
                                                                 describe=True)
         return dce
+
+
+    def _get_indices_bursts(self):
+        """
+
+        Returns
+        -------
+        ind np.array
+            index of the burst start in the atrack coordinates
+        geoloc_azitime np.array
+            azimuth time at the middle of the image from geolocation grid (low resolution)
+        geoloc_iburst np.array
+
+        """
+        ind = None
+        geoloc_azitime = None
+        geoloc_iburst = None
+        geoloc_line = None
+        if self.product == 'SLC' and 'WV' not in self.swath:
+            burst_nlines = self._bursts.attrs['atrack_per_burst']
+
+            geoloc_line = self.geoloc['atrack'].values
+            # find the indice of the bursts in the geolocation grid
+            geoloc_iburst = np.floor(geoloc_line / float(burst_nlines)).astype('int32')
+            # find the indices of the bursts in the high resolution grid
+            atrack = np.arange(0, self.image['shape'][0])
+            iburst = np.floor(atrack / float(burst_nlines)).astype('int32')
+            # find the indices of the burst transitions
+            ind = np.searchsorted(geoloc_iburst, iburst, side='left')
+            n_pixels = int((len(self.geoloc['xtrack']) - 1) / 2)
+            geoloc_azitime = self.geoloc['azimuth_time'].values[:, n_pixels]
+            # security check for unrealistic atrack_values exceeding the image extent
+            if ind.max() >= len(geoloc_azitime):
+                ind[ind >= len(geoloc_azitime)] = len(geoloc_azitime) - 1
+        return ind, geoloc_azitime, geoloc_iburst,geoloc_line
+
+
+    def _burst_azitime(self):
+        """
+        Get azimuth time at high resolution on the full image shape
+
+        Returns
+        -------
+        np.ndarray
+            the high resolution azimuth time vector interpolated at the midle of the subswath
+        """
+        atrack = np.arange(0, self.image['shape'][0])+0.5
+        if self.product == 'SLC' and 'WV' not in self.swath:
+            azi_time_int = self.image['azimuth_time_interval']
+            # turn this interval float/seconds into timedelta/picoseconds
+            azi_time_int = np.timedelta64(int(azi_time_int * 1e12), 'ps')
+            ind, geoloc_azitime, geoloc_iburst,geoloc_line = self._get_indices_bursts()
+            # compute the azimuth time by adding a step function (first term) and a growing term (second term)
+            azitime = geoloc_azitime[ind] + (atrack - geoloc_line[ind]) * azi_time_int.astype('<m8[ns]')
+        else:  # GRD* cases
+            n_pixels = int((len(self.geoloc['xtrack']) - 1) / 2)
+            geoloc_azitime = self.geoloc['azimuth_time'].values[:, n_pixels]
+            geoloc_line = self.geoloc['atrack'].values + 0.5
+            finterp = interp1d(geoloc_line, geoloc_azitime.astype(float))
+            azitime = finterp(atrack)
+            azitime = azitime.astype('<m8[ns]')
+        azitime = xr.DataArray(azitime, coords={'atrack': atrack}, dims=['atrack'],
+                               attrs={
+                                   'description': 'azimuth times interpolated along atrack dimension at the middle of range dimension'})
+
+        return azitime
+
+    def bursts(self,only_valid_location=True):
+        """
+        get the polygons of radar bursts in the image geometry
+
+        Parameters
+        ----------
+        only_valid_location : bool
+            [True] -> polygons of the TOPS SLC bursts are cropped using valid location index
+            False -> polygons of the TOPS SLC bursts are aligned with azimuth time start/stop index
+
+        Returns
+        -------
+        geopandas.GeoDataframe
+            polygons of the burst in the image (ie atrack/xtrack) geometry
+            'geometry' is the polygon
+
+        """
+        burst_list = self._bursts
+        if burst_list['burst'].size == 0:
+            blocks = gpd.GeoDataFrame()
+        else:
+            bursts = []
+            bursts_az_inds = {}
+            inds_burst, geoloc_azitime, geoloc_iburst,geoloc_line = self._get_indices_bursts()
+            for burst_ind, uu in enumerate(np.unique(inds_burst)):
+                if only_valid_location:
+                    extent = np.copy(burst_list['valid_location'].values[burst_ind, :])
+                    area = box(extent[0], extent[1], extent[2], extent[3])
+
+                else:
+                    inds_one_val = np.where(inds_burst == uu)[0]
+                    bursts_az_inds[uu] = inds_one_val
+                    area = box(bursts_az_inds[burst_ind][0], 0, bursts_az_inds[burst_ind][-1], self.image['shape'][1])
+                    # area = box(bursts_az_inds[burst_ind][0], self._dataset.xtrack[0], bursts_az_inds[burst_ind][-1],
+                    #            self._dataset.xtrack[-1])
+                burst = pd.Series(dict([
+                    ('geometry', area)]))
+                bursts.append(burst)
+            # to geopandas
+            blocks = pd.concat(bursts, axis=1).T
+            blocks = gpd.GeoDataFrame(blocks)
+        return blocks

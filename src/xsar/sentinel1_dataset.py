@@ -1249,14 +1249,20 @@ class Sentinel1Dataset:
         res = xr.DataArray(_vels, dims=['atrack'], coords={'atrack': self.dataset.atrack})
         return xr.Dataset({'velocity': res})
 
-    def bursts(self,only_valid_location=False):
+    def bursts(self,only_valid_location=True):
         """
         get the polygons of radar bursts in the image geometry
+
+        Parameters
+        ----------
+        only_valid_location : bool
+            [True] -> polygons of the TOPS SLC bursts are cropped using valid location index
+            False -> polygons of the TOPS SLC bursts are aligned with azimuth time start/stop index
 
         Returns
         -------
         geopandas.GeoDataframe
-            polygons of the burst (valid location only) in the image ie atrack/xtrack) geometry
+            polygons of the burst in the image (ie atrack/xtrack) geometry
             'geometry' is the polygon
 
         """
@@ -1275,8 +1281,8 @@ class Sentinel1Dataset:
                 else:
                     inds_one_val = np.where(inds_burst == uu)[0]
                     bursts_az_inds[uu] = inds_one_val
-                    area = box(bursts_az_inds[burst_ind][0], self.dataset.xtrack[0], bursts_az_inds[burst_ind][-1],
-                               self.dataset.xtrack[-1])
+                    area = box(bursts_az_inds[burst_ind][0], self._dataset.xtrack[0], bursts_az_inds[burst_ind][-1],
+                               self._dataset.xtrack[-1])
                 burst = pd.Series(dict([
                     ('geometry', area)]))
                 bursts.append(burst)

@@ -787,7 +787,6 @@ class Sentinel1Dataset:
     def _load_lon_lat(self):
         """
         Load longitude and latitude using `self.s1meta.gcps`.
-        #TODO deprecated func
         Returns
         -------
         tuple xarray.Dataset
@@ -1197,7 +1196,7 @@ class Sentinel1Dataset:
         """
         ind = None
         geoloc_iburst = None
-        if self.s1meta.product == 'SLC' and 'WV' not in self.s1meta.short_name:
+        if self.s1meta.product == 'SLC' and 'WV' not in self.s1meta.swath:
             burst_nlines = self.s1meta._bursts.attrs['atrack_per_burst']
             azi_time_int = self.s1meta.image['azimuth_time_interval']
             # turn this interval float/seconds into timedelta/picoseconds
@@ -1243,15 +1242,14 @@ class Sentinel1Dataset:
         azimuth_times = self._burst_azitime()
         orbstatevect = self.s1meta.orbit
         azi_times = orbstatevect.index.values
-        velos = np.array([[uu.x, uu.y, uu.z] for uu in orbstatevect['velocity'].values])
-        vels = np.sqrt(np.sum(velos ** 2., axis=1))
+        velos = np.array([[uu.x**2., uu.y**2., uu.z**2.] for uu in orbstatevect['velocity'].values])
+        vels = np.sqrt(np.sum(velos, axis=1))
         interp_f = interp1d(azi_times.astype(float), vels)
         _vels = interp_f(azimuth_times.astype(float))
         res = xr.DataArray(_vels, dims=['atrack'], coords={'atrack': self.dataset.atrack})
         return xr.Dataset({'velocity': res})
 
-    @property
-    def bursts(self):
+    def bursts(self,only_valid_location=False):
         """
         get the polygons of radar bursts in the image geometry
 
@@ -1267,10 +1265,18 @@ class Sentinel1Dataset:
             blocks = gpd.GeoDataFrame()
         else:
             bursts = []
+            bursts_az_inds = {}
             azitime_hr, inds_burst, _, geoloc_iburst = self._burst_azitime(return_all=True)
             for burst_ind, uu in enumerate(np.unique(inds_burst)):
-                extent = np.copy(burst_list['valid_location'].values[burst_ind, :])
-                area = box(extent[0], extent[1], extent[2], extent[3])
+                if only_valid_location:
+                    extent = np.copy(burst_list['valid_location'].values[burst_ind, :])
+                    area = box(extent[0], extent[1], extent[2], extent[3])
+
+                else:
+                    inds_one_val = np.where(inds_burst == uu)[0]
+                    bursts_az_inds[uu] = inds_one_val
+                    area = box(bursts_az_inds[burst_ind][0], self.dataset.xtrack[0], bursts_az_inds[burst_ind][-1],
+                               self.dataset.xtrack[-1])
                 burst = pd.Series(dict([
                     ('geometry', area)]))
                 bursts.append(burst)
@@ -1298,19 +1304,16 @@ class Sentinel1Dataset:
         if self.s1meta.product == 'SLC':
             atrack_tmp = self._dataset['atrack']
             xtrack_tmp = self._dataset['xtrack']
-            # get the incidence at the center of the part of image selected
+            # get the incidence at the middle of atrack dimension of the part of image selected
             inc = self._dataset['incidence'].isel({'atrack': int(len(atrack_tmp) / 2),
-                                                   'xtrack': int(len(xtrack_tmp) / 2)
-                                                   }).values
-            inc = self._dataset['incidence']
+                                                   })
             range_ground_spacing_vect = ground_spacing[1] / np.sin(np.radians(inc))
             range_ground_spacing_vect.attrs['history'] = ''
 
         else:  # GRD
-            valuess = np.ones((len(self._dataset['atrack']), len(self._dataset['xtrack']))) * ground_spacing[1]
-            range_ground_spacing_vect = xr.DataArray(valuess, coords={'atrack': self._dataset['atrack'],
-                                                                      'xtrack': self._dataset['xtrack']},
-                                                     dims=['atrack', 'xtrack'])
+            valuess = np.ones((len(self._dataset['xtrack']))) * ground_spacing[1]
+            range_ground_spacing_vect = xr.DataArray(valuess, coords={'xtrack': self._dataset['xtrack']},
+                                                     dims=['xtrack'])
         return xr.Dataset({'range_ground_spacing': range_ground_spacing_vect})
 
     def __repr__(self):

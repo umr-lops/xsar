@@ -1203,8 +1203,7 @@ class Sentinel1Dataset:
             azi_time_int = np.timedelta64(int(azi_time_int*1e12),'ps')
             geoloc_line = self.s1meta.geoloc['atrack'].values
             # find the indice of the bursts in the geolocation grid
-            #geoloc_iburst = np.floor(geoloc_line / float(burst_nlines)).astype('int32')
-            geoloc_iburst = geoloc_line//burst_nlines
+            geoloc_iburst = np.floor(geoloc_line / float(burst_nlines)).astype('int32')
             # find the indices of the bursts in the high resolution grid
             iburst = np.floor(self.dataset.atrack / float(burst_nlines)).astype('int32')
             # find the indices of the burst transitions

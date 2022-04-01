@@ -1244,11 +1244,13 @@ class Sentinel1Dataset:
     def bursts(self):
         """
         get the polygons of radar bursts in the image geometry
+
         Returns
         -------
         geopandas.GeoDataframe
             polygons of the burst (valid location only) in the image ie atrack/xtrack) geometry
             'geometry' is the polygon
+
         """
         burst_list = self.s1meta._bursts
         if burst_list['burst'].size == 0:

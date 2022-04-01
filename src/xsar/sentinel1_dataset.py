@@ -682,6 +682,7 @@ class Sentinel1Dataset:
 
         return ds
 
+    @timing
     def _load_from_geoloc(self, varnames):
         """
         Interpolate (with RectBiVariateSpline) variables from `self.s1meta.geoloc` to `self._dataset`
@@ -1183,9 +1184,7 @@ class Sentinel1Dataset:
 
     def _burst_azitime(self,return_all=False):
         """
-        Get azimuth time at hig resolution for bursts (TOPS SLC).
-        To be used for locations of interpolation since line indices will not handle
-        properly overlapping areas.
+        Get azimuth time at high resolution.
         Parameters
         ----------
         return_all : bool
@@ -1195,24 +1194,35 @@ class Sentinel1Dataset:
         np.ndarray
             the high resolution azimuth time vector interpolated at the midle of the subswath
         """
-        burst_nlines = self.s1meta._bursts.attrs['atrack_per_burst']
-        azi_time_int = self.s1meta.image['azimuth_time_interval']
-        # turn this interval float/seconds into timedelta/picoseconds
-        azi_time_int = np.timedelta64(int(azi_time_int*1e12),'ps')
-        geoloc_line = self.s1meta.geoloc['atrack'].values
-        # find the indice of the bursts in the geolocation grid
-        geoloc_iburst = np.floor(geoloc_line / float(burst_nlines)).astype('int32')
-        # find the indices of the bursts in the high resolution grid
-        iburst = np.floor(self.dataset.atrack / float(burst_nlines)).astype('int32')
-        # find the indices of the burst transitions
-        ind = np.searchsorted(geoloc_iburst, iburst, side='left')
-        n_pixels = int((len(self.s1meta.geoloc['xtrack']) - 1 ) / 2)
-        geoloc_azitime = self.s1meta.geoloc['azimuth_time'].values[:, n_pixels]
-        # security check for unrealistic atrack_values exceeding the image extent
-        if ind.max() >= len(geoloc_azitime):
-            ind[ind>=len(geoloc_azitime)] = len(geoloc_azitime)-1
-        # compute the azimuth time by adding a step function (first term) and a growing term (second term)
-        azitime = geoloc_azitime[ind] + (self.dataset.atrack - geoloc_line[ind]) * azi_time_int.astype('<m8[ns]')
+        ind = None
+        geoloc_iburst = None
+        if self.s1meta.product == 'SLC' and 'WV' not in self.s1meta.short_name:
+            burst_nlines = self.s1meta._bursts.attrs['atrack_per_burst']
+            azi_time_int = self.s1meta.image['azimuth_time_interval']
+            # turn this interval float/seconds into timedelta/picoseconds
+            azi_time_int = np.timedelta64(int(azi_time_int*1e12),'ps')
+            geoloc_line = self.s1meta.geoloc['atrack'].values
+            # find the indice of the bursts in the geolocation grid
+            #geoloc_iburst = np.floor(geoloc_line / float(burst_nlines)).astype('int32')
+            geoloc_iburst = geoloc_line//burst_nlines
+            # find the indices of the bursts in the high resolution grid
+            iburst = np.floor(self.dataset.atrack / float(burst_nlines)).astype('int32')
+            # find the indices of the burst transitions
+            ind = np.searchsorted(geoloc_iburst, iburst, side='left')
+            n_pixels = int((len(self.s1meta.geoloc['xtrack']) - 1 ) / 2)
+            geoloc_azitime = self.s1meta.geoloc['azimuth_time'].values[:, n_pixels]
+            # security check for unrealistic atrack_values exceeding the image extent
+            if ind.max() >= len(geoloc_azitime):
+                ind[ind>=len(geoloc_azitime)] = len(geoloc_azitime)-1
+            # compute the azimuth time by adding a step function (first term) and a growing term (second term)
+            azitime = geoloc_azitime[ind] + (self.dataset.atrack - geoloc_line[ind]) * azi_time_int.astype('<m8[ns]')
+        else: # GRD* cases
+            n_pixels = int((len(self.s1meta.geoloc['xtrack']) - 1) / 2)
+            geoloc_azitime = self.s1meta.geoloc['azimuth_time'].values[:, n_pixels]
+            geoloc_line = self.s1meta.geoloc['atrack'].values+0.5
+            finterp = interp1d(geoloc_line,geoloc_azitime.astype(float))
+            azitime = finterp(self.dataset.atrack)
+            azitime = azitime.astype('<m8[ns]')
         azitime = xr.DataArray(azitime,coords={'atrack':self.dataset.atrack},dims=['atrack'],
                                attrs={'description':'azimuth times interpolated along atrack dimension at the middle of range dimension'})
         if return_all:

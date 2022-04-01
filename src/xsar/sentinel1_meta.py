@@ -8,7 +8,7 @@ import xarray as xr
 import pandas as pd
 import geopandas as gpd
 import rasterio
-from scipy.interpolate import RectBivariateSpline,interp1d
+from scipy.interpolate import RectBivariateSpline, interp1d
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 import shapely
@@ -47,7 +47,6 @@ class Sentinel1Meta:
 
     rasters = available_rasters.iloc[0:0].copy()
 
-
     # class attributes are needed to fetch instance attribute (ie self.name) with dask actors
     # ref http://distributed.dask.org/en/stable/actors.html#access-attributes
     # FIXME: not needed if @property, so it might be a good thing to have getter for those attributes
@@ -62,7 +61,6 @@ class Sentinel1Meta:
     subdatasets = None
     dsid = None
     manifest_attrs = None
-
 
     @timing
     def __init__(self, name, _xml_parser=None):
@@ -386,13 +384,14 @@ class Sentinel1Meta:
         if self._geoloc is None:
             xml_annotation = self.files['annotation'].iloc[0]
             da_var_list = []
-            for var_name in ['longitude', 'latitude', 'altitude', 'azimuth_time', 'slant_range_time','incidence','elevation']:
+            for var_name in ['longitude', 'latitude', 'altitude', 'azimuth_time', 'slant_range_time', 'incidence',
+                             'elevation']:
                 # TODO: we should use dask.array.from_delayed so xml files are read on demand
                 da_var = self.xml_parser.get_compound_var(xml_annotation, var_name)
                 da_var.name = var_name
                 da_var.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0],
-                                                                                 var_name,
-                                                                                 describe=True)
+                                                                           var_name,
+                                                                           describe=True)
                 da_var_list.append(da_var)
 
             self._geoloc = xr.merge(da_var_list)
@@ -415,7 +414,6 @@ class Sentinel1Meta:
             acq_atrack_meters, _ = haversine(*corners[1], *corners[2])
             self._geoloc.attrs['coverage'] = "%dkm * %dkm (atrack * xtrack )" % (
                 acq_atrack_meters / 1000, acq_xtrack_meters / 1000)
-
 
         return self._geoloc
 
@@ -468,7 +466,6 @@ class Sentinel1Meta:
             self_or_cls._mask_geometry[name] = None
             self_or_cls._mask_features[name] = None
 
-
     @property
     def mask_names(self):
         """
@@ -500,14 +497,13 @@ class Sentinel1Meta:
             descr = self._mask_features_raw[name]
             try:
                 # nice repr for a class (like 'cartopy.feature.NaturalEarthFeature land')
-                descr = '%s.%s %s' % (descr.__module__, descr.__class__.__name__ , descr.name)
+                descr = '%s.%s %s' % (descr.__module__, descr.__class__.__name__, descr.name)
             except AttributeError:
                 pass
             return descr
 
-
         if self._mask_geometry[name] is None:
-            poly = self._get_mask_intersecting_geometries(name)\
+            poly = self._get_mask_intersecting_geometries(name) \
                 .unary_union.intersection(self.footprint)
 
             if poly.is_empty:
@@ -661,7 +657,8 @@ class Sentinel1Meta:
         if self.multidataset:
             return None  # not defined for multidataset
         gdf_orbit = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'orbit')
-        gdf_orbit.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'orbit', describe=True)
+        gdf_orbit.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'orbit',
+                                                                      describe=True)
         return gdf_orbit
 
     @property
@@ -679,7 +676,8 @@ class Sentinel1Meta:
             Frequency Modulation rate annotations such as t0 (azimuth time reference) and polynomial coefficients: Azimuth FM rate = c0 + c1(tSR - t0) + c2(tSR - t0)^2
         """
         fmrates = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'azimuth_fmrate')
-        fmrates.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'azimuth_fmrate', describe=True)
+        fmrates.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'azimuth_fmrate',
+                                                                    describe=True)
         return fmrates
 
     @property
@@ -892,12 +890,13 @@ class Sentinel1Meta:
     def _bursts(self):
         if self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.number_of_bursts') > 0:
             bursts = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts')
-            bursts.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts', describe=True)
+            bursts.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts',
+                                                                       describe=True)
             return bursts
         else:
             bursts = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts_grd')
             bursts.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts_grd',
-                                                                   describe=True)
+                                                                       describe=True)
             return bursts
 
     @property
@@ -975,7 +974,6 @@ class Sentinel1Meta:
         new.__dict__.update(minidict)
         return new
 
-
     @property
     def _doppler_estimate(self):
         """
@@ -986,10 +984,3 @@ class Sentinel1Meta:
         dce.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'doppler_estimate',
                                                                 describe=True)
         return dce
-
-
-
-
-
-
-

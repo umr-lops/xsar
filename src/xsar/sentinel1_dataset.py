@@ -5,14 +5,16 @@ import numpy as np
 from scipy.interpolate import RectBivariateSpline
 import xarray as xr
 import pandas as pd
+import geopandas as gpd
 import dask
 import rasterio
 import rasterio.features
 import rioxarray
 from scipy.interpolate import interp1d
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, box
 import shapely
-from .utils import timing, haversine, map_blocks_coords, bbox_coords, BlockingActorProxy, merge_yaml, get_glob
+from .utils import timing, haversine, map_blocks_coords, bbox_coords, BlockingActorProxy, merge_yaml, get_glob, \
+    to_lon180
 from numpy import asarray
 from affine import Affine
 from .sentinel1_meta import Sentinel1Meta
@@ -81,7 +83,7 @@ class Sentinel1Dataset:
     def __init__(self, dataset_id, resolution=None,
                  resampling=rasterio.enums.Resampling.rms,
                  luts=False, chunks={'atrack': 5000, 'xtrack': 5000},
-                 dtypes=None,patch_variable=True):
+                 dtypes=None, patch_variable=True):
 
         # miscellaneous attributes that are not know from xml files
         attrs_dict = {
@@ -118,6 +120,7 @@ class Sentinel1Dataset:
             'longitude': 'f4',
             'incidence': 'f4',
             'elevation': 'f4',
+            'altitude': 'f4',
             'ground_heading': 'f4',
             'nesz': None,
             'negz': None,
@@ -128,7 +131,8 @@ class Sentinel1Dataset:
             'noise_lut_azi': 'f4',
             'sigma0_lut': 'f8',
             'gamma0_lut': 'f8',
-            'digital_number': None
+            'azimuth_time': np.datetime64,
+            'slant_range_time': None
         }
         if dtypes is not None:
             self._dtypes.update(dtypes)
@@ -158,29 +162,36 @@ class Sentinel1Dataset:
             )
 
         self._dataset = self._load_digital_number(resolution=resolution, resampling=resampling, chunks=chunks)
-
-        # set time(atrack) from s1meta.time_range
-        time_range = self.s1meta.time_range
-        atrack_time = interp1d(
-            self._dataset.atrack[[0, -1]],
-            [time_range.left.to_datetime64(), time_range.right.to_datetime64()]
-        )(self._dataset.atrack)
-
-        self._dataset = self._dataset.assign(time=("atrack", pd.to_datetime(atrack_time)))
-        self._dataset['time'].attrs['comment'] = 'Simple interpolated time between start_date and stop_date'
+        self._dataset = xr.merge([xr.Dataset({'time': self._burst_azitime}), self._dataset])
 
         # dataset no-pol template for function evaluation on coordinates (*no* values used)
         # what's matter here is the shape of the image, not the values.
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", np.ComplexWarning)
-            self._da_tmpl = xr.DataArray(
-                dask.array.empty_like(
-                    self._dataset.digital_number.isel(pol=0).drop('pol'),
-                    dtype=np.int8, name="empty_var_tmpl-%s" % dask.base.tokenize(self.s1meta.name)),
-                dims=('atrack', 'xtrack'),
-                coords={'atrack': self._dataset.digital_number.atrack,
-                        'xtrack': self._dataset.digital_number.xtrack}
-            )
+            if self.s1meta._bursts['burst'].size != 0:
+                # SLC TOPS, tune the high res grid because of bursts overlapping
+                atrack_time = self._burst_azitime
+                self._da_tmpl = xr.DataArray(
+                    dask.array.empty_like(
+                        np.empty((len(atrack_time), len(self._dataset.digital_number.xtrack))),
+                        dtype=np.int8, name="empty_var_tmpl-%s" % dask.base.tokenize(self.s1meta.name)),
+                    dims=('atrack', 'xtrack'),
+                    coords={
+                        'atrack': self._dataset.digital_number.atrack,
+                        'xtrack': self._dataset.digital_number.xtrack,
+                        'atrack_time': atrack_time.astype(float),
+                    },
+                )
+            else:
+
+                self._da_tmpl = xr.DataArray(
+                    dask.array.empty_like(
+                        self._dataset.digital_number.isel(pol=0).drop('pol'),
+                        dtype=np.int8, name="empty_var_tmpl-%s" % dask.base.tokenize(self.s1meta.name)),
+                    dims=('atrack', 'xtrack'),
+                    coords={'atrack': self._dataset.digital_number.atrack,
+                            'xtrack': self._dataset.digital_number.xtrack}
+                )
 
         # FIXME possible memory leak
         # when calling a self.s1meta method, an ActorFuture is returned.
@@ -205,8 +216,6 @@ class Sentinel1Dataset:
             'gamma0_lut': 'calibration',
             'noise_lut_range': 'noise',
             'noise_lut_azi': 'noise',
-            'incidence': 'annotation',
-            'elevation': 'annotation'
         }
 
         # dict mapping specifying if the variable has 'pol' dimension
@@ -216,7 +225,12 @@ class Sentinel1Dataset:
             'noise_lut_range': True,
             'noise_lut_azi': True,
             'incidence': False,
-            'elevation': False
+            'elevation': False,
+            'altitude': False,
+            'azimuth_time': False,
+            'slant_range_time': False,
+            'longitude': False,
+            'latitude': False
         }
 
         # variables not returned to the user (unless luts=True)
@@ -234,11 +248,9 @@ class Sentinel1Dataset:
                 section='noise_lut'
             )
 
-        lon_lat = self._load_lon_lat()
-
         self._rasterized_masks = self._load_rasterized_masks()
 
-        ds_merge_list = [self._dataset, lon_lat, self._rasterized_masks, self._load_ground_heading(),
+        ds_merge_list = [self._dataset, self._rasterized_masks, self._load_ground_heading(),  # lon_lat
                          self._luts.drop_vars(self._hidden_vars, errors='ignore')]
 
         if luts:
@@ -260,6 +272,10 @@ class Sentinel1Dataset:
         if rasters is not None:
             self._dataset = xr.merge([self._dataset, rasters])
 
+        self._dataset = self._dataset.merge(self._load_from_geoloc(['altitude', 'azimuth_time', 'slant_range_time',
+                                                                    'incidence', 'elevation', 'longitude', 'latitude']))
+        self._dataset = self._dataset.merge(self._get_sensor_velocity())
+        self._dataset = self._dataset.merge(self._range_ground_spacing())
         self._dataset = self._add_denoised(self._dataset)
         self._dataset.attrs = self._recompute_attrs()
 
@@ -278,7 +294,6 @@ class Sentinel1Dataset:
 
         # save original bbox
         self._bbox_coords_ori = self._bbox_coords
-
 
     def __del__(self):
         logger.debug('__del__')
@@ -435,7 +450,7 @@ class Sentinel1Dataset:
         attrs['footprint'] = self.footprint
         return attrs
 
-    def _patch_lut(self,lut):
+    def _patch_lut(self, lut):
         """
         patch proposed by MPC Sentinel-1 : https://jira-projects.cls.fr/browse/MPCS-2007 for noise vectors of WV SLC IPF2.9X products
         adjustement proposed by BAE are the same for HH and VV, and suppose to work for both old and new WV2 EAP
@@ -449,8 +464,8 @@ class Sentinel1Dataset:
         lut xarray.Dataset
         """
         if self.s1meta.swath == 'WV':
-            if lut.name in ['noise_lut_azi'] and self.s1meta.ipf in [2.9,2.91] and\
-                    self.s1meta.platform in ['SENTINEL-1A','SENTINEL-1B']:
+            if lut.name in ['noise_lut_azi'] and self.s1meta.ipf in [2.9, 2.91] and \
+                    self.s1meta.platform in ['SENTINEL-1A', 'SENTINEL-1B']:
                 noise_calibration_cst_pp1 = {
                     'SENTINEL-1A':
                         {'WV1': -38.13,
@@ -524,8 +539,6 @@ class Sentinel1Dataset:
                 lut.attrs['history'] = histo
                 lut = lut.to_dataset()
 
-
-
                 luts_list.append(lut)
             luts = xr.combine_by_coords(luts_list)
 
@@ -560,7 +573,7 @@ class Sentinel1Dataset:
 
         if resolution is not None:
             comment = 'resampled at "%s" with %s.%s.%s' % (
-            resolution, resampling.__module__, resampling.__class__.__name__, resampling.name)
+                resolution, resampling.__module__, resampling.__class__.__name__, resampling.name)
         else:
             comment = 'read at full resolution'
 
@@ -588,8 +601,7 @@ class Sentinel1Dataset:
             dn = dn.rename(dict(zip(map_dims.values(), map_dims.keys())))
 
             # create coordinates from dimension index (because of parse_coordinates=False)
-            # 0.5 is for pixel center (geotiff standard)
-            dn = dn.assign_coords({'atrack': dn.atrack + 0.5, 'xtrack': dn.xtrack + 0.5})
+            dn = dn.assign_coords({'atrack': dn.atrack, 'xtrack': dn.xtrack})
             dn = dn.drop_vars('spatial_ref', errors='ignore')
         else:
             if not isinstance(resolution, dict):
@@ -633,8 +645,8 @@ class Sentinel1Dataset:
                 'pol'
             ).chunk(chunks)
 
-            # create coordinates at box center (+0.5 for pixel center, -1 because last index not included)
-            translate = Affine.translation((resolution['xtrack'] - 1) / 2 + 0.5, (resolution['atrack'] - 1) / 2 + 0.5)
+            # create coordinates at box center
+            translate = Affine.translation((resolution['xtrack'] - 1) / 2, (resolution['atrack'] - 1) / 2)
             scale = Affine.scale(
                 rio.width // resolution['xtrack'] * resolution['xtrack'] / out_shape[1],
                 rio.height // resolution['atrack'] * resolution['atrack'] / out_shape[0])
@@ -661,7 +673,6 @@ class Sentinel1Dataset:
             )
         }
         ds = dn.to_dataset(name=var_name)
-
         astype = self._dtypes.get(var_name)
         if astype is not None:
             ds = ds.astype(self._dtypes[var_name])
@@ -669,16 +680,119 @@ class Sentinel1Dataset:
         return ds
 
     @timing
+    def _load_from_geoloc(self, varnames):
+        """
+        Interpolate (with RectBiVariateSpline) variables from `self.s1meta.geoloc` to `self._dataset`
+
+        Parameters
+        ----------
+        varnames: list of str
+            subset of variables names in `self.s1meta.geoloc`
+
+        Returns
+        -------
+        xarray.Dataset
+            With interpolated vaiables
+
+        """
+
+        da_list = []
+
+        def interp_func_slc(vect1dazti, vect1dxtrac, **kwargs):
+            """
+
+            Parameters
+            ----------
+            vect1dazti (np.ndarray) : azimuth times at high resolution
+            vect1dxtrac (np.ndarray): range coords
+
+            Returns
+            -------
+
+            """
+            # exterieur de boucle
+            rbs = kwargs['rbs']
+
+            def wrapperfunc(*args, **kwargs):
+                rbs2 = args[2]
+                return rbs2(args[0], args[1], grid=False)
+
+            return wrapperfunc(vect1dazti[:, np.newaxis], vect1dxtrac[np.newaxis, :], rbs)
+
+        for varname in varnames:
+            logger.debug('varname : %s', varname)
+            if varname in ['azimuth_time']:
+                z_values = self.s1meta.geoloc[varname].astype(float)
+            elif varname == 'longitude':
+                z_values = self.s1meta.geoloc[varname]
+                if self.s1meta.cross_antemeridian:
+                    logger.debug('translate longitudes between 0 and 360')
+                    z_values = z_values % 360
+            else:
+                z_values = self.s1meta.geoloc[varname]
+            if self.s1meta._bursts['burst'].size != 0:
+                # TOPS SLC
+                rbs = RectBivariateSpline(
+                    self.s1meta.geoloc.azimuth_time[:, 0].astype(float),
+                    self.s1meta.geoloc.xtrack,
+                    z_values,
+                    kx=1, ky=1,
+                )
+                interp_func = interp_func_slc
+            else:
+                rbs = None
+                interp_func = RectBivariateSpline(
+                    self.s1meta.geoloc.atrack,
+                    self.s1meta.geoloc.xtrack,
+                    z_values,
+                    kx=1, ky=1
+                )
+            # the following take much cpu and memory, so we want to use dask
+            # interp_func(self._dataset.atrack, self.dataset.xtrack)
+            typee = self.s1meta.geoloc[varname].dtype
+            if self.s1meta._bursts['burst'].size != 0:
+                datemplate = self._da_tmpl.astype(typee).copy()
+                # replace the atrack coordinates by atrack_time coordinates
+                datemplate = datemplate.assign_coords({'atrack': datemplate.coords['atrack_time']})
+                da_var = map_blocks_coords(
+                    datemplate,
+                    interp_func,
+                    func_kwargs={"rbs": rbs}
+                )
+                # put back the real atrack coordinates
+                da_var = da_var.assign_coords({'atrack': self._dataset.digital_number.atrack})
+            else:
+                da_var = map_blocks_coords(
+                    self._da_tmpl.astype(typee),
+                    interp_func
+                )
+            if varname == 'longitude':
+                if self.s1meta.cross_antemeridian:
+                    da_var.data = da_var.data.map_blocks(to_lon180)
+
+            da_var.name = varname
+
+            # copy history
+            try:
+                da_var.attrs['history'] = self.s1meta.geoloc[varname].attrs['history']
+            except KeyError:
+                pass
+
+            da_list.append(da_var)
+
+        return xr.merge(da_list)
+
+    @timing
     def _load_lon_lat(self):
         """
         Load longitude and latitude using `self.s1meta.gcps`.
-
         Returns
         -------
         tuple xarray.Dataset
             xarray.Dataset:
                 dataset with `longitude` and `latitude` variables, with same shape as mono-pol digital_number.
         """
+        raise DeprecationWarning('this method is deprecated replaced by _load_from_geoloc()')
 
         def coords2ll(*args):
             # *args[1:] to skip dummy 'll' dimension
@@ -1066,6 +1180,72 @@ class Sentinel1Dataset:
                     denoised.attrs['comment'] = 'not clipped, some values can be <0'
                 ds[varname] = denoised
         return ds
+
+    @property
+    def _burst_azitime(self):
+        """
+        Get azimuth time at high resolution.
+
+        Returns
+        -------
+        xarray.DataArray
+            the high resolution azimuth time vector interpolated at the middle of the sub-swath
+        """
+        azitime = self.s1meta._burst_azitime()
+        iz = np.searchsorted(azitime.atrack, self._dataset.atrack)
+        azitime = azitime.isel({'atrack': iz})
+        azitime = azitime.assign_coords({"atrack": self._dataset.atrack})
+        return azitime
+
+    def _get_sensor_velocity(self):
+        """
+        Interpolated sensor velocity
+        Returns
+        -------
+        xarray.Dataset()
+            containing a single variable velocity
+        """
+
+        azimuth_times = self._burst_azitime
+        orbstatevect = self.s1meta.orbit
+        azi_times = orbstatevect.index.values
+        velos = np.array([[uu.x ** 2., uu.y ** 2., uu.z ** 2.] for uu in orbstatevect['velocity'].values])
+        vels = np.sqrt(np.sum(velos, axis=1))
+        interp_f = interp1d(azi_times.astype(float), vels)
+        _vels = interp_f(azimuth_times.astype(float))
+        res = xr.DataArray(_vels, dims=['atrack'], coords={'atrack': self.dataset.atrack})
+        return xr.Dataset({'velocity': res})
+
+    def _range_ground_spacing(self):
+        """
+        Get SAR image range ground spacing.
+
+        Parameters
+        ----------
+        Returns
+        -------
+        range_ground_spacing_vect : xarray.DataArray
+            range ground spacing (xtrack coordinates)
+
+        Notes
+        -----
+        For GRD products is it the same same value along xtrack axis
+        """
+        ground_spacing = np.array(self.s1meta.image['slant_pixel_spacing'])
+        if self.s1meta.product == 'SLC':
+            atrack_tmp = self._dataset['atrack']
+            xtrack_tmp = self._dataset['xtrack']
+            # get the incidence at the middle of atrack dimension of the part of image selected
+            inc = self._dataset['incidence'].isel({'atrack': int(len(atrack_tmp) / 2),
+                                                   })
+            range_ground_spacing_vect = ground_spacing[1] / np.sin(np.radians(inc))
+            range_ground_spacing_vect.attrs['history'] = ''
+
+        else:  # GRD
+            valuess = np.ones((len(self._dataset['xtrack']))) * ground_spacing[1]
+            range_ground_spacing_vect = xr.DataArray(valuess, coords={'xtrack': self._dataset['xtrack']},
+                                                     dims=['xtrack'])
+        return xr.Dataset({'range_ground_spacing': range_ground_spacing_vect})
 
     def __repr__(self):
         if self.sliced:

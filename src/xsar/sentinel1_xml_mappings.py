@@ -122,14 +122,14 @@ xpath_mappings = {
         }
     },
     'annotation': {
-        'swath_subswath':(scalar, '/product/adsHeader/swath'),
+        'swath_subswath': (scalar, '/product/adsHeader/swath'),
         'atrack': (uniq_sorted, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/line'),
         'xtrack': (uniq_sorted, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/pixel'),
         'incidence': (
             float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/incidenceAngle'),
         'elevation': (
             float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/elevationAngle'),
-        'height': (float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/height'),
+        'altitude': (float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/height'),
         'azimuth_time': (
             datetime64_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/azimuthTime'),
         'slant_range_time': (
@@ -150,6 +150,9 @@ xpath_mappings = {
         'pol': (scalar, '/product/adsHeader/polarisation'),
         'pass': (scalar, '/product/generalAnnotation/productInformation/pass'),
         'platform_heading': (scalar_float, '/product/generalAnnotation/productInformation/platformHeading'),
+        'radar_frequency': (scalar_float, '/product/generalAnnotation/productInformation/radarFrequency'),
+        'range_sampling_rate': (scalar_float, '/product/generalAnnotation/productInformation/rangeSamplingRate'),
+        'azimuth_steering_rate': (scalar_float, '/product/generalAnnotation/productInformation/azimuthSteeringRate'),
         'orbit_time': (datetime64_array, '//product/generalAnnotation/orbitList/orbit/time'),
         'orbit_frame': (np.array, '//product/generalAnnotation/orbitList/orbit/frame'),
         'orbit_pos_x': (float_array, '//product/generalAnnotation/orbitList/orbit/position/x'),
@@ -159,8 +162,8 @@ xpath_mappings = {
         'orbit_vel_y': (float_array, '//product/generalAnnotation/orbitList/orbit/velocity/y'),
         'orbit_vel_z': (float_array, '//product/generalAnnotation/orbitList/orbit/velocity/z'),
         'number_of_bursts': (scalar_int, '/product/swathTiming/burstList/@count'),
-        'lines_per_burst': (scalar, '/product/swathTiming/linesPerBurst'),
-        'samples_per_burst': (scalar, '/product/swathTiming/samplesPerBurst'),
+        'atrack_per_burst': (scalar, '/product/swathTiming/linesPerBurst'),
+        'xtrack_per_burst': (scalar, '/product/swathTiming/samplesPerBurst'),
         'all_bursts': (np.array, '//product/swathTiming/burstList/burst'),
         'burst_azimuthTime': (datetime64_array, '//product/swathTiming/burstList/burst/azimuthTime'),
         'burst_azimuthAnxTime': (float_array, '//product/swathTiming/burstList/burst/azimuthAnxTime'),
@@ -178,7 +181,8 @@ xpath_mappings = {
         'dc_azimuth_time': (datetime64_array, '//product/dopplerCentroid/dcEstimateList/dcEstimate/azimuthTime'),
         'dc_t0': (np.array, '//product/dopplerCentroid/dcEstimateList/dcEstimate/t0'),
         'dc_geoDcPoly': (
-            list_of_float_1D_array_from_string, '//product/dopplerCentroid/dcEstimateList/dcEstimate/geometryDcPolynomial'),
+            list_of_float_1D_array_from_string,
+            '//product/dopplerCentroid/dcEstimateList/dcEstimate/geometryDcPolynomial'),
         'dc_dataDcPoly': (
             list_of_float_1D_array_from_string, '//product/dopplerCentroid/dcEstimateList/dcEstimate/dataDcPolynomial'),
         'dc_rmserr': (np.array, '//product/dopplerCentroid/dcEstimateList/dcEstimate/dataDcRmsError'),
@@ -194,7 +198,7 @@ xpath_mappings = {
             float_array, '///product/dopplerCentroid/dcEstimateList/dcEstimate/fineDceList/fineDce/frequency'),
         'nb_fmrate': (scalar_int, '/product/generalAnnotation/azimuthFmRateList/@count'),
         'fmrate_azimuthtime': (
-        datetime64_array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/azimuthTime'),
+            datetime64_array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/azimuthTime'),
         'fmrate_t0': (float_array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/t0'),
         'fmrate_c0': (float_array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/c0'),
         'fmrate_c1': (float_array, '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/c1'),
@@ -202,7 +206,7 @@ xpath_mappings = {
         'fmrate_azimuthFmRatePolynomial': (
             list_of_float_1D_array_from_string,
             '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/azimuthFmRatePolynomial'),
-    
+
     }
 }
 
@@ -411,7 +415,8 @@ def df_files(annotation_files, measurement_files, noise_files, calibration_files
     )
     return df
 
-def orbit(time, frame, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z,orbit_pass,platform_heading):
+
+def orbit(time, frame, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z, orbit_pass, platform_heading):
     """
     Returns
     -------
@@ -426,9 +431,9 @@ def orbit(time, frame, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z,orbit_pass,platf
 
     gdf = gpd.GeoDataFrame(
         {
-            'velocity': list(map(Point, zip(vel_x,vel_y,vel_z)))
+            'velocity': list(map(Point, zip(vel_x, vel_y, vel_z)))
         },
-        geometry=list(map(Point, zip(pos_x,pos_y,pos_z))),
+        geometry=list(map(Point, zip(pos_x, pos_y, pos_z))),
         crs=crs,
         index=time
     )
@@ -439,6 +444,7 @@ def orbit(time, frame, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z,orbit_pass,platf
     }
 
     return gdf
+
 
 def azimuth_fmrate(azimuthtime, t0, c0, c1, c2, polynomial):
     """
@@ -457,70 +463,90 @@ def azimuth_fmrate(azimuthtime, t0, c0, c1, c2, polynomial):
     xarray.Dataset
         containing the polynomial coefficient for each of the FM rate along azimuth time coordinates
     """
-    if ( np.sum([c.size for c in [c0,c1,c2]]) != 0) and (len(polynomial) == 0):
+    if (np.sum([c.size for c in [c0, c1, c2]]) != 0) and (len(polynomial) == 0):
         # old IPF annotation
         polynomial = np.stack([c0, c1, c2], axis=1)
     res = xr.Dataset()
-    res['t0'] = xr.DataArray(t0,dims=['azimuth_time'],coords={'azimuth_time':azimuthtime})
+    res['t0'] = xr.DataArray(t0, dims=['azimuth_time'], coords={'azimuth_time': azimuthtime})
     res['polynomial'] = xr.DataArray([Polynomial(p) for p in polynomial],
                                      dims=['azimuth_time'],
-                                     coords={'azimuth_time':azimuthtime})
+                                     coords={'azimuth_time': azimuthtime})
     return res
 
-def image(atrack_time_range, atrack_size, xtrack_size, incidence_angle_mid_swath, azimuth_time_interval,
-          slant_range_time_image, azimuthPixelSpacing, rangePixelSpacing,swath_subswath):
 
+def image(atrack_time_range, atrack_size, xtrack_size, incidence_angle_mid_swath, azimuth_time_interval,
+          slant_range_time_image, azimuthPixelSpacing, rangePixelSpacing, swath_subswath, radar_frequency,
+          range_sampling_rate, azimuth_steering_rate):
     return {
         'atrack_time_range': atrack_time_range,
         'shape': (atrack_size, xtrack_size),
-        'pixel_spacing': (azimuthPixelSpacing, rangePixelSpacing),
+        'slant_pixel_spacing': (azimuthPixelSpacing, rangePixelSpacing),
+        'ground_pixel_spacing': (
+            azimuthPixelSpacing, rangePixelSpacing / np.sin(np.radians(incidence_angle_mid_swath))),
         'incidence_angle_mid_swath': incidence_angle_mid_swath,
         'azimuth_time_interval': azimuth_time_interval,
         'slant_range_time_image': slant_range_time_image,
-        'swath_subswath':swath_subswath,
+        'swath_subswath': swath_subswath,
+        'radar_frequency': radar_frequency,
+        'range_sampling_rate': range_sampling_rate,
+        'azimuth_steering_rate': azimuth_steering_rate,
     }
 
-def bursts(lines_per_burst, samples_per_burst, burst_azimuthTime, burst_azimuthAnxTime, burst_sensingTime,
+
+def bursts(atrack_per_burst, xtrack_per_burst, burst_azimuthTime, burst_azimuthAnxTime, burst_sensingTime,
            burst_byteOffset, burst_firstValidSample, burst_lastValidSample):
     """return burst as an xarray dataset"""
+    da = xr.Dataset()
+    if (atrack_per_burst == 0) and (xtrack_per_burst == 0):
+        pass
+    else:
 
-    if (lines_per_burst == 0) and (samples_per_burst == 0):
-        return None
-
-    # convert to float, so we can use NaN as missing value, instead of -1
-    burst_firstValidSample = burst_firstValidSample.astype(float)
-    burst_lastValidSample = burst_lastValidSample.astype(float)
-    burst_firstValidSample[burst_firstValidSample == -1] = np.nan
-    burst_lastValidSample[burst_lastValidSample == -1] = np.nan
-    nbursts = len(burst_azimuthTime)
-    valid_locations = np.empty((nbursts, 4), dtype='int32')
-    for ibur in range(nbursts):
-        fvs = burst_firstValidSample[ibur, :]
-        lvs = burst_lastValidSample[ibur, :]
-        #valind = np.where((fvs != -1) | (lvs != -1))[0]
-        valind = np.where(np.isfinite(fvs) | np.isfinite(lvs))[0]
-        valloc = [ibur * lines_per_burst + valind.min(), fvs[valind].min(),
-                  ibur * lines_per_burst + valind.max(), lvs[valind].max()]
-        valid_locations[ibur, :] = valloc
-    da = xr.Dataset(
-        {
-            'azimuthTime': ('burst', burst_azimuthTime),
-            'azimuthAnxTime': ('burst', burst_azimuthAnxTime),
-            'sensingTime': ('burst', burst_sensingTime),
-            'byteOffset': ('burst', burst_byteOffset),
-            'firstValidSample': (['burst', 'xtrack'], burst_firstValidSample),
-            'lastValidSample': (['burst', 'xtrack'], burst_lastValidSample),
-            'valid_location': xr.DataArray(dims=['burst', 'limits'], data=valid_locations,
-                                           attrs={
-                                               'description': 'start atrack index, start xtrack index, stop atrack index, stop xtrack index'}),
-        }
-    )
+        # convert to float, so we can use NaN as missing value, instead of -1
+        burst_firstValidSample = burst_firstValidSample.astype(float)
+        burst_lastValidSample = burst_lastValidSample.astype(float)
+        burst_firstValidSample[burst_firstValidSample == -1] = np.nan
+        burst_lastValidSample[burst_lastValidSample == -1] = np.nan
+        nbursts = len(burst_azimuthTime)
+        valid_locations = np.empty((nbursts, 4), dtype='int32')
+        for ibur in range(nbursts):
+            fvs = burst_firstValidSample[ibur, :]
+            lvs = burst_lastValidSample[ibur, :]
+            # valind = np.where((fvs != -1) | (lvs != -1))[0]
+            valind = np.where(np.isfinite(fvs) | np.isfinite(lvs))[0]
+            valloc = [ibur * atrack_per_burst + valind.min(), fvs[valind].min(),
+                      ibur * atrack_per_burst + valind.max(), lvs[valind].max()]
+            valid_locations[ibur, :] = valloc
+        da = xr.Dataset(
+            {
+                'azimuthTime': ('burst', burst_azimuthTime),
+                'azimuthAnxTime': ('burst', burst_azimuthAnxTime),
+                'sensingTime': ('burst', burst_sensingTime),
+                'byteOffset': ('burst', burst_byteOffset),
+                'firstValidSample': (['burst', 'xtrack'], burst_firstValidSample),
+                'lastValidSample': (['burst', 'xtrack'], burst_lastValidSample),
+                'valid_location': xr.DataArray(dims=['burst', 'limits'], data=valid_locations,
+                                               attrs={
+                                                   'description': 'start atrack index, start xtrack index, stop atrack index, stop xtrack index'}),
+            }
+        )
+    da.attrs['atrack_per_burst'] = atrack_per_burst
+    da.attrs['xtrack_per_burst'] = xtrack_per_burst
     return da
 
+
+def bursts_grd(atrack_per_burst, xtrack_per_burst):
+    """return burst as an xarray dataset"""
+    da = xr.Dataset({'azimuthTime': ('burst', [])})
+
+    da.attrs['atrack_per_burst'] = atrack_per_burst
+    da.attrs['xtrack_per_burst'] = xtrack_per_burst
+    return da
+
+
 def doppler_centroid_estimates(nb_dcestimate,
-                nb_fineDce,dc_azimuth_time,dc_t0,dc_geoDcPoly,
-                dc_dataDcPoly,dc_rmserr,dc_rmserrAboveThres,dc_azstarttime,
-                dc_azstoptime,dc_slantRangeTime,dc_frequency):
+                               nb_fineDce, dc_azimuth_time, dc_t0, dc_geoDcPoly,
+                               dc_dataDcPoly, dc_rmserr, dc_rmserrAboveThres, dc_azstarttime,
+                               dc_azstoptime, dc_slantRangeTime, dc_frequency):
     """
     decoding Doppler Centroid estimates information from xml annotation files
     Parameters
@@ -545,17 +571,17 @@ def doppler_centroid_estimates(nb_dcestimate,
 
     """
     ds = xr.Dataset()
-    ds['t0'] = xr.DataArray(dc_t0.astype(float),dims=['n_estimates'])
-    ds['geo_polynom'] = xr.DataArray([Polynomial(p) for p in dc_geoDcPoly],dims=['n_estimates'])
-    ds['data_polynom'] = xr.DataArray([Polynomial(p) for p in dc_dataDcPoly],dims=['n_estimates'])
+    ds['t0'] = xr.DataArray(dc_t0.astype(float), dims=['n_estimates'])
+    ds['geo_polynom'] = xr.DataArray([Polynomial(p) for p in dc_geoDcPoly], dims=['n_estimates'])
+    ds['data_polynom'] = xr.DataArray([Polynomial(p) for p in dc_dataDcPoly], dims=['n_estimates'])
     dims = (nb_dcestimate, nb_fineDce)
-    ds['azimuth_time'] = xr.DataArray(dc_azimuth_time,dims=['n_estimates'])
-    ds['azimuth_time_start'] =  xr.DataArray(dc_azstarttime,dims=['n_estimates'])
+    ds['azimuth_time'] = xr.DataArray(dc_azimuth_time, dims=['n_estimates'])
+    ds['azimuth_time_start'] = xr.DataArray(dc_azstarttime, dims=['n_estimates'])
     ds['azimuth_time_stop'] = xr.DataArray(dc_azstoptime, dims=['n_estimates'])
-    ds['data_rms'] = xr.DataArray(dc_rmserr.astype(float),dims=['n_estimates'])
-    ds['slant_range_time'] = xr.DataArray(dc_slantRangeTime.reshape(dims),dims=['n_estimates','nb_fine_dce'])
+    ds['data_rms'] = xr.DataArray(dc_rmserr.astype(float), dims=['n_estimates'])
+    ds['slant_range_time'] = xr.DataArray(dc_slantRangeTime.reshape(dims), dims=['n_estimates', 'nb_fine_dce'])
     ds['frequency'] = xr.DataArray(dc_frequency.reshape(dims), dims=['n_estimates', 'nb_fine_dce'])
-    ds['data_rms_threshold'] = xr.DataArray(dc_rmserrAboveThres,dims=['n_estimates'])
+    ds['data_rms_threshold'] = xr.DataArray(dc_rmserrAboveThres, dims=['n_estimates'])
     return ds
 
 
@@ -577,6 +603,7 @@ def geolocation_grid(atrack, xtrack, values):
     shape = (atrack.size, xtrack.size)
     values = np.reshape(values, shape)
     return xr.DataArray(values, dims=['atrack', 'xtrack'], coords={'atrack': atrack, 'xtrack': xtrack})
+
 
 # dict of compounds variables.
 # compounds variables are variables composed of several variables.
@@ -622,10 +649,26 @@ compounds_vars = {
     },
     'denoised': ('annotation.pol', 'annotation.denoised'),
     'incidence': {
-        'func': annotation_angle,
+        'func': geolocation_grid,
         'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.incidence')
     },
     'elevation': {
+        'func': geolocation_grid,
+        'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.elevation')
+    },
+    'incidence_2': {
+        'func': geolocation_grid,
+        'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.incidence')
+    },
+    'elevation_2': {
+        'func': geolocation_grid,
+        'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.elevation')
+    },
+    'incidence_gcp': {
+        'func': annotation_angle,
+        'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.incidence')
+    },
+    'elevation_gcp': {
         'func': annotation_angle,
         'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.elevation')
     },
@@ -637,9 +680,9 @@ compounds_vars = {
         'func': geolocation_grid,
         'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.latitude')
     },
-    'height': {
+    'altitude': {
         'func': geolocation_grid,
-        'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.height')
+        'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.altitude')
     },
     'azimuth_time': {
         'func': geolocation_grid,
@@ -651,23 +694,29 @@ compounds_vars = {
     },
     'bursts': {
         'func': bursts,
-        'args': ('annotation.lines_per_burst', 'annotation. samples_per_burst', 'annotation. burst_azimuthTime',
+        'args': ('annotation.atrack_per_burst', 'annotation. xtrack_per_burst', 'annotation. burst_azimuthTime',
                  'annotation. burst_azimuthAnxTime', 'annotation. burst_sensingTime', 'annotation.burst_byteOffset',
                  'annotation. burst_firstValidSample', 'annotation.burst_lastValidSample')
     },
+    'bursts_grd': {
+        'func': bursts_grd,
+        'args': ('annotation.atrack_per_burst', 'annotation. xtrack_per_burst',)
+    },
+
     'orbit': {
         'func': orbit,
         'args': ('annotation.orbit_time', 'annotation.orbit_frame',
                  'annotation.orbit_pos_x', 'annotation.orbit_pos_y', 'annotation.orbit_pos_z',
                  'annotation.orbit_vel_x', 'annotation.orbit_vel_y', 'annotation.orbit_vel_z',
-                 'annotation.pass','annotation.platform_heading')
+                 'annotation.pass', 'annotation.platform_heading')
     },
     'image': {
         'func': image,
         'args': ('annotation.atrack_time_range', 'annotation.atrack_size', 'annotation.xtrack_size',
                  'annotation.incidence_angle_mid_swath', 'annotation.azimuth_time_interval',
                  'annotation.slant_range_time_image', 'annotation.azimuthPixelSpacing', 'annotation.rangePixelSpacing',
-                 'annotation.swath_subswath')
+                 'annotation.swath_subswath', 'annotation.radar_frequency', 'annotation.range_sampling_rate',
+                 'annotation.azimuth_steering_rate')
     },
     'azimuth_fmrate': {
         'func': azimuth_fmrate,

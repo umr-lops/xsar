@@ -8,10 +8,11 @@ import xarray as xr
 import pandas as pd
 import geopandas as gpd
 import rasterio
-from scipy.interpolate import RectBivariateSpline
+from scipy.interpolate import RectBivariateSpline, interp1d
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 import shapely
+from shapely.geometry import box
 from .utils import to_lon180, haversine, timing, class_or_instancemethod
 from .raster_readers import available_rasters
 from . import sentinel1_xml_mappings
@@ -46,7 +47,6 @@ class Sentinel1Meta:
 
     rasters = available_rasters.iloc[0:0].copy()
 
-
     # class attributes are needed to fetch instance attribute (ie self.name) with dask actors
     # ref http://distributed.dask.org/en/stable/actors.html#access-attributes
     # FIXME: not needed if @property, so it might be a good thing to have getter for those attributes
@@ -61,7 +61,6 @@ class Sentinel1Meta:
     subdatasets = None
     dsid = None
     manifest_attrs = None
-
 
     @timing
     def __init__(self, name, _xml_parser=None):
@@ -377,7 +376,7 @@ class Sentinel1Meta:
     @property
     def geoloc(self):
         """
-        xarray.Dataset with `['longitude', 'latitude', 'height', 'azimuth_time', 'slant_range_time','incidence','elevation' ]` variables
+        xarray.Dataset with `['longitude', 'latitude', 'altitude', 'azimuth_time', 'slant_range_time','incidence','elevation' ]` variables
         and `['atrack', 'xtrack']` coordinates, at the geolocation grid
         """
         if self.multidataset:
@@ -385,13 +384,14 @@ class Sentinel1Meta:
         if self._geoloc is None:
             xml_annotation = self.files['annotation'].iloc[0]
             da_var_list = []
-            for var_name in ['longitude', 'latitude', 'height', 'azimuth_time', 'slant_range_time']:
+            for var_name in ['longitude', 'latitude', 'altitude', 'azimuth_time', 'slant_range_time', 'incidence',
+                             'elevation']:
                 # TODO: we should use dask.array.from_delayed so xml files are read on demand
                 da_var = self.xml_parser.get_compound_var(xml_annotation, var_name)
                 da_var.name = var_name
                 da_var.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0],
-                                                                                 var_name,
-                                                                                 describe=True)
+                                                                           var_name,
+                                                                           describe=True)
                 da_var_list.append(da_var)
 
             self._geoloc = xr.merge(da_var_list)
@@ -405,8 +405,15 @@ class Sentinel1Meta:
                 ]
             corners = list(zip(footprint_dict['longitude'], footprint_dict['latitude']))
             p = Polygon(corners)
-            logger.debug('polyon : %s', p)
             self._geoloc.attrs['footprint'] = p
+
+            # compute acquisition size/resolution in meters
+            # first vector is on xtrack
+            acq_xtrack_meters, _ = haversine(*corners[0], *corners[1])
+            # second vector is on atrack
+            acq_atrack_meters, _ = haversine(*corners[1], *corners[2])
+            self._geoloc.attrs['coverage'] = "%dkm * %dkm (atrack * xtrack )" % (
+                acq_atrack_meters / 1000, acq_xtrack_meters / 1000)
 
         return self._geoloc
 
@@ -459,7 +466,6 @@ class Sentinel1Meta:
             self_or_cls._mask_geometry[name] = None
             self_or_cls._mask_features[name] = None
 
-
     @property
     def mask_names(self):
         """
@@ -491,14 +497,13 @@ class Sentinel1Meta:
             descr = self._mask_features_raw[name]
             try:
                 # nice repr for a class (like 'cartopy.feature.NaturalEarthFeature land')
-                descr = '%s.%s %s' % (descr.__module__, descr.__class__.__name__ , descr.name)
+                descr = '%s.%s %s' % (descr.__module__, descr.__class__.__name__, descr.name)
             except AttributeError:
                 pass
             return descr
 
-
         if self._mask_geometry[name] is None:
-            poly = self._get_mask_intersecting_geometries(name)\
+            poly = self._get_mask_intersecting_geometries(name) \
                 .unary_union.intersection(self.footprint)
 
             if poly.is_empty:
@@ -652,7 +657,8 @@ class Sentinel1Meta:
         if self.multidataset:
             return None  # not defined for multidataset
         gdf_orbit = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'orbit')
-        gdf_orbit.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'orbit', describe=True)
+        gdf_orbit.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'orbit',
+                                                                      describe=True)
         return gdf_orbit
 
     @property
@@ -670,7 +676,8 @@ class Sentinel1Meta:
             Frequency Modulation rate annotations such as t0 (azimuth time reference) and polynomial coefficients: Azimuth FM rate = c0 + c1(tSR - t0) + c2(tSR - t0)^2
         """
         fmrates = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'azimuth_fmrate')
-        fmrates.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'azimuth_fmrate', describe=True)
+        fmrates.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'azimuth_fmrate',
+                                                                    describe=True)
         return fmrates
 
     @property
@@ -883,11 +890,14 @@ class Sentinel1Meta:
     def _bursts(self):
         if self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.number_of_bursts') > 0:
             bursts = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts')
-            bursts.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts', describe=True)
+            bursts.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts',
+                                                                       describe=True)
             return bursts
         else:
-            # no burst, return empty dataset
-            return xr.Dataset()
+            bursts = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts_grd')
+            bursts.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts_grd',
+                                                                       describe=True)
+            return bursts
 
     @property
     def approx_transform(self):
@@ -964,16 +974,120 @@ class Sentinel1Meta:
         new.__dict__.update(minidict)
         return new
 
-
     @property
     def _doppler_estimate(self):
         """
         xarray.Dataset
             with Doppler Centroid Estimates from annotations such as geo_polynom,data_polynom or frequency
-
         """
         dce = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'doppler_estimate')
         dce.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'doppler_estimate',
                                                                 describe=True)
         return dce
 
+    def _get_indices_bursts(self):
+        """
+
+        Returns
+        -------
+        ind np.array
+            index of the burst start in the atrack coordinates
+        geoloc_azitime np.array
+            azimuth time at the middle of the image from geolocation grid (low resolution)
+        geoloc_iburst np.array
+
+        """
+        ind = None
+        geoloc_azitime = None
+        geoloc_iburst = None
+        geoloc_line = None
+        if self.product == 'SLC' and 'WV' not in self.swath:
+            burst_nlines = self._bursts.attrs['atrack_per_burst']
+
+            geoloc_line = self.geoloc['atrack'].values
+            # find the indice of the bursts in the geolocation grid
+            geoloc_iburst = np.floor(geoloc_line / float(burst_nlines)).astype('int32')
+            # find the indices of the bursts in the high resolution grid
+            atrack = np.arange(0, self.image['shape'][0])
+            iburst = np.floor(atrack / float(burst_nlines)).astype('int32')
+            # find the indices of the burst transitions
+            ind = np.searchsorted(geoloc_iburst, iburst, side='left')
+            n_pixels = int((len(self.geoloc['xtrack']) - 1) / 2)
+            geoloc_azitime = self.geoloc['azimuth_time'].values[:, n_pixels]
+            # security check for unrealistic atrack_values exceeding the image extent
+            if ind.max() >= len(geoloc_azitime):
+                ind[ind >= len(geoloc_azitime)] = len(geoloc_azitime) - 1
+        return ind, geoloc_azitime, geoloc_iburst, geoloc_line
+
+    def _burst_azitime(self):
+        """
+        Get azimuth time at high resolution on the full image shape
+
+        Returns
+        -------
+        np.ndarray
+            the high resolution azimuth time vector interpolated at the midle of the subswath
+        """
+        atrack = np.arange(0, self.image['shape'][0])
+        if self.product == 'SLC' and 'WV' not in self.swath:
+            azi_time_int = self.image['azimuth_time_interval']
+            # turn this interval float/seconds into timedelta/picoseconds
+            azi_time_int = np.timedelta64(int(azi_time_int * 1e12), 'ps')
+            ind, geoloc_azitime, geoloc_iburst, geoloc_line = self._get_indices_bursts()
+            # compute the azimuth time by adding a step function (first term) and a growing term (second term)
+            azitime = geoloc_azitime[ind] + (atrack - geoloc_line[ind]) * azi_time_int.astype('<m8[ns]')
+        else:  # GRD* cases
+            n_pixels = int((len(self.geoloc['xtrack']) - 1) / 2)
+            geoloc_azitime = self.geoloc['azimuth_time'].values[:, n_pixels]
+            geoloc_line = self.geoloc['atrack'].values
+            finterp = interp1d(geoloc_line, geoloc_azitime.astype(float))
+            azitime = finterp(atrack)
+            azitime = azitime.astype('<m8[ns]')
+        azitime = xr.DataArray(azitime, coords={'atrack': atrack}, dims=['atrack'],
+                               attrs={
+                                   'description': 'azimuth times interpolated along atrack dimension at the middle of range dimension'})
+
+        return azitime
+
+    def bursts(self, only_valid_location=True):
+        """
+        get the polygons of radar bursts in the image geometry
+
+        Parameters
+        ----------
+        only_valid_location : bool
+            [True] -> polygons of the TOPS SLC bursts are cropped using valid location index
+            False -> polygons of the TOPS SLC bursts are aligned with azimuth time start/stop index
+
+        Returns
+        -------
+        geopandas.GeoDataframe
+            polygons of the burst in the image (ie atrack/xtrack) geometry
+            'geometry' is the polygon
+
+        """
+        burst_list = self._bursts
+        if burst_list['burst'].size == 0:
+            blocks = gpd.GeoDataFrame()
+        else:
+            bursts = []
+            bursts_az_inds = {}
+            inds_burst, geoloc_azitime, geoloc_iburst, geoloc_line = self._get_indices_bursts()
+            for burst_ind, uu in enumerate(np.unique(inds_burst)):
+                if only_valid_location:
+                    extent = np.copy(burst_list['valid_location'].values[burst_ind, :])
+                    area = box(extent[0], extent[1], extent[2], extent[3])
+
+                else:
+                    inds_one_val = np.where(inds_burst == uu)[0]
+                    bursts_az_inds[uu] = inds_one_val
+                    area = box(bursts_az_inds[burst_ind][0], 0, bursts_az_inds[burst_ind][-1], self.image['shape'][1])
+                    # area = box(bursts_az_inds[burst_ind][0], self._dataset.xtrack[0], bursts_az_inds[burst_ind][-1],
+                    #            self._dataset.xtrack[-1])
+                burst = pd.Series(dict([
+                    ('geometry', area)]))
+                bursts.append(burst)
+            # to geopandas
+            blocks = pd.concat(bursts, axis=1).T
+            blocks = gpd.GeoDataFrame(blocks)
+        return blocks

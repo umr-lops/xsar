@@ -646,7 +646,7 @@ class Sentinel1Dataset:
             ).chunk(chunks)
 
             # create coordinates at box center
-            translate = Affine.translation((resolution['xtrack'] - 1) / 2, (resolution['atrack'] - 1) / 2 )
+            translate = Affine.translation((resolution['xtrack'] - 1) / 2, (resolution['atrack'] - 1) / 2)
             scale = Affine.scale(
                 rio.width // resolution['xtrack'] * resolution['xtrack'] / out_shape[1],
                 rio.height // resolution['atrack'] * resolution['atrack'] / out_shape[0])
@@ -1192,9 +1192,9 @@ class Sentinel1Dataset:
             the high resolution azimuth time vector interpolated at the middle of the sub-swath
         """
         azitime = self.s1meta._burst_azitime()
-        iz = np.searchsorted(azitime.atrack,self._dataset.atrack)
-        azitime = azitime.isel({'atrack':iz})
-        azitime = azitime.assign_coords({"atrack":self._dataset.atrack})
+        iz = np.searchsorted(azitime.atrack, self._dataset.atrack)
+        azitime = azitime.isel({'atrack': iz})
+        azitime = azitime.assign_coords({"atrack": self._dataset.atrack})
         return azitime
 
     def _get_sensor_velocity(self):
@@ -1209,14 +1209,12 @@ class Sentinel1Dataset:
         azimuth_times = self._burst_azitime
         orbstatevect = self.s1meta.orbit
         azi_times = orbstatevect.index.values
-        velos = np.array([[uu.x**2., uu.y**2., uu.z**2.] for uu in orbstatevect['velocity'].values])
+        velos = np.array([[uu.x ** 2., uu.y ** 2., uu.z ** 2.] for uu in orbstatevect['velocity'].values])
         vels = np.sqrt(np.sum(velos, axis=1))
         interp_f = interp1d(azi_times.astype(float), vels)
         _vels = interp_f(azimuth_times.astype(float))
         res = xr.DataArray(_vels, dims=['atrack'], coords={'atrack': self.dataset.atrack})
         return xr.Dataset({'velocity': res})
-
-
 
     def _range_ground_spacing(self):
         """

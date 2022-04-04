@@ -482,7 +482,7 @@ def image(atrack_time_range, atrack_size, xtrack_size, incidence_angle_mid_swath
         'shape': (atrack_size, xtrack_size),
         'slant_pixel_spacing': (azimuthPixelSpacing, rangePixelSpacing),
         'ground_pixel_spacing': (
-        azimuthPixelSpacing, rangePixelSpacing / np.sin(np.radians(incidence_angle_mid_swath))),
+            azimuthPixelSpacing, rangePixelSpacing / np.sin(np.radians(incidence_angle_mid_swath))),
         'incidence_angle_mid_swath': incidence_angle_mid_swath,
         'azimuth_time_interval': azimuth_time_interval,
         'slant_range_time_image': slant_range_time_image,

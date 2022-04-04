@@ -601,8 +601,7 @@ class Sentinel1Dataset:
             dn = dn.rename(dict(zip(map_dims.values(), map_dims.keys())))
 
             # create coordinates from dimension index (because of parse_coordinates=False)
-            # 0.5 is for pixel center (geotiff standard)
-            dn = dn.assign_coords({'atrack': dn.atrack + 0.5, 'xtrack': dn.xtrack + 0.5})
+            dn = dn.assign_coords({'atrack': dn.atrack, 'xtrack': dn.xtrack})
             dn = dn.drop_vars('spatial_ref', errors='ignore')
         else:
             if not isinstance(resolution, dict):
@@ -646,8 +645,8 @@ class Sentinel1Dataset:
                 'pol'
             ).chunk(chunks)
 
-            # create coordinates at box center (+0.5 for pixel center, -1 because last index not included)
-            translate = Affine.translation((resolution['xtrack'] - 1) / 2 + 0.5, (resolution['atrack'] - 1) / 2 + 0.5)
+            # create coordinates at box center
+            translate = Affine.translation((resolution['xtrack'] - 1) / 2, (resolution['atrack'] - 1) / 2 )
             scale = Affine.scale(
                 rio.width // resolution['xtrack'] * resolution['xtrack'] / out_shape[1],
                 rio.height // resolution['atrack'] * resolution['atrack'] / out_shape[0])

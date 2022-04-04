@@ -1030,7 +1030,7 @@ class Sentinel1Meta:
         np.ndarray
             the high resolution azimuth time vector interpolated at the midle of the subswath
         """
-        atrack = np.arange(0, self.image['shape'][0])+0.5
+        atrack = np.arange(0, self.image['shape'][0])
         if self.product == 'SLC' and 'WV' not in self.swath:
             azi_time_int = self.image['azimuth_time_interval']
             # turn this interval float/seconds into timedelta/picoseconds
@@ -1041,7 +1041,7 @@ class Sentinel1Meta:
         else:  # GRD* cases
             n_pixels = int((len(self.geoloc['xtrack']) - 1) / 2)
             geoloc_azitime = self.geoloc['azimuth_time'].values[:, n_pixels]
-            geoloc_line = self.geoloc['atrack'].values + 0.5
+            geoloc_line = self.geoloc['atrack'].values
             finterp = interp1d(geoloc_line, geoloc_azitime.astype(float))
             azitime = finterp(atrack)
             azitime = azitime.astype('<m8[ns]')

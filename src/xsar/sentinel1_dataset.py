@@ -1194,9 +1194,7 @@ class Sentinel1Dataset:
         azitime = self.s1meta._burst_azitime()
         iz = np.searchsorted(azitime.atrack,self._dataset.atrack)
         azitime = azitime.isel({'atrack':iz})
-
         azitime = azitime.assign_coords({"atrack":self._dataset.atrack})
-        #azitime = azitime.sel({'atrack': self._dataset.atrack})
         return azitime
 
     def _get_sensor_velocity(self):

@@ -985,7 +985,6 @@ class Sentinel1Meta:
                                                                 describe=True)
         return dce
 
-
     def _get_indices_bursts(self):
         """
 
@@ -1018,8 +1017,7 @@ class Sentinel1Meta:
             # security check for unrealistic atrack_values exceeding the image extent
             if ind.max() >= len(geoloc_azitime):
                 ind[ind >= len(geoloc_azitime)] = len(geoloc_azitime) - 1
-        return ind, geoloc_azitime, geoloc_iburst,geoloc_line
-
+        return ind, geoloc_azitime, geoloc_iburst, geoloc_line
 
     def _burst_azitime(self):
         """
@@ -1035,7 +1033,7 @@ class Sentinel1Meta:
             azi_time_int = self.image['azimuth_time_interval']
             # turn this interval float/seconds into timedelta/picoseconds
             azi_time_int = np.timedelta64(int(azi_time_int * 1e12), 'ps')
-            ind, geoloc_azitime, geoloc_iburst,geoloc_line = self._get_indices_bursts()
+            ind, geoloc_azitime, geoloc_iburst, geoloc_line = self._get_indices_bursts()
             # compute the azimuth time by adding a step function (first term) and a growing term (second term)
             azitime = geoloc_azitime[ind] + (atrack - geoloc_line[ind]) * azi_time_int.astype('<m8[ns]')
         else:  # GRD* cases
@@ -1051,7 +1049,7 @@ class Sentinel1Meta:
 
         return azitime
 
-    def bursts(self,only_valid_location=True):
+    def bursts(self, only_valid_location=True):
         """
         get the polygons of radar bursts in the image geometry
 
@@ -1074,7 +1072,7 @@ class Sentinel1Meta:
         else:
             bursts = []
             bursts_az_inds = {}
-            inds_burst, geoloc_azitime, geoloc_iburst,geoloc_line = self._get_indices_bursts()
+            inds_burst, geoloc_azitime, geoloc_iburst, geoloc_line = self._get_indices_bursts()
             for burst_ind, uu in enumerate(np.unique(inds_burst)):
                 if only_valid_location:
                     extent = np.copy(burst_list['valid_location'].values[burst_ind, :])

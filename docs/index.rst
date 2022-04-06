@@ -64,6 +64,8 @@ Examples
 
 * :doc:`examples/xsar_batch_datarmor`
 
+* :doc:`examples/xsar_top_slc`
+
 Reference
 .........
 
@@ -96,6 +98,7 @@ Last documentation build: |today|
    examples/mask
    examples/xsar_multiple
    examples/xsar_batch_datarmor
+   examples/xsar_top_slc
 
 .. toctree::
    :maxdepth: 1
@@ -104,7 +107,7 @@ Last documentation build: |today|
 
    basic_api
 
-.. _on github: https://github.com/oarcher/xsar
+.. _on github: https://github.com/umr-lops/xsar
 .. _xarray: http://xarray.pydata.org
 .. _dask: http://dask.org
 .. _xarray.open_dataset: http://xarray.pydata.org/en/stable/generated/xarray.open_dataset.html

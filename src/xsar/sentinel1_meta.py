@@ -113,7 +113,6 @@ class Sentinel1Meta:
 
         self.platform = self.manifest_attrs['mission'] + self.manifest_attrs['satellite']
         """Mission platform"""
-        self._gcps = None
         self._time_range = None
         self._mask_features_raw = {}
         self._mask_features = {}
@@ -145,98 +144,6 @@ class Sentinel1Meta:
         """
         return name == self.name or name in self.subdatasets
 
-    def _get_gcps(self):
-        rio = rasterio.open(self.files['measurement'].iloc[0])
-        rio_gcps, crs = rio.get_gcps()
-
-        gcps_xtracks, gcps_atracks = [
-            np.array(arr) for arr in zip(
-                *[(g.col, g.row) for g in rio_gcps]
-            )
-        ]
-
-        gcps_xtracks, gcps_atracks = [np.array(arr) for arr in [gcps_xtracks, gcps_atracks]]
-
-        (xtracks, xtracks_gcps_idx), (atracks, atracks_gcps_idx) = [
-            np.unique(arr, return_inverse=True) for arr in [gcps_xtracks, gcps_atracks]
-        ]
-
-        # assert regularly gridded
-        assert xtracks.size * atracks.size == len(rio_gcps)
-
-        da_list = []
-
-        # grid gcps index as an xarray(atrack,xtrack)
-        np_gcps_idx = (xtracks_gcps_idx + atracks_gcps_idx * len(xtracks)).reshape(atracks.size, xtracks.size)
-        gcps_idx = xr.DataArray(
-            np_gcps_idx,
-            coords={'atrack': atracks, 'xtrack': xtracks},
-            dims=['atrack', 'xtrack'],
-            name='index'
-        )
-        da_list.append(gcps_idx)
-
-        # grid gcps with similar xarray
-        np_gcps = np.array([rio_gcps[i] for i in np_gcps_idx.flat]).reshape(np_gcps_idx.shape)
-        gcps = xr.DataArray(
-            np_gcps,
-            coords={'atrack': atracks, 'xtrack': xtracks},
-            dims=['atrack', 'xtrack'],
-            name='gcp'
-        ).astype(object)
-        da_list.append(gcps)
-
-        # same for 'longitude', 'latitude', 'altitude'
-        gcps_mappings = {
-            'longitude': 'x',
-            'latitude': 'y',
-            'altitude': 'z'
-        }
-
-        for var_name, gcp_attr in gcps_mappings.items():
-            np_arr = np.array([getattr(rio_gcps[i], gcp_attr) for i in np_gcps_idx.flat]).reshape(np_gcps_idx.shape)
-            da_arr = xr.DataArray(
-                np_arr,
-                coords={'atrack': atracks, 'xtrack': xtracks},
-                dims=['atrack', 'xtrack'],
-                name=var_name
-            )
-            da_list.append(da_arr)
-
-        gcps_ds = xr.merge(da_list)
-
-        # add attributes
-
-        attrs = gcps_ds.attrs
-
-        # approx transform, from all gcps (inaccurate)
-        approx_transform = rasterio.transform.from_gcps(rio_gcps)
-
-        # affine parameters are swaped, to be compatible with xsar (atrack, xtrack) coordinates ordering
-        attrs['approx_transform'] = approx_transform * Affine.permutation()
-
-        footprint_dict = {}
-        for ll in ['longitude', 'latitude']:
-            footprint_dict[ll] = [
-                gcps_ds[ll].isel(atrack=a, xtrack=x).values for a, x in [(0, 0), (0, -1), (-1, -1), (-1, 0)]
-            ]
-        # compute attributes (footprint, coverage, pixel_size)
-        corners = list(zip(footprint_dict['longitude'], footprint_dict['latitude']))
-        attrs['footprint'] = Polygon(corners)
-        # compute acquisition size/resolution in meters
-        # first vector is on xtrack
-        acq_xtrack_meters, _ = haversine(*corners[0], *corners[1])
-        # second vector is on atrack
-        acq_atrack_meters, _ = haversine(*corners[1], *corners[2])
-        pix_xtrack_meters = acq_xtrack_meters / rio.width
-        pix_atrack_meters = acq_atrack_meters / rio.height
-        attrs['coverage'] = "%dkm * %dkm (atrack * xtrack )" % (
-            acq_atrack_meters / 1000, acq_xtrack_meters / 1000)
-        attrs['pixel_xtrack_m'] = int(np.round(pix_xtrack_meters * 10)) / 10
-        attrs['pixel_atrack_m'] = int(np.round(pix_atrack_meters * 10)) / 10
-
-        gcps_ds.attrs = attrs
-        return gcps_ds
 
     def _get_time_range(self):
         if self.multidataset:
@@ -346,27 +253,13 @@ class Sentinel1Meta:
         """
         return self.safe_files[self.safe_files['dsid'] == self.name]
 
-    @property
-    def gcps(self):
-        """
-        get gcps from rasterio.
-
-        Returns
-        -------
-        xarray.DataArray
-             xarray.DataArray with atracks/xtracks coordinates, and gcps as values.
-             attrs is a dict with keys ['footprint', 'coverage', 'pixel_atrack_m', 'pixel_xtrack_m' ]
-        """
-        if self._gcps is None:
-            self._gcps = self._get_gcps()
-        return self._gcps
 
     @property
     def footprint(self):
         """footprint, as a shapely polygon or multi polygon"""
         if self.multidataset:
             return unary_union(self._footprints)
-        return self.gcps.attrs['footprint']
+        return self.geoloc.attrs['footprint']
 
     @property
     def geometry(self):
@@ -573,22 +466,31 @@ class Sentinel1Meta:
         """coverage, as a string like '251km * 170km (xtrack * atrack )'"""
         if self.multidataset:
             return None  # not defined for multidataset
-        return self.gcps.attrs['coverage']
+        return self.geoloc.attrs['coverage']
 
     @property
     def pixel_atrack_m(self):
         """pixel atrack spacing, in meters (at sensor level)"""
-        k = '%s_%s' % (self.swath, self.product)
         if self.multidataset:
-            return None  # not defined for multidataset
-        return self.gcps.attrs['pixel_atrack_m']
+            res = None  # not defined for multidataset
+        else:
+            if self.product == 'SLC':
+                res = self.image['slant_pixel_spacing'][0]
+            else:
+                res = self.image['ground_pixel_spacing'][0]
+        return res
 
     @property
     def pixel_xtrack_m(self):
         """pixel xtrack spacing, in meters (at sensor level)"""
         if self.multidataset:
-            return None  # not defined for multidataset
-        return self.gcps.attrs['pixel_xtrack_m']
+            res = None  # not defined for multidataset
+        else:
+            if self.product == 'SLC':
+                res = self.image['slant_pixel_spacing'][1]
+            else:
+                res = self.image['ground_pixel_spacing'][1]
+        return res
 
     @property
     def time_range(self):
@@ -634,7 +536,7 @@ class Sentinel1Meta:
     @property
     def cross_antemeridian(self):
         """True if footprint cross antemeridian"""
-        return ((np.max(self.gcps['longitude']) - np.min(self.gcps['longitude'])) > 180).item()
+        return ((np.max(self.geoloc['longitude']) - np.min(self.geoloc['longitude'])) > 180).item()
 
     @property
     def orbit(self):
@@ -697,15 +599,15 @@ class Sentinel1Meta:
             if self.cross_antemeridian is True, 'longitude' will be in range [0, 360]
         """
         resdict = {}
-        gcps = self.gcps
+        geoloc = self.geoloc
         if self.cross_antemeridian:
-            gcps['longitude'] = gcps['longitude'] % 360
+            geoloc['longitude'] = geoloc['longitude'] % 360
 
-        idx_xtrack = np.array(gcps.xtrack)
-        idx_atrack = np.array(gcps.atrack)
+        idx_xtrack = np.array(geoloc.xtrack)
+        idx_atrack = np.array(geoloc.atrack)
 
         for ll in ['longitude', 'latitude']:
-            resdict[ll] = RectBivariateSpline(idx_atrack, idx_xtrack, np.asarray(gcps[ll]), kx=1, ky=1)
+            resdict[ll] = RectBivariateSpline(idx_atrack, idx_xtrack, np.asarray(geoloc[ll]), kx=1, ky=1)
 
         return resdict
 
@@ -902,7 +804,7 @@ class Sentinel1Meta:
     @property
     def approx_transform(self):
         """
-        Affine transfom from gcps.
+        Affine transfom from geoloc.
 
         This is an inaccurate transform, with errors up to 600 meters.
         But it's fast, and may fit some needs, because the error is stable localy.
@@ -924,7 +826,7 @@ class Sentinel1Meta:
         xsar.Sentinel1Meta.ll2coords`
 
         """
-        return self.gcps.attrs['approx_transform']
+        return self.geoloc.attrs['approx_transform']
 
     def __repr__(self):
         if self.multidataset:

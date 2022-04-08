@@ -8,6 +8,7 @@ import xarray as xr
 import pandas as pd
 import geopandas as gpd
 import rasterio
+from rasterio.control import GroundControlPoint
 from scipy.interpolate import RectBivariateSpline, interp1d
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
@@ -307,6 +308,25 @@ class Sentinel1Meta:
             acq_atrack_meters, _ = haversine(*corners[1], *corners[2])
             self._geoloc.attrs['coverage'] = "%dkm * %dkm (atrack * xtrack )" % (
                 acq_atrack_meters / 1000, acq_xtrack_meters / 1000)
+            
+            # compute self._geoloc.attrs['approx_transform'], from gcps
+            # we need to convert self._geoloc to  a list of GroundControlPoint
+            def _to_rio_gcp(pt_geoloc):
+                # convert a point from self._geoloc grid to rasterio GroundControlPoint
+                return GroundControlPoint(
+                    x=pt_geoloc.longitude.item(),
+                    y=pt_geoloc.latitude.item(),
+                    z=pt_geoloc.altitude.item(),
+                    row=pt_geoloc.atrack.item(),
+                    col=pt_geoloc.xtrack.item()
+                )
+            rio_gcps = [
+                _to_rio_gcp(self._geoloc.sel(atrack=row, xtrack=col))
+                for row in  self._geoloc.atrack for col in self._geoloc.xtrack
+            ]
+            # approx transform, from all gcps (inaccurate)
+            approx_transform = rasterio.transform.from_gcps(rio_gcps)
+            self._geoloc.attrs['approx_transform'] = approx_transform
 
         return self._geoloc
 

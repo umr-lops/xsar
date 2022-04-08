@@ -969,6 +969,7 @@ class Sentinel1Dataset:
             lons = np.linspace(*lon_range, num=num)
             lats = np.linspace(*lat_range, num=num)
 
+            @dask.delayed
             def _map_raster2xsar(da):
                 # map the 'da' dataarray variable from the raster to xsar dataset
                 da = da.drop_vars(['spatial_ref', 'crs'], errors='ignore')
@@ -993,11 +994,16 @@ class Sentinel1Dataset:
             for var in raster_ds:
                 var_name = '%s_%s' % (name, raster_ds[var].name)
                 da_var = xr.DataArray(
-                    _map_raster2xsar(raster_ds[var]),
+                    dask.array.from_delayed(
+                        _map_raster2xsar(raster_ds[var]),
+                        self._da_tmpl.shape,
+                        dtype='f8',
+                        name='%s' % var_name
+                    ),
                     dims=['atrack', 'xtrack'],
                     coords={'atrack': self._da_tmpl.atrack, 'xtrack': self._da_tmpl.xtrack},
                     attrs=raster_ds[var].attrs
-                )
+                ).chunk(self._da_tmpl.chunks)
                 da_var.attrs['history'] = yaml.safe_dump({var_name: hist_res})
                 logger.debug('adding variable "%s" from raster "%s"' % (var_name, name))
                 da_var_list.append(da_var)

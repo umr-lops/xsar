@@ -4,8 +4,6 @@ import warnings
 import numpy as np
 from scipy.interpolate import RectBivariateSpline
 import xarray as xr
-import pandas as pd
-import geopandas as gpd
 import dask
 import rasterio
 import rasterio.features
@@ -20,7 +18,6 @@ from affine import Affine
 from .sentinel1_meta import Sentinel1Meta
 from .ipython_backends import repr_mimebundle
 import yaml
-import os
 
 logger = logging.getLogger('xsar.sentinel1_dataset')
 logger.addHandler(logging.NullHandler())

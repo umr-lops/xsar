@@ -1068,8 +1068,7 @@ class Sentinel1Meta:
         """
         if self.multidataset:
             blocks_list = []
-            subswath_labels = [uu.split(':')[2] for uu in self.subdatasets]
-            for ss,subswath in enumerate(self.subdatasets):
+            for subswath in self.subdatasets:
                 metasub = Sentinel1Meta(subswath)
                 block = metasub.bursts(only_valid_location=only_valid_location)
                 block['subswath'] = metasub.dsid

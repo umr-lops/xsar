@@ -1067,18 +1067,18 @@ class Sentinel1Meta:
 
         """
         if self.multidataset:
-            blocks = None
+            blocks_list = []
+            subswath_labels = [uu.split(':')[2] for uu in self.subdatasets]
             for ss,subswath in enumerate(self.subdatasets):
                 metasub = Sentinel1Meta(subswath)
                 new_block = metasub.bursts()
                 new_index = new_block.index
-                new_index = zip(new_index,np.ones((len(new_block)))*ss)
-                new_index = pd.MultiIndex.from_tuples(new_index, names=["burst", "subswath"])
+                new_index = zip(np.tile(subswath_labels[ss],(len(new_block))),new_index)
+                new_index = pd.MultiIndex.from_tuples(new_index, names=["subswath","burst"])
                 new_block.index = new_index
-                if blocks is None:
-                    blocks = new_block
-                else:
-                    blocks = pd.concat([blocks,new_block])
+                blocks_list.append(new_block)
+            blocks = pd.concat(blocks_list)
+            blocks.index.name = 'burst'
         else:
             burst_list = self._bursts
             if burst_list['burst'].size == 0:
@@ -1103,4 +1103,5 @@ class Sentinel1Meta:
                 blocks = pd.concat(bursts, axis=1).T
                 blocks = gpd.GeoDataFrame(blocks)
                 blocks['geometry'] = blocks['geometry_image'].apply(self.coords2ll)
+                blocks.index.name = 'burst'
         return blocks

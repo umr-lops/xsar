@@ -1071,14 +1071,11 @@ class Sentinel1Meta:
             subswath_labels = [uu.split(':')[2] for uu in self.subdatasets]
             for ss,subswath in enumerate(self.subdatasets):
                 metasub = Sentinel1Meta(subswath)
-                new_block = metasub.bursts()
-                new_index = new_block.index
-                new_index = zip(np.tile(subswath_labels[ss],(len(new_block))),new_index)
-                new_index = pd.MultiIndex.from_tuples(new_index, names=["subswath","burst"])
-                new_block.index = new_index
-                blocks_list.append(new_block)
+                block = metasub.bursts(only_valid_location=only_valid_location)
+                block['subswath'] = metasub.dsid
+                block = block.set_index('subswath', append=True).reorder_levels(['subswath', 'burst'])
+                blocks_list.append(block)
             blocks = pd.concat(blocks_list)
-            blocks.index.name = 'burst'
         else:
             burst_list = self._bursts
             if burst_list['burst'].size == 0:

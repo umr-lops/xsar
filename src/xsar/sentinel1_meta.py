@@ -1066,28 +1066,38 @@ class Sentinel1Meta:
             'geometry' is the polygon
 
         """
-        burst_list = self._bursts
-        if burst_list['burst'].size == 0:
-            blocks = gpd.GeoDataFrame()
+        if self.multidataset:
+            blocks_list = []
+            for subswath in self.subdatasets:
+                metasub = Sentinel1Meta(subswath)
+                block = metasub.bursts(only_valid_location=only_valid_location)
+                block['subswath'] = metasub.dsid
+                block = block.set_index('subswath', append=True).reorder_levels(['subswath', 'burst'])
+                blocks_list.append(block)
+            blocks = pd.concat(blocks_list)
         else:
-            bursts = []
-            bursts_az_inds = {}
-            inds_burst, geoloc_azitime, geoloc_iburst, geoloc_line = self._get_indices_bursts()
-            for burst_ind, uu in enumerate(np.unique(inds_burst)):
-                if only_valid_location:
-                    extent = np.copy(burst_list['valid_location'].values[burst_ind, :])
-                    area = box(extent[0], extent[1], extent[2], extent[3])
+            burst_list = self._bursts
+            if burst_list['burst'].size == 0:
+                blocks = gpd.GeoDataFrame()
+            else:
+                bursts = []
+                bursts_az_inds = {}
+                inds_burst, geoloc_azitime, geoloc_iburst, geoloc_line = self._get_indices_bursts()
+                for burst_ind, uu in enumerate(np.unique(inds_burst)):
+                    if only_valid_location:
+                        extent = np.copy(burst_list['valid_location'].values[burst_ind, :])
+                        area = box(extent[0], extent[1], extent[2], extent[3])
 
-                else:
-                    inds_one_val = np.where(inds_burst == uu)[0]
-                    bursts_az_inds[uu] = inds_one_val
-                    area = box(bursts_az_inds[burst_ind][0], 0, bursts_az_inds[burst_ind][-1], self.image['shape'][1])
-                    # area = box(bursts_az_inds[burst_ind][0], self._dataset.xtrack[0], bursts_az_inds[burst_ind][-1],
-                    #            self._dataset.xtrack[-1])
-                burst = pd.Series(dict([
-                    ('geometry', area)]))
-                bursts.append(burst)
-            # to geopandas
-            blocks = pd.concat(bursts, axis=1).T
-            blocks = gpd.GeoDataFrame(blocks)
+                    else:
+                        inds_one_val = np.where(inds_burst == uu)[0]
+                        bursts_az_inds[uu] = inds_one_val
+                        area = box(bursts_az_inds[burst_ind][0], 0, bursts_az_inds[burst_ind][-1], self.image['shape'][1])
+                    burst = pd.Series(dict([
+                        ('geometry_image', area)]))
+                    bursts.append(burst)
+                # to geopandas
+                blocks = pd.concat(bursts, axis=1).T
+                blocks = gpd.GeoDataFrame(blocks)
+                blocks['geometry'] = blocks['geometry_image'].apply(self.coords2ll)
+                blocks.index.name = 'burst'
         return blocks

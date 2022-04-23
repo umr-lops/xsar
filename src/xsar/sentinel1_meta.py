@@ -8,6 +8,7 @@ import xarray as xr
 import pandas as pd
 import geopandas as gpd
 import rasterio
+from rasterio.control import GroundControlPoint
 from scipy.interpolate import RectBivariateSpline, interp1d
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
@@ -415,6 +416,27 @@ class Sentinel1Meta:
             self._geoloc.attrs['coverage'] = "%dkm * %dkm (atrack * xtrack )" % (
                 acq_atrack_meters / 1000, acq_xtrack_meters / 1000)
 
+            # compute self._geoloc.attrs['approx_transform'], from gcps
+            # we need to convert self._geoloc to  a list of GroundControlPoint
+            def _to_rio_gcp(pt_geoloc):
+                # convert a point from self._geoloc grid to rasterio GroundControlPoint
+                return GroundControlPoint(
+                    x=pt_geoloc.longitude.item(),
+                    y=pt_geoloc.latitude.item(),
+                    z=pt_geoloc.altitude.item(),
+                    row=pt_geoloc.atrack.item(),
+                    col=pt_geoloc.xtrack.item()
+                )
+            rio_gcps = [
+                _to_rio_gcp(self._geoloc.sel(atrack=row, xtrack=col))
+                for row in  self._geoloc.atrack for col in self._geoloc.xtrack
+            ]
+            # approx transform, from all gcps (inaccurate)
+            approx_transform = rasterio.transform.from_gcps(rio_gcps)
+            self._geoloc.attrs['approx_transform'] = approx_transform
+
+
+
         return self._geoloc
 
     @property
@@ -786,7 +808,7 @@ class Sentinel1Meta:
 
         return lon, lat
 
-    def ll2coords(self, *args, dataset=None):
+    def ll2coords(self, *args):
         """
         Get `(atracks, xtracks)` from `(lon, lat)`,
         or convert a lon/lat shapely shapely object to atrack/xtrack coordinates.
@@ -815,10 +837,6 @@ class Sentinel1Meta:
 
         """
 
-        if dataset is not None:
-            ### FIXME remove deprecation
-            warnings.warn("dataset kw is deprecated. See xsar.Sentinel1Dataset.ll2coords")
-
         if isinstance(args[0], shapely.geometry.base.BaseGeometry):
             return self._ll2coords_shapely(args[0])
 
@@ -842,24 +860,6 @@ class Sentinel1Meta:
             scalar = False
         else:
             scalar = True
-
-        if dataset is not None:
-            # xtrack, atrack are float coordinates.
-            # try to convert them to the nearest coordinates in dataset
-            if not self.have_child(dataset.attrs['name']):
-                raise ValueError("dataset %s is not a child of meta %s" % (dataset.attrs['name'], self.name))
-            tolerance = np.max([np.percentile(np.diff(dataset[c].values), 90) / 2 for c in ['atrack', 'xtrack']]) + 1
-            try:
-                # select the nearest valid pixel in ds
-                ds_nearest = dataset.sel(atrack=atrack, xtrack=xtrack, method='nearest', tolerance=tolerance)
-                if scalar:
-                    (atrack, xtrack) = (ds_nearest.atrack.values.item(), ds_nearest.xtrack.values.item())
-                else:
-                    (atrack, xtrack) = (ds_nearest.atrack.values, ds_nearest.xtrack.values)
-            except KeyError:
-                # out of bounds, because of `tolerance` keyword
-                # if ds is resampled, tolerance should be computed from resolution/2 (for ex 5 for a resolution of 10)
-                (atrack, xtrack) = (atrack * np.nan, xtrack * np.nan)
 
         return atrack, xtrack
 

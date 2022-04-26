@@ -92,15 +92,19 @@ class Sentinel1Meta:
         self.safe = os.path.basename(self.path)
         """Safe file name"""
         # there is no information on resolution 'F' 'H' or 'M' in the manifest, so we have to extract it from filename
-        self.product = os.path.basename(self.path).split('_')[2]
+        try:
+            self.product = os.path.basename(self.path).split('_')[2]
+        except:
+            print("path: %s" % self.path)
+            self.product = "XXX"
         """Product type, like 'GRDH', 'SLC', etc .."""
         self.manifest = os.path.join(self.path, 'manifest.safe')
         self.manifest_attrs = self.xml_parser.get_compound_var(self.manifest, 'safe_attributes')
         self._safe_files = None
         self.multidataset = False
         """True if multi dataset"""
-        self.subdatasets = []
-        """Subdatasets list (empty if single dataset)"""
+        self.subdatasets = gpd.GeoDataFrame(geometry=[], index=[])
+        """Subdatasets as GeodataFrame (empty if single dataset)"""
         datasets_names = list(self.safe_files['dsid'].sort_index().unique())
         if self.name.endswith(':') and len(datasets_names) == 1:
             self.name = datasets_names[0]
@@ -109,7 +113,12 @@ class Sentinel1Meta:
         if self.short_name.endswith(':'):
             self.short_name = self.short_name + self.dsid
         if self.files.empty:
-            self.subdatasets = datasets_names
+            try:
+                self.subdatasets = gpd.GeoDataFrame(geometry=self.manifest_attrs['footprints'], index=datasets_names)
+            except ValueError:
+                # not as many footprints than subdatasets count. (probably TOPS product)
+                sub_footprints = [ Sentinel1Meta(subds).footprint for subds in datasets_names ]
+                self.subdatasets = gpd.GeoDataFrame(geometry=sub_footprints, index=datasets_names)
             self.multidataset = True
 
         self.platform = self.manifest_attrs['mission'] + self.manifest_attrs['satellite']
@@ -144,7 +153,7 @@ class Sentinel1Meta:
         -------
         bool
         """
-        return name == self.name or name in self.subdatasets
+        return name == self.name or name in self.subdatasets.index
 
     def _get_gcps(self):
         rio = rasterio.open(self.files['measurement'].iloc[0])
@@ -1068,7 +1077,7 @@ class Sentinel1Meta:
         """
         if self.multidataset:
             blocks_list = []
-            for subswath in self.subdatasets:
+            for subswath in self.subdatasets.index:
                 metasub = Sentinel1Meta(subswath)
                 block = metasub.bursts(only_valid_location=only_valid_location)
                 block['subswath'] = metasub.dsid

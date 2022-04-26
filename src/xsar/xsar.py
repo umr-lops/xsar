@@ -155,7 +155,7 @@ def product_info(path, columns='minimal', include_multi=False, _xml_parser=None)
         elif not s1meta.multidataset:
             df_list.append(_meta2df(s1meta))
         if s1meta.multidataset:
-            for n in s1meta.subdatasets:
+            for n in s1meta.subdatasets.index:
                 s1meta = Sentinel1Meta(n)
                 df_list.append(_meta2df(s1meta))
     df = pd.concat(df_list).reset_index(drop=True)

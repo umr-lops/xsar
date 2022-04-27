@@ -110,6 +110,9 @@ class Sentinel1Meta:
             self.name = datasets_names[0]
         self.dsid = self.name.split(':')[-1]
         """Dataset identifier (like 'WV_001', 'IW1', 'IW'), or empty string for multidataset"""
+        # submeta is a list of submeta objects if multidataset and TOPS
+        # this list will remain empty for _WV__SLC because it will be time-consuming to process them
+        self._submeta = []
         if self.short_name.endswith(':'):
             self.short_name = self.short_name + self.dsid
         if self.files.empty:
@@ -117,7 +120,8 @@ class Sentinel1Meta:
                 self.subdatasets = gpd.GeoDataFrame(geometry=self.manifest_attrs['footprints'], index=datasets_names)
             except ValueError:
                 # not as many footprints than subdatasets count. (probably TOPS product)
-                sub_footprints = [ Sentinel1Meta(subds).footprint for subds in datasets_names ]
+                self._submeta = [ Sentinel1Meta(subds) for subds in datasets_names ]
+                sub_footprints = [ submeta.footprint for submeta in self._submeta ]
                 self.subdatasets = gpd.GeoDataFrame(geometry=sub_footprints, index=datasets_names)
             self.multidataset = True
 
@@ -1077,10 +1081,10 @@ class Sentinel1Meta:
         """
         if self.multidataset:
             blocks_list = []
-            for subswath in self.subdatasets.index:
-                metasub = Sentinel1Meta(subswath)
-                block = metasub.bursts(only_valid_location=only_valid_location)
-                block['subswath'] = metasub.dsid
+            # for subswath in self.subdatasets.index:
+            for submeta in self._submeta:
+                block = submeta.bursts(only_valid_location=only_valid_location)
+                block['subswath'] = submeta.dsid
                 block = block.set_index('subswath', append=True).reorder_levels(['subswath', 'burst'])
                 blocks_list.append(block)
             blocks = pd.concat(blocks_list)

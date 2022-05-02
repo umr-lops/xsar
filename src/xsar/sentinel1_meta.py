@@ -330,36 +330,16 @@ class Sentinel1Meta:
                     x=pt_geoloc.longitude.item(),
                     y=pt_geoloc.latitude.item(),
                     z=pt_geoloc.altitude.item(),
-                    row=pt_geoloc.atrack.item(),
-                    col=pt_geoloc.xtrack.item()
+                    col=pt_geoloc.atrack.item(),
+                    row=pt_geoloc.xtrack.item()
                 )
             rio_gcps = [
-                _to_rio_gcp(self._geoloc.sel(atrack=row, xtrack=col))
-                for row in  self._geoloc.atrack for col in self._geoloc.xtrack
+                _to_rio_gcp(self._geoloc.sel(atrack=atrack, xtrack=xtrack))
+                for atrack in  self._geoloc.atrack for xtrack in self._geoloc.xtrack
             ]
             # approx transform, from all gcps (inaccurate)
             approx_transform = rasterio.transform.from_gcps(rio_gcps)
             self._geoloc.attrs['approx_transform'] = approx_transform
-
-            # compute self._geoloc.attrs['approx_transform'], from gcps
-            # we need to convert self._geoloc to  a list of GroundControlPoint
-            def _to_rio_gcp(pt_geoloc):
-                # convert a point from self._geoloc grid to rasterio GroundControlPoint
-                return GroundControlPoint(
-                    x=pt_geoloc.longitude.item(),
-                    y=pt_geoloc.latitude.item(),
-                    z=pt_geoloc.altitude.item(),
-                    row=pt_geoloc.atrack.item(),
-                    col=pt_geoloc.xtrack.item()
-                )
-            rio_gcps = [
-                _to_rio_gcp(self._geoloc.sel(atrack=row, xtrack=col))
-                for row in  self._geoloc.atrack for col in self._geoloc.xtrack
-            ]
-            # approx transform, from all gcps (inaccurate)
-            approx_transform = rasterio.transform.from_gcps(rio_gcps)
-            self._geoloc.attrs['approx_transform'] = approx_transform
-
 
 
         return self._geoloc
@@ -528,10 +508,7 @@ class Sentinel1Meta:
         if self.multidataset:
             res = None  # not defined for multidataset
         else:
-            if self.product == 'SLC':
-                res = self.image['slant_pixel_spacing'][0]
-            else:
-                res = self.image['ground_pixel_spacing'][0]
+            res = self.image['ground_pixel_spacing'][0]
         return res
 
     @property
@@ -540,10 +517,7 @@ class Sentinel1Meta:
         if self.multidataset:
             res = None  # not defined for multidataset
         else:
-            if self.product == 'SLC':
-                res = self.image['slant_pixel_spacing'][1]
-            else:
-                res = self.image['ground_pixel_spacing'][1]
+            res = self.image['ground_pixel_spacing'][1]
         return res
 
     @property

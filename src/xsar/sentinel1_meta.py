@@ -92,24 +92,37 @@ class Sentinel1Meta:
         self.safe = os.path.basename(self.path)
         """Safe file name"""
         # there is no information on resolution 'F' 'H' or 'M' in the manifest, so we have to extract it from filename
-        self.product = os.path.basename(self.path).split('_')[2]
+        try:
+            self.product = os.path.basename(self.path).split('_')[2]
+        except:
+            print("path: %s" % self.path)
+            self.product = "XXX"
         """Product type, like 'GRDH', 'SLC', etc .."""
         self.manifest = os.path.join(self.path, 'manifest.safe')
         self.manifest_attrs = self.xml_parser.get_compound_var(self.manifest, 'safe_attributes')
         self._safe_files = None
         self.multidataset = False
         """True if multi dataset"""
-        self.subdatasets = []
-        """Subdatasets list (empty if single dataset)"""
+        self.subdatasets = gpd.GeoDataFrame(geometry=[], index=[])
+        """Subdatasets as GeodataFrame (empty if single dataset)"""
         datasets_names = list(self.safe_files['dsid'].sort_index().unique())
         if self.name.endswith(':') and len(datasets_names) == 1:
             self.name = datasets_names[0]
         self.dsid = self.name.split(':')[-1]
         """Dataset identifier (like 'WV_001', 'IW1', 'IW'), or empty string for multidataset"""
+        # submeta is a list of submeta objects if multidataset and TOPS
+        # this list will remain empty for _WV__SLC because it will be time-consuming to process them
+        self._submeta = []
         if self.short_name.endswith(':'):
             self.short_name = self.short_name + self.dsid
         if self.files.empty:
-            self.subdatasets = datasets_names
+            try:
+                self.subdatasets = gpd.GeoDataFrame(geometry=self.manifest_attrs['footprints'], index=datasets_names)
+            except ValueError:
+                # not as many footprints than subdatasets count. (probably TOPS product)
+                self._submeta = [ Sentinel1Meta(subds) for subds in datasets_names ]
+                sub_footprints = [ submeta.footprint for submeta in self._submeta ]
+                self.subdatasets = gpd.GeoDataFrame(geometry=sub_footprints, index=datasets_names)
             self.multidataset = True
 
         self.platform = self.manifest_attrs['mission'] + self.manifest_attrs['satellite']
@@ -143,7 +156,7 @@ class Sentinel1Meta:
         -------
         bool
         """
-        return name == self.name or name in self.subdatasets
+        return name == self.name or name in self.subdatasets.index
 
 
     def _get_time_range(self):
@@ -327,6 +340,27 @@ class Sentinel1Meta:
             # approx transform, from all gcps (inaccurate)
             approx_transform = rasterio.transform.from_gcps(rio_gcps)
             self._geoloc.attrs['approx_transform'] = approx_transform
+
+            # compute self._geoloc.attrs['approx_transform'], from gcps
+            # we need to convert self._geoloc to  a list of GroundControlPoint
+            def _to_rio_gcp(pt_geoloc):
+                # convert a point from self._geoloc grid to rasterio GroundControlPoint
+                return GroundControlPoint(
+                    x=pt_geoloc.longitude.item(),
+                    y=pt_geoloc.latitude.item(),
+                    z=pt_geoloc.altitude.item(),
+                    row=pt_geoloc.atrack.item(),
+                    col=pt_geoloc.xtrack.item()
+                )
+            rio_gcps = [
+                _to_rio_gcp(self._geoloc.sel(atrack=row, xtrack=col))
+                for row in  self._geoloc.atrack for col in self._geoloc.xtrack
+            ]
+            # approx transform, from all gcps (inaccurate)
+            approx_transform = rasterio.transform.from_gcps(rio_gcps)
+            self._geoloc.attrs['approx_transform'] = approx_transform
+
+
 
         return self._geoloc
 
@@ -708,7 +742,7 @@ class Sentinel1Meta:
 
         return lon, lat
 
-    def ll2coords(self, *args, dataset=None):
+    def ll2coords(self, *args):
         """
         Get `(atracks, xtracks)` from `(lon, lat)`,
         or convert a lon/lat shapely shapely object to atrack/xtrack coordinates.
@@ -737,10 +771,6 @@ class Sentinel1Meta:
 
         """
 
-        if dataset is not None:
-            ### FIXME remove deprecation
-            warnings.warn("dataset kw is deprecated. See xsar.Sentinel1Dataset.ll2coords")
-
         if isinstance(args[0], shapely.geometry.base.BaseGeometry):
             return self._ll2coords_shapely(args[0])
 
@@ -764,24 +794,6 @@ class Sentinel1Meta:
             scalar = False
         else:
             scalar = True
-
-        if dataset is not None:
-            # xtrack, atrack are float coordinates.
-            # try to convert them to the nearest coordinates in dataset
-            if not self.have_child(dataset.attrs['name']):
-                raise ValueError("dataset %s is not a child of meta %s" % (dataset.attrs['name'], self.name))
-            tolerance = np.max([np.percentile(np.diff(dataset[c].values), 90) / 2 for c in ['atrack', 'xtrack']]) + 1
-            try:
-                # select the nearest valid pixel in ds
-                ds_nearest = dataset.sel(atrack=atrack, xtrack=xtrack, method='nearest', tolerance=tolerance)
-                if scalar:
-                    (atrack, xtrack) = (ds_nearest.atrack.values.item(), ds_nearest.xtrack.values.item())
-                else:
-                    (atrack, xtrack) = (ds_nearest.atrack.values, ds_nearest.xtrack.values)
-            except KeyError:
-                # out of bounds, because of `tolerance` keyword
-                # if ds is resampled, tolerance should be computed from resolution/2 (for ex 5 for a resolution of 10)
-                (atrack, xtrack) = (atrack * np.nan, xtrack * np.nan)
 
         return atrack, xtrack
 
@@ -988,28 +1000,38 @@ class Sentinel1Meta:
             'geometry' is the polygon
 
         """
-        burst_list = self._bursts
-        if burst_list['burst'].size == 0:
-            blocks = gpd.GeoDataFrame()
+        if self.multidataset:
+            blocks_list = []
+            # for subswath in self.subdatasets.index:
+            for submeta in self._submeta:
+                block = submeta.bursts(only_valid_location=only_valid_location)
+                block['subswath'] = submeta.dsid
+                block = block.set_index('subswath', append=True).reorder_levels(['subswath', 'burst'])
+                blocks_list.append(block)
+            blocks = pd.concat(blocks_list)
         else:
-            bursts = []
-            bursts_az_inds = {}
-            inds_burst, geoloc_azitime, geoloc_iburst, geoloc_line = self._get_indices_bursts()
-            for burst_ind, uu in enumerate(np.unique(inds_burst)):
-                if only_valid_location:
-                    extent = np.copy(burst_list['valid_location'].values[burst_ind, :])
-                    area = box(extent[0], extent[1], extent[2], extent[3])
+            burst_list = self._bursts
+            if burst_list['burst'].size == 0:
+                blocks = gpd.GeoDataFrame()
+            else:
+                bursts = []
+                bursts_az_inds = {}
+                inds_burst, geoloc_azitime, geoloc_iburst, geoloc_line = self._get_indices_bursts()
+                for burst_ind, uu in enumerate(np.unique(inds_burst)):
+                    if only_valid_location:
+                        extent = np.copy(burst_list['valid_location'].values[burst_ind, :])
+                        area = box(extent[0], extent[1], extent[2], extent[3])
 
-                else:
-                    inds_one_val = np.where(inds_burst == uu)[0]
-                    bursts_az_inds[uu] = inds_one_val
-                    area = box(bursts_az_inds[burst_ind][0], 0, bursts_az_inds[burst_ind][-1], self.image['shape'][1])
-                    # area = box(bursts_az_inds[burst_ind][0], self._dataset.xtrack[0], bursts_az_inds[burst_ind][-1],
-                    #            self._dataset.xtrack[-1])
-                burst = pd.Series(dict([
-                    ('geometry', area)]))
-                bursts.append(burst)
-            # to geopandas
-            blocks = pd.concat(bursts, axis=1).T
-            blocks = gpd.GeoDataFrame(blocks)
+                    else:
+                        inds_one_val = np.where(inds_burst == uu)[0]
+                        bursts_az_inds[uu] = inds_one_val
+                        area = box(bursts_az_inds[burst_ind][0], 0, bursts_az_inds[burst_ind][-1], self.image['shape'][1])
+                    burst = pd.Series(dict([
+                        ('geometry_image', area)]))
+                    bursts.append(burst)
+                # to geopandas
+                blocks = pd.concat(bursts, axis=1).T
+                blocks = gpd.GeoDataFrame(blocks)
+                blocks['geometry'] = blocks['geometry_image'].apply(self.coords2ll)
+                blocks.index.name = 'burst'
         return blocks

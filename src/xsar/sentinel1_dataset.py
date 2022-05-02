@@ -4,8 +4,6 @@ import warnings
 import numpy as np
 from scipy.interpolate import RectBivariateSpline
 import xarray as xr
-import pandas as pd
-import geopandas as gpd
 import dask
 import rasterio
 import rasterio.features
@@ -20,7 +18,6 @@ from affine import Affine
 from .sentinel1_meta import Sentinel1Meta
 from .ipython_backends import repr_mimebundle
 import yaml
-import os
 
 logger = logging.getLogger('xsar.sentinel1_dataset')
 logger.addHandler(logging.NullHandler())
@@ -268,12 +265,13 @@ class Sentinel1Dataset:
             else:
                 logger.debug("Skipping variable '%s' ('%s' lut is missing)" % (var_name, lut_name))
 
+        self._dataset = self._dataset.merge(self._load_from_geoloc(['altitude', 'azimuth_time', 'slant_range_time',
+                                                                    'incidence', 'elevation', 'longitude', 'latitude']))
+
         rasters = self._load_rasters_vars()
         if rasters is not None:
             self._dataset = xr.merge([self._dataset, rasters])
 
-        self._dataset = self._dataset.merge(self._load_from_geoloc(['altitude', 'azimuth_time', 'slant_range_time',
-                                                                    'incidence', 'elevation', 'longitude', 'latitude']))
         self._dataset = self._dataset.merge(self._get_sensor_velocity())
         self._dataset = self._dataset.merge(self._range_ground_spacing())
         self._dataset = self._add_denoised(self._dataset)

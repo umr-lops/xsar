@@ -4,8 +4,6 @@ import warnings
 import numpy as np
 from scipy.interpolate import RectBivariateSpline
 import xarray as xr
-import pandas as pd
-import geopandas as gpd
 import dask
 import rasterio
 import rasterio.features
@@ -20,7 +18,6 @@ from affine import Affine
 from .sentinel1_meta import Sentinel1Meta
 from .ipython_backends import repr_mimebundle
 import yaml
-import os
 
 logger = logging.getLogger('xsar.sentinel1_dataset')
 logger.addHandler(logging.NullHandler())
@@ -268,12 +265,13 @@ class Sentinel1Dataset:
             else:
                 logger.debug("Skipping variable '%s' ('%s' lut is missing)" % (var_name, lut_name))
 
+        self._dataset = self._dataset.merge(self._load_from_geoloc(['altitude', 'azimuth_time', 'slant_range_time',
+                                                                    'incidence', 'elevation', 'longitude', 'latitude']))
+
         rasters = self._load_rasters_vars()
         if rasters is not None:
             self._dataset = xr.merge([self._dataset, rasters])
 
-        self._dataset = self._dataset.merge(self._load_from_geoloc(['altitude', 'azimuth_time', 'slant_range_time',
-                                                                    'incidence', 'elevation', 'longitude', 'latitude']))
         self._dataset = self._dataset.merge(self._get_sensor_velocity())
         self._dataset = self._dataset.merge(self._range_ground_spacing())
         self._dataset = self._add_denoised(self._dataset)
@@ -782,41 +780,6 @@ class Sentinel1Dataset:
 
         return xr.merge(da_list)
 
-    @timing
-    def _load_lon_lat(self):
-        """
-        Load longitude and latitude using `self.s1meta.gcps`.
-        Returns
-        -------
-        tuple xarray.Dataset
-            xarray.Dataset:
-                dataset with `longitude` and `latitude` variables, with same shape as mono-pol digital_number.
-        """
-        raise DeprecationWarning('this method is deprecated replaced by _load_from_geoloc()')
-
-        def coords2ll(*args):
-            # *args[1:] to skip dummy 'll' dimension
-            return np.stack(self.s1meta.coords2ll(*args[1:], to_grid=True))
-
-        ll_coords = ['longitude', 'latitude']
-        # ll_tmpl is like self._da_tmpl stacked 2 times (for both longitude and latitude)
-        ll_tmpl = self._da_tmpl.expand_dims({'ll': 2}).assign_coords(ll=ll_coords).astype(self._dtypes['longitude'])
-        ll_ds = map_blocks_coords(ll_tmpl, coords2ll, name='blocks_lonlat')
-        # remove ll_coords to have two separate variables longitude and latitude
-        ll_ds = xr.merge([ll_ds.sel(ll=ll).drop_vars(['ll']).rename(ll) for ll in ll_coords])
-
-        ll_ds.longitude.attrs = {
-            'long_name': 'longitude',
-            'units': 'degrees_east',
-            'standard_name': 'longitude'
-        }
-
-        ll_ds.latitude.attrs = {
-            'long_name': 'latitude',
-            'units': 'degrees_north',
-            'standard_name': 'latitude'
-        }
-        return ll_ds
 
     @timing
     def _load_ground_heading(self):

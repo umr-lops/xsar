@@ -104,7 +104,7 @@ Last documentation build: |today|
 
    basic_api
 
-.. _on github: https://github.com/oarcher/xsar
+.. _on github: https://github.com/umr-lops/xsar
 .. _xarray: http://xarray.pydata.org
 .. _dask: http://dask.org
 .. _xarray.open_dataset: http://xarray.pydata.org/en/stable/generated/xarray.open_dataset.html

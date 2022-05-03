@@ -333,13 +333,13 @@ class Sentinel1Meta:
                     col=pt_geoloc.atrack.item(),
                     row=pt_geoloc.xtrack.item()
                 )
-            rio_gcps = [
+
+            self._geoloc.attrs['gcps'] = [
                 _to_rio_gcp(self._geoloc.sel(atrack=atrack, xtrack=xtrack))
                 for atrack in  self._geoloc.atrack for xtrack in self._geoloc.xtrack
             ]
             # approx transform, from all gcps (inaccurate)
-            approx_transform = rasterio.transform.from_gcps(rio_gcps)
-            self._geoloc.attrs['approx_transform'] = approx_transform
+            self._geoloc.attrs['approx_transform'] = rasterio.transform.from_gcps(self._geoloc.attrs['gcps'])
 
 
         return self._geoloc
@@ -855,7 +855,6 @@ class Sentinel1Meta:
         # return a minimal dictionary that can be used with Sentinel1Meta.from_dict() or pickle (see __reduce__)
         # to reconstruct another instance of self
         #
-        # TODO: find a way to get self.footprint and self.gcps. ( speed optimisation )
         minidict = {
             'name': self.name,
             '_mask_features_raw': self._mask_features_raw,

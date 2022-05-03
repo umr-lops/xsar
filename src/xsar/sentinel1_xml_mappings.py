@@ -122,6 +122,7 @@ xpath_mappings = {
         }
     },
     'annotation': {
+        'product_type': (scalar, '/product/adsHeader/productType'),
         'swath_subswath': (scalar, '/product/adsHeader/swath'),
         'atrack': (uniq_sorted, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/line'),
         'xtrack': (uniq_sorted, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/pixel'),
@@ -474,15 +475,20 @@ def azimuth_fmrate(azimuthtime, t0, c0, c1, c2, polynomial):
     return res
 
 
-def image(atrack_time_range, atrack_size, xtrack_size, incidence_angle_mid_swath, azimuth_time_interval,
+def image(product_type, atrack_time_range, atrack_size, xtrack_size, incidence_angle_mid_swath, azimuth_time_interval,
           slant_range_time_image, azimuthPixelSpacing, rangePixelSpacing, swath_subswath, radar_frequency,
           range_sampling_rate, azimuth_steering_rate):
+    if product_type == 'SLC':
+        pixel_xtrack_m = rangePixelSpacing / np.sin(np.radians(incidence_angle_mid_swath))
+    else:
+        pixel_xtrack_m = rangePixelSpacing
     return {
         'atrack_time_range': atrack_time_range,
         'shape': (atrack_size, xtrack_size),
         'slant_pixel_spacing': (azimuthPixelSpacing, rangePixelSpacing),
-        'ground_pixel_spacing': (
-            azimuthPixelSpacing, rangePixelSpacing / np.sin(np.radians(incidence_angle_mid_swath))),
+        'pixel_xtrack_m': pixel_xtrack_m,
+        'pixel_atrack_m': azimuthPixelSpacing,
+        'ground_pixel_spacing': (azimuthPixelSpacing, pixel_xtrack_m),
         'incidence_angle_mid_swath': incidence_angle_mid_swath,
         'azimuth_time_interval': azimuth_time_interval,
         'slant_range_time_image': slant_range_time_image,
@@ -656,22 +662,6 @@ compounds_vars = {
         'func': geolocation_grid,
         'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.elevation')
     },
-    'incidence_2': {
-        'func': geolocation_grid,
-        'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.incidence')
-    },
-    'elevation_2': {
-        'func': geolocation_grid,
-        'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.elevation')
-    },
-    'incidence_gcp': {
-        'func': annotation_angle,
-        'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.incidence')
-    },
-    'elevation_gcp': {
-        'func': annotation_angle,
-        'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.elevation')
-    },
     'longitude': {
         'func': geolocation_grid,
         'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.longitude')
@@ -712,7 +702,7 @@ compounds_vars = {
     },
     'image': {
         'func': image,
-        'args': ('annotation.atrack_time_range', 'annotation.atrack_size', 'annotation.xtrack_size',
+        'args': ('annotation.product_type','annotation.atrack_time_range', 'annotation.atrack_size', 'annotation.xtrack_size',
                  'annotation.incidence_angle_mid_swath', 'annotation.azimuth_time_interval',
                  'annotation.slant_range_time_image', 'annotation.azimuthPixelSpacing', 'annotation.rangePixelSpacing',
                  'annotation.swath_subswath', 'annotation.radar_frequency', 'annotation.range_sampling_rate',

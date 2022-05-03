@@ -780,41 +780,6 @@ class Sentinel1Dataset:
 
         return xr.merge(da_list)
 
-    @timing
-    def _load_lon_lat(self):
-        """
-        Load longitude and latitude using `self.s1meta.gcps`.
-        Returns
-        -------
-        tuple xarray.Dataset
-            xarray.Dataset:
-                dataset with `longitude` and `latitude` variables, with same shape as mono-pol digital_number.
-        """
-        raise DeprecationWarning('this method is deprecated replaced by _load_from_geoloc()')
-
-        def coords2ll(*args):
-            # *args[1:] to skip dummy 'll' dimension
-            return np.stack(self.s1meta.coords2ll(*args[1:], to_grid=True))
-
-        ll_coords = ['longitude', 'latitude']
-        # ll_tmpl is like self._da_tmpl stacked 2 times (for both longitude and latitude)
-        ll_tmpl = self._da_tmpl.expand_dims({'ll': 2}).assign_coords(ll=ll_coords).astype(self._dtypes['longitude'])
-        ll_ds = map_blocks_coords(ll_tmpl, coords2ll, name='blocks_lonlat')
-        # remove ll_coords to have two separate variables longitude and latitude
-        ll_ds = xr.merge([ll_ds.sel(ll=ll).drop_vars(['ll']).rename(ll) for ll in ll_coords])
-
-        ll_ds.longitude.attrs = {
-            'long_name': 'longitude',
-            'units': 'degrees_east',
-            'standard_name': 'longitude'
-        }
-
-        ll_ds.latitude.attrs = {
-            'long_name': 'latitude',
-            'units': 'degrees_north',
-            'standard_name': 'latitude'
-        }
-        return ll_ds
 
     @timing
     def _load_ground_heading(self):

@@ -323,7 +323,12 @@ def compress_safe(safe_path_in, safe_path_out, smooth=0, rasterio_kwargs={'compr
             band = reduced.interp(
                 dim_0=np.arange(src.height),
                 dim_1=np.arange(src.width),
-                method='nearest').values.astype(src.dtypes[0])
+                method='nearest')
+            try:
+                # convert to original datatype if possible
+                band = band.values.astype(src.dtypes[0])
+            except TypeError:
+                pass
         else:
             band = src.read(1)
 

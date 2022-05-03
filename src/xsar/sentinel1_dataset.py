@@ -96,17 +96,17 @@ class Sentinel1Dataset:
                 'comment': 'cross track direction, in pixels from full resolution tiff'
             },
             'sigma0_raw': {
-                'units': 'm2/m2'
+                'units': 'linear'
             },
             'gamma0_raw': {
-                'units': 'm2/m2'
+                'units': 'linear'
             },
             'nesz': {
-                'units': 'm2/m2',
+                'units': 'linear',
                 'comment': 'sigma0 noise'
             },
             'negz': {
-                'units': 'm2/m2',
+                'units': 'linear',
                 'comment': 'beta0 noise'
             },
         }

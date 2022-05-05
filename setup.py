@@ -20,7 +20,7 @@ setup(
         'cartopy',
         'fiona',
         'pyproj',
-        'jinja2',
+        'jinja2<=3.0.3',
         'lxml',
         'numpy',
         'scipy',

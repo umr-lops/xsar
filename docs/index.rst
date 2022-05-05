@@ -58,6 +58,8 @@ Examples
 
 * :doc:`examples/xsar_advanced`
 
+* :doc:`examples/projections`
+
 * :doc:`examples/mask`
 
 * :doc:`examples/xsar_multiple`
@@ -95,6 +97,7 @@ Last documentation build: |today|
 
    examples/xsar
    examples/xsar_advanced
+   examples/projections
    examples/mask
    examples/xsar_multiple
    examples/xsar_batch_datarmor

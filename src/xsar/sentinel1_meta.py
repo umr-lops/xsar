@@ -334,12 +334,12 @@ class Sentinel1Meta:
                     row=pt_geoloc.xtrack.item()
                 )
 
-            self._geoloc.attrs['gcps'] = [
+            gcps = [
                 _to_rio_gcp(self._geoloc.sel(atrack=atrack, xtrack=xtrack))
                 for atrack in  self._geoloc.atrack for xtrack in self._geoloc.xtrack
             ]
             # approx transform, from all gcps (inaccurate)
-            self._geoloc.attrs['approx_transform'] = rasterio.transform.from_gcps(self._geoloc.attrs['gcps'])
+            self._geoloc.attrs['approx_transform'] = rasterio.transform.from_gcps(gcps)
 
 
         return self._geoloc

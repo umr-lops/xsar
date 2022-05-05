@@ -7,6 +7,7 @@ import xarray as xr
 import dask
 import rasterio
 import rasterio.features
+from rasterio.control import GroundControlPoint
 import rioxarray
 from scipy.interpolate import interp1d
 from shapely.geometry import Polygon, box
@@ -283,6 +284,18 @@ class Sentinel1Dataset:
                 self._dataset[var].attrs.update(attrs)
             except KeyError:
                 pass
+
+        self._dataset = self._dataset.rio.write_crs('epsg:4326')
+        # write gcps
+        #self._dataset = self._dataset.rio.write_gcps(
+        #    self.s1meta.geoloc.attrs['gcps'], 'epsg:4326'
+        #)
+        #self._dataset = self._dataset.rio.set_spatial_dims('atrack', 'xtrack')
+        #for v in self._dataset.variables:
+        #    try:
+        #        self._dataset[v] = self._dataset[v].rio.set_spatial_dims('atrack', 'xtrack')
+        #    except rioxarray.exceptions.MissingSpatialDimensionError:
+        #        pass
 
         self.sliced = False
         """True if dataset is a slice of original L1 dataset"""
@@ -1209,6 +1222,47 @@ class Sentinel1Dataset:
             range_ground_spacing_vect = xr.DataArray(valuess, coords={'xtrack': self._dataset['xtrack']},
                                                      dims=['xtrack'])
         return xr.Dataset({'range_ground_spacing': range_ground_spacing_vect})
+
+    def rio(self, var_name):
+        """
+        get a rioxarray accessor, to be used for example by [rioxarray.reproject](https://corteva.github.io/rioxarray/html/rioxarray.html#rioxarray.raster_array.RasterArray.reproject)
+
+        Parameters
+        ----------
+        var_name: str or list of str
+            existing variable name in dataset, with almost ('atrack', 'xtrack') coordinates
+
+        Returns
+        -------
+        rioxarray.raster_array.RasterArray
+
+
+        """
+        return self.dataset[var_name].rio.write_gcps(
+            self._local_gcps, 'epsg:4326', inplace=True
+        ).rio.set_spatial_dims(
+            'xtrack', 'atrack', inplace=True
+        ).rio.write_coordinate_system(
+            inplace=True).rio
+
+    @property
+    def _local_gcps(self):
+        # get local gcps, for rioxarray.reproject (row and col are *index*, not coordinates)
+        local_gcps = []
+        for atrack in self.dataset.atrack.values[::int(self.dataset.atrack.size / 20)]:
+            for xtrack in self.dataset.xtrack.values[::int(self.dataset.xtrack.size / 20)]:
+                irow = np.argmin(np.abs(self.dataset.atrack.values - atrack))
+                icol = np.argmin(np.abs(self.dataset.xtrack.values - xtrack))
+                lon, lat = self.s1meta.coords2ll(atrack, xtrack)
+                gcp = GroundControlPoint(
+                    x=lon,
+                    y=lat,
+                    z=0,
+                    col=icol,
+                    row=irow
+                )
+                local_gcps.append(gcp)
+        return local_gcps
 
     def __repr__(self):
         if self.sliced:

@@ -24,12 +24,16 @@ jobs:
           activate-environment: xsar
       - name: Create Env
         run: |
-          conda install -c conda-forge rasterio'>=1.2.6' gdal'>=3.3'  dask[array] dask[distributed] rioxarray 'shapely<1.8.0'
-          conda install -c conda-forge  jupyterlab geoviews cartopy_offlinedata holoviews datashader nbsphinx pandoc jq docutils 'shapely<1.8.0'
+          bash docs/scripts/conda_install_recommended
       - name: Install xsar
         run: |
           pip install -e .
           pip install -r requirements.txt
+      - name: Check xsar environment
+        run: |
+          conda info
+          python -V
+          conda list
       - name: Generation
         run: |
           cd docs

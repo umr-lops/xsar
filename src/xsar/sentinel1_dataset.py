@@ -73,9 +73,6 @@ class Sentinel1Dataset:
 
         activate or not variable pathching ( currently noise lut correction for IPF2.9X)
 
-    See Also
-    --------
-    xsar.open_dataset
     """
 
     def __init__(self, dataset_id, resolution=None,
@@ -276,7 +273,7 @@ class Sentinel1Dataset:
         self._dataset = self._dataset.merge(self._get_sensor_velocity())
         self._dataset = self._dataset.merge(self._range_ground_spacing())
         self._dataset = self._add_denoised(self._dataset)
-        self._dataset.attrs = self._recompute_attrs()
+        self.recompute_attrs()
 
         # set miscellaneous attrs
         for var, attrs in attrs_dict.items():
@@ -284,18 +281,6 @@ class Sentinel1Dataset:
                 self._dataset[var].attrs.update(attrs)
             except KeyError:
                 pass
-
-        self._dataset = self._dataset.rio.write_crs('epsg:4326')
-        # write gcps
-        #self._dataset = self._dataset.rio.write_gcps(
-        #    self.s1meta.geoloc.attrs['gcps'], 'epsg:4326'
-        #)
-        #self._dataset = self._dataset.rio.set_spatial_dims('atrack', 'xtrack')
-        #for v in self._dataset.variables:
-        #    try:
-        #        self._dataset[v] = self._dataset[v].rio.set_spatial_dims('atrack', 'xtrack')
-        #    except rioxarray.exceptions.MissingSpatialDimensionError:
-        #        pass
 
         self.sliced = False
         """True if dataset is a slice of original L1 dataset"""
@@ -325,7 +310,7 @@ class Sentinel1Dataset:
                 self.sliced = any(
                     [list(ds[d].values) != list(self._dataset[d].values) for d in ['atrack', 'xtrack', 'pol']])
             self._dataset = ds
-            self._dataset.attrs = self._recompute_attrs()
+            self.recompute_attrs()
         else:
             raise ValueError("dataset must be same kind as original one.")
 
@@ -450,7 +435,23 @@ class Sentinel1Dataset:
         return max(
             [np.unique(np.round(np.diff(self._dataset[dim].values), 1)).size for dim in ['atrack', 'xtrack']]) == 1
 
-    def _recompute_attrs(self):
+    def recompute_attrs(self):
+        """
+        Recompute dataset attributes. It's automaticaly called if you assign a new dataset, for example
+
+        >>> xsar_obj.dataset = xsar_obj.dataset.isel(atrack=slice(1000,5000))
+        >>> #xsar_obj.recompute_attrs() # not needed
+
+        This function must be manually called before using the `.rio` accessor of a variable
+
+        >>> xsar_obj.recompute_attrs()
+        >>> xsar_obj.dataset['sigma0'].rio.reproject(...)
+
+        See Also
+        --------
+            [rioxarray information loss](https://corteva.github.io/rioxarray/stable/getting_started/manage_information_loss.html)
+
+        """
         if not self._regularly_spaced:
             warnings.warn(
                 "Irregularly spaced dataset (probably multiple selection). Some attributes will be incorrect.")
@@ -459,6 +460,20 @@ class Sentinel1Dataset:
         attrs['pixel_atrack_m'] = self.pixel_atrack_m
         attrs['coverage'] = self.coverage
         attrs['footprint'] = self.footprint
+
+        self.dataset.attrs.update(attrs)
+
+        gcps = self._local_gcps
+
+        for v in self._dataset.variables:
+            if set(['atrack', 'xtrack']).issubset(set(self._dataset[v].dims)):
+                self._dataset[v] = self._dataset[v].rio.write_gcps(
+                gcps, 'epsg:4326', inplace=True
+            ).rio.set_spatial_dims(
+                'xtrack', 'atrack', inplace=True
+            ).rio.write_coordinate_system(
+                inplace=True)
+
         return attrs
 
     def _patch_lut(self, lut):
@@ -1222,28 +1237,6 @@ class Sentinel1Dataset:
             range_ground_spacing_vect = xr.DataArray(valuess, coords={'xtrack': self._dataset['xtrack']},
                                                      dims=['xtrack'])
         return xr.Dataset({'range_ground_spacing': range_ground_spacing_vect})
-
-    def rio(self, var_name):
-        """
-        get a rioxarray accessor, to be used for example by [rioxarray.reproject](https://corteva.github.io/rioxarray/html/rioxarray.html#rioxarray.raster_array.RasterArray.reproject)
-
-        Parameters
-        ----------
-        var_name: str or list of str
-            existing variable name in dataset, with almost ('atrack', 'xtrack') coordinates
-
-        Returns
-        -------
-        rioxarray.raster_array.RasterArray
-
-
-        """
-        return self.dataset[var_name].rio.write_gcps(
-            self._local_gcps, 'epsg:4326', inplace=True
-        ).rio.set_spatial_dims(
-            'xtrack', 'atrack', inplace=True
-        ).rio.write_coordinate_system(
-            inplace=True).rio
 
     @property
     def _local_gcps(self):

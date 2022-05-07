@@ -1,4 +1,4 @@
-name: Windows install test
+name: Install test
 
 on:
   push:
@@ -12,15 +12,16 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ['3.7', '3.8', '3.9', '3.10']
     defaults:
       run:
         shell: bash -l {0}
-    name: Xsar with python ${{ matrix.python-version }} on Windows
+    name: Xsar with python ${{ matrix.python-version }} on Ubuntu
     steps:
       - uses: actions/checkout@v2
       - name: Setup conda and create environment
@@ -33,8 +34,6 @@ jobs:
         run: |
           . docs/scripts/conda_setenv
           . docs/scripts/conda_install_minimal
-          conda install -c conda-forge fiona
-#          conda install -c conda-forge rasterio">=1.2.6" gdal cartopy_offlinedata dask[array] rioxarray fiona pytest
       - name: Install xsar
         run: |
           pip install -e .

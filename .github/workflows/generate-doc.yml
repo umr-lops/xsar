@@ -24,7 +24,8 @@ jobs:
           activate-environment: xsar
       - name: Create Env
         run: |
-          bash docs/scripts/conda_install_recommended
+          . docs/scripts/conda_setenv
+          . docs/scripts/conda_install_recommended
       - name: Install xsar
         run: |
           pip install -e .

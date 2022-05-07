@@ -17,7 +17,7 @@ jobs:
       - id: os
         run: echo '::set-output name=os_matrix::$(.github/build_matrix.sh os)'
       - id: python-version
-        run: echo '::set-output name=python_version_matrix::$(.github/build_matrix.sh python_version)'
+        run: echo '::set-output name=python_version_matrix::$(.github/build_matrix.sh python-version)'
     outputs:
       os_matrix: ${{ steps.os.outputs.os_matrix }}
       python_version_matrix: ${{ steps.python-version.outputs.python_version_matrix }}

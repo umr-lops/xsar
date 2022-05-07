@@ -16,8 +16,8 @@ jobs:
     steps:
       - id: debug
         run: |
-          - pwd
-          - ls
+          pwd
+          ls
       - id: os
         run: echo "::set-output name=os_matrix::$(.github/build_matrix.sh)"
       - id: python-version

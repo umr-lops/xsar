@@ -22,7 +22,7 @@ jobs:
 #        run: echo '::set-output name=python_version_matrix::["3.7", "3.8", "3.9", "3.10"]'
       - id: get-matrix
         run: |
-          python -V
+          python -c 'import click'
           .github/build_matrix.sh
     outputs:
       os_matrix: ${{ steps.get-matrix.outputs.os_matrix }}

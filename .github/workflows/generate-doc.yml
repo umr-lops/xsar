@@ -4,9 +4,9 @@ on:
   release:
     types: [ published ]
 # for testing uncomment trigger in push
-  push:
-      branches:
-        - develop
+#  push:
+#      branches:
+#        - develop
 
 jobs:
   build:

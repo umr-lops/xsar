@@ -1,1 +1,1 @@
-conda install -c conda-forge xsar rioxarray 'python<3.10'
+conda install -c conda-forge xsar 'rioxarray>=0.10' 'python<3.10'

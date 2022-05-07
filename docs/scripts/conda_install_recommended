@@ -1,1 +1,1 @@
-conda install -c conda-forge xsar rioxarray jupyterlab geoviews cartopy_offlinedata holoviews datashader 'shapely<1.8.0' nbsphinx pandoc jq docutils pip git lxml 'python<3.10'
+conda install -c conda-forge xsar 'rioxarray>=0.10' jupyterlab geoviews cartopy_offlinedata holoviews datashader 'shapely<1.8.0' nbsphinx pandoc jq docutils pip git lxml 'python<3.10'

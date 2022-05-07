@@ -30,10 +30,10 @@ jobs:
           pip install -e .
           pip install -r requirements.txt
       - name: Check xsar environment
-          run: |
-            conda info
-            python -V
-            conda list
+        run: |
+          conda info
+          python -V
+          conda list
       - name: Generation
         run: |
           cd docs

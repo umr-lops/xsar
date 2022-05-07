@@ -20,7 +20,7 @@ jobs:
         run: echo '::set-output name=python_version_matrix::["3.7", "3.8", "3.9", "3.10"]'
     outputs:
       os_matrix: ${{ steps.os.outputs.os_matrix }}
-      python_version_matrix: ${{ steps.os.outputs.python_version_matrix }}
+      python_version_matrix: ${{ steps.python-version.outputs.python_version_matrix }}
 
   build:
     needs: build-matrix

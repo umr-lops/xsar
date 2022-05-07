@@ -22,7 +22,8 @@ jobs:
 #        run: echo '::set-output name=python_version_matrix::["3.7", "3.8", "3.9", "3.10"]'
       - id: get-matrix
         run: |
-          python .github/build_matrix.py ${{ github.event }}
+          echo "get matrix for event ${{ github.event_name }}"
+          python .github/build_matrix.py ${{ github.event_name }}
     outputs:
       os_matrix: ${{ steps.get-matrix.outputs.os_matrix }}
       python_version_matrix: ${{ steps.get-matrix.outputs.python_version_matrix }}

@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - id: os
-        run: echo '::set-output name=os_matrix::$(.github/build_matrix.sh os)'
+        run: echo '::set-output name=os_matrix::$(.github/build_matrix.sh)'
       - id: python-version
 #        run: echo '::set-output name=python_version_matrix::$(.github/build_matrix.sh python-version)'
         run: echo '::set-output name=python_version_matrix::["3.7", "3.8", "3.9", "3.10"]'

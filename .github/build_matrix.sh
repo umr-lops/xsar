@@ -1,5 +1,8 @@
 #!/bin/bash
 
+echo '["ubuntu-latest", "macos-latest", "windows-latest"]'
+exit 0
+
 if [ "$1" == "os" ]; then
   echo '["ubuntu-latest", "macos-latest", "windows-latest"]'
 fi

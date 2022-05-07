@@ -15,19 +15,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - id: debug
-        run: |
-          pwd
-          ls
-          ls src
-      - id: os
-        run: echo "::set-output name=os_matrix::$(.github/build_matrix.sh)"
-      - id: python-version
+#      - id: os
+#        run: echo "::set-output name=os_matrix::$(.github/build_matrix.sh)"
+#      - id: python-version
 #        run: echo '::set-output name=python_version_matrix::$(.github/build_matrix.sh python-version)'
-        run: echo '::set-output name=python_version_matrix::["3.7", "3.8", "3.9", "3.10"]'
+#        run: echo '::set-output name=python_version_matrix::["3.7", "3.8", "3.9", "3.10"]'
+      - id: get-matrix
+        run: $(.github/build_matrix.sh)
     outputs:
-      os_matrix: ${{ steps.os.outputs.os_matrix }}
-      python_version_matrix: ${{ steps.python-version.outputs.python_version_matrix }}
+      os_matrix: ${{ steps.get-matrix.outputs.os_matrix }}
+      python_version_matrix: ${{ steps.get-matrix.outputs.python_version_matrix }}
 
   build:
     needs: build-matrix

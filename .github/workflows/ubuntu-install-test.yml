@@ -30,7 +30,7 @@ jobs:
           activate-environment: xsar
           python-version: ${{ matrix.python-version }}
       - name: Install xsar dependencies
-        run: bash docs/scripts/conda_install_minimal
+        run: . docs/scripts/conda_install_minimal
       - name: Install xsar
         run: |
           pip install -e .

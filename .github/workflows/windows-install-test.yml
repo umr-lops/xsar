@@ -31,7 +31,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install xsar dependencies
         run: |
-          bash docs/scripts/conda_install_minimal
+          docs/scripts/conda_install_minimal
           conda install -c conda-forge fiona
 #          conda install -c conda-forge rasterio">=1.2.6" gdal cartopy_offlinedata dask[array] rioxarray fiona pytest
       - name: Install xsar

@@ -68,8 +68,11 @@ jobs:
           key: conda-cache-${{ matrix.os }}-${{ matrix.python-version }}-${{ hashFiles('environment.yml') }}-${{ env.DATE }}-${{ env.CACHE_NUMBER }}
         id: cache
 
+      - name: Cache found
+        if: steps.cache.outputs.cache-hit == 'true'
+
       - name: update conda
-        run: mamba env update -n xsar -f environment.yml
+        run: mamba env update -n xsar -f environment.yml python=${{ matrix.python-version }}
         # if: steps.cache.outputs.cache-hit != 'true'
 
       - name: List Packages

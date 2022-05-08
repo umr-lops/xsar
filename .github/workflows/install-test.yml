@@ -57,12 +57,14 @@ jobs:
           use-mamba: true
           use-only-tar-bz2: true
 
-      - name: Set cache date
-        run: echo "DATE=$(date +'%Y%m%d')" >> $GITHUB_ENV
+      - name: Set cache date and CONDA_PREFIX
+        run: |
+        echo "DATE=$(date +'%Y%m%d')" >> $GITHUB_ENV
+        echo "conda prefix ${CONDA_PREFIX}"
 
       - uses: actions/cache@v2
         with:
-          path: ~/conda_pkgs_dir
+          path: ${CONDA_PREFIX}
           key: conda-cache-${{ matrix.os }}-${{ matrix.python-version }}-${{ hashFiles('environment.yml') }}-${{ env.DATE }}-${{ env.CACHE_NUMBER }}
         id: cache
 

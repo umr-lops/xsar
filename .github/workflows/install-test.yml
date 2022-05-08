@@ -40,27 +40,16 @@ jobs:
         shell: bash -l {0}
     name: python ${{ matrix.python-version }} on ${{ matrix.os }}
     steps:
-#      - uses: actions/checkout@v2
-#      - name: Conda init
-#        uses: conda-incubator/setup-miniconda@v2
-#        with:
-#          auto-update-conda: true
-#          activate-environment: xsar
-#          python-version: ${{ matrix.python-version }}
-#      - name: Conda minimal dependencies
-#        run: |
-#          . docs/scripts/conda_setenv
-#          . docs/scripts/conda_install_minimal
       - uses: actions/checkout@v2
-      - uses: ./.github/actions/conda
-      - name: Install xsar
-        run: |
-          pip install -e .
-      - name: Packages list
-        run: |
-          conda info
-          python -V
-          conda list
+      - uses: ./.github/actions/xsar_install
+      #- name: Install xsar
+      #  run: |
+      #    pip install -e .
+      #- name: Packages list
+      #  run: |
+      #    conda info
+      #    python -V
+      #    conda list
       - name: Test install
         run: |
           pip install pytest dill

@@ -15,7 +15,7 @@ runs:
         filters: |
           doc:
             - 'doc/*'
-            - 'doc/**/*
+            - 'doc/**/*'
     # run only if some file in 'doc' folder was changed
     - name: Notebook dependencies
       shell: bash -l {0}

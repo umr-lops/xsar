@@ -4,6 +4,7 @@
 jupyter
 jupyter_contrib_nbextensions
 holoviews
+datashader
 geoviews
 cartopy
 pyproj

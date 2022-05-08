@@ -46,7 +46,7 @@ jobs:
         run: echo ${{ needs.dynamic-actions.outputs.doc }}
       - name: debug
         run: echo OK
-        if: needs.dynamic-actions.outputs.doc  == 'true'
+        if: needs.dynamic-actions.outputs.doc
 
       - name: Conda init
         uses: conda-incubator/setup-miniconda@v2

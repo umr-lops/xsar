@@ -3,6 +3,11 @@ description: "xsar test with optional doc test"
 runs:
   using: "composite"
   steps:
+    - name: pytest
+      shell: bash -l {0}
+      run: |
+        - pip install pytest dill
+        - pytest
     - uses: dorny/paths-filter@v2
       id: changes
       if: github.event_name != 'schedule'

@@ -9,7 +9,7 @@ with urllib.request.urlopen('https://endoflife.date/api/python.json') as f:
     python_versions = json.loads(f.read().decode('utf-8'))
 
 now = datetime.datetime.now().strftime('%Y-%m-%d')
-python_supported_versions = [ v['cycle'] for v in python_versions if v['eol'] > now ]
+python_supported_versions = [ v['cycle'] for v in python_versions if v['eol'] > now and v['cycle'] != '3.7' ]
 
 python_default_version = python_supported_versions[1]
 

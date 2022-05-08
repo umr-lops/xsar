@@ -1,0 +1,66 @@
+name: Conda feedstock test
+
+# this workflow generate the documentation, using conda-feedstock
+# it doesn't install xsar from the repo, but with `conda install -c conda-forge xsar`
+
+on:
+  push:
+    branches:
+      - develop
+  schedule:
+    - cron: '00 22 * * 0'
+
+
+jobs:
+  dynamic-matrix:
+# from https://michaelheap.com/dynamic-matrix-generation-github-actions/
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - id: get-matrix
+        run: |
+          echo "get matrix for event ${{ github.event_name }}"
+          echo "::echo::on"
+          python .github/actions/dynamic_matrix.py ${{ github.event_name }}
+    outputs:
+      os_matrix: ${{ steps.get-matrix.outputs.os_matrix }}
+      python_version_matrix: ${{ steps.get-matrix.outputs.python_version_matrix }}
+
+  build:
+    needs: dynamic-matrix
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJson(needs.dynamic-matrix.outputs.os_matrix) }}
+        python-version: ${{ fromJson(needs.dynamic-matrix.outputs.python_version_matrix) }}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash -l {0}
+    name: python ${{ matrix.python-version }} on ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v2
+      - uses: conda-incubator/setup-miniconda@v2
+        with:
+          auto-update-conda: true
+          activate-environment: xsar
+          environment-file: environment.yml
+          condarc-file: condarc.yml
+          python-version: ${{ matrix.python-version }}
+
+      - name: install xsar from feedstock
+        run: | 
+          conda install -c conda-forge xsar
+          (cd docs ; pip install -r ../requirements.txt)
+
+      - name: List Packages
+        run: |
+          python -V
+          conda info
+          conda list
+
+      - name: Documentation test
+        run: |
+          cd docs
+          make html
+

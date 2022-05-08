@@ -42,10 +42,12 @@ jobs:
     name: python ${{ matrix.python-version }} on ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v2
+      - name: echo
+        run: echo ${{ needs.dynamic-actions.outputs.doc }}
       - name: debug
-        run: |
-          echo ${{ fromJson(needs.dynamic-actions.outputs.doc) }}
-          echo ${{ needs.dynamic-actions.outputs.doc }}
+        run: echo OK
+        if: needs.dynamic-actions.outputs.doc  == 'true'
+
       - name: Conda init
         uses: conda-incubator/setup-miniconda@v2
         with:
@@ -59,7 +61,6 @@ jobs:
       - name: Install xsar
         run: |
           pip install -e .
-#          pip install -r requirements.txt
       - name: Packages list
         run: |
           conda info

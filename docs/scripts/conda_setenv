@@ -1,2 +1,0 @@
-conda config --env --set always_yes true
-conda config --env --set quiet true

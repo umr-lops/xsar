@@ -5,17 +5,17 @@ matrix = {
     'default': {
         'os': ['ubuntu-latest'],
         'python_version': ['3.10'],
-        'doc': 'true'
+        'doc': True
     },
     'pull_request': {
         'os': ['ubuntu-latest'],
         'python_version': ['3.10'],
-        'doc': 'true'
+        'doc': True
     },
     'schedule': {
         'os': ['ubuntu-latest', 'macos-latest', 'windows-latest'],
         'python_version': ['3.7', '3.8', '3.9', '3.10'],
-        'doc': 'true'
+        'doc': True
     },
 
 }
@@ -27,4 +27,4 @@ if __name__ == "__main__":
 
     print('::set-output name=os_matrix::%s' % str(matrix[event]['os']))
     print('::set-output name=python_version_matrix::%s' % str(matrix[event]['python_version']))
-    print('::set-output name=doc::"%s"' % str(matrix[event]['doc']))
+    print('::set-output name=doc::%s' % str(matrix[event]['doc']))

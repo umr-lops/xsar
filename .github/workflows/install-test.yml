@@ -59,8 +59,8 @@ jobs:
 
       - name: Set cache date and CONDA_PREFIX
         run: |
-        echo "DATE=$(date +'%Y%m%d')" >> $GITHUB_ENV
-        echo "conda prefix ${{ env.CONDA_PREFIX }}"
+          echo "DATE=$(date +'%Y%m%d')" >> $GITHUB_ENV
+          echo "conda prefix ${{ env.CONDA_PREFIX }}"
 
       - uses: actions/cache@v2
         with:

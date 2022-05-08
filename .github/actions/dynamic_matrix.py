@@ -26,7 +26,14 @@ matrix = {
         'os': ['ubuntu-latest', 'macos-latest', 'windows-latest'],
         'python_version': python_supported_versions,
     },
-
+    'release': {
+        'os': ['ubuntu-latest', 'macos-latest', 'windows-latest'],
+        'python_version': python_supported_versions,
+    },
+    'pull_request_review': {
+        'os': ['ubuntu-latest', 'macos-latest', 'windows-latest'],
+        'python_version': python_supported_versions,
+    }
 }
 
 if __name__ == "__main__":

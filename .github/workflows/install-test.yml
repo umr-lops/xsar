@@ -10,7 +10,11 @@ on:
   schedule:
     - cron: '25 16 * * 0'
   release:
-    types: [ published ]
+    types:
+      - published
+  pull_request_review:
+    types:
+      - submitted
 
 env:
   CACHE_NUMBER: 0  # increase to reset cache manually

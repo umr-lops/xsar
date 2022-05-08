@@ -64,6 +64,9 @@ jobs:
       - name: Conda recommended dependencies
         run: . docs/scripts/conda_install_recommended
         if: ${{ fromJson(needs.dynamic-actions.outputs.doc) }} == 'true'
+      - name: Reinstall
+        run: pip install -e .
+        if: ${{ fromJson(needs.dynamic-actions.outputs.doc) }} == 'true'
       - name: Documentation test
         run: |
           cd docs

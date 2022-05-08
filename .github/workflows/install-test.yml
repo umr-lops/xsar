@@ -41,6 +41,25 @@ jobs:
     name: python ${{ matrix.python-version }} on ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v2
+
+      - uses: conda-incubator/setup-miniconda@v2
+        with:
+          auto-update-conda: true
+          auto-activate-base: true
+          activate-environment: xsar
+          environment-file: environment.yml
+          condarc-file: condarc.yml
+          python-version: ${{ matrix.python-version }}
+
+      - name: Minimal install
+        run: pip install -e .
+
+      - name: Minimal pytest
+        run: |
+          pip install pytest dill
+          pytest
+
+      # check if docs has changed
       - uses: dorny/paths-filter@v2
         id: changes
         if: github.event_name != 'schedule'
@@ -49,12 +68,15 @@ jobs:
             docs:
               - 'docs/**'
           # run only if some file in 'doc' folder was changed
-      - name: Check docs changed
-        run: echo Docs changed
+      - name: Complete notebook install
         if: github.event_name == 'schedule' || steps.changes.outputs.docs  == 'true'
+        run: pip install -r requirements.txt
 
-      - uses: ./.github/actions/xsar_install
-      - uses: ./.github/actions/xsar_test
+      - name: Documetation test
+        if: github.event_name == 'schedule' || steps.changes.outputs.docs  == 'true'
+        run: |
+          cd docs
+          make html
 
           
 

@@ -13,7 +13,7 @@ runs:
       shell: bash -l {0}
       run: |
         . docs/scripts/conda_setenv
-        . docs/scripts/conda_install_minimal
+        . docs/scripts/conda_install_minimal_scratch
     - name: Install xsar
       shell: bash -l {0}
       run: |

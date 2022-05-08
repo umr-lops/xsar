@@ -1,0 +1,1 @@
+conda install -c conda-forge 'rioxarray>=0.10' 'gdal>=3.3' aiohttp attrs 'cartopy>=0.19.0' 'dask>=2021.6.2' 'gdal>=3.3' geopandas importlib_resources jmespath lxml more-itertools pyproj 'rasterio>=1.2.6' setuptools_scm setuptools_scm_git_archive xarray 'rioxarray>=0.10' fiona tbb shapely 'python>=3.7'

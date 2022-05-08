@@ -1,0 +1,14 @@
+name: "Conda setup"
+description: "Conda setup for xsar"
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/checkout@v2
+    - uses: conda-incubator/setup-miniconda@v2
+      with:
+        auto-update-conda: true
+        activate-environment: xsar
+        python-version: ${{ matrix.python-version }}
+    run: |
+      . docs/scripts/conda_setenv
+      . docs/scripts/conda_install_minimal

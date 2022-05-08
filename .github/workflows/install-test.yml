@@ -13,51 +13,45 @@ on:
     types: [ published ]
 
 jobs:
-  dynamic-actions:
+  dynamic-matrix:
 # from https://michaelheap.com/dynamic-matrix-generation-github-actions/
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - id: get-actions
+      - id: get-matrix
         run: |
-          echo "get actions for event ${{ github.event_name }}"
+          echo "get matrix for event ${{ github.event_name }}"
           echo "::echo::on"
-          python .github/dynamic_actions.py ${{ github.event_name }}
+          python .github/actions/dynamic_matrix.py ${{ github.event_name }}
     outputs:
-      os_matrix: ${{ steps.get-actions.outputs.os_matrix }}
-      python_version_matrix: ${{ steps.get-actions.outputs.python_version_matrix }}
-      doc: ${{ steps.get-actions.outputs.doc }}
+      os_matrix: ${{ steps.get-matrix.outputs.os_matrix }}
+      python_version_matrix: ${{ steps.get-matrix.outputs.python_version_matrix }}
 
   build:
-    needs: dynamic-actions
+    needs: dynamic-matrix
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJson(needs.dynamic-actions.outputs.os_matrix) }}
-        python-version: ${{ fromJson(needs.dynamic-actions.outputs.python_version_matrix) }}
+        os: ${{ fromJson(needs.dynamic-matrix.outputs.os_matrix) }}
+        python-version: ${{ fromJson(needs.dynamic-matrix.outputs.python_version_matrix) }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
         shell: bash -l {0}
     name: python ${{ matrix.python-version }} on ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v2
-      - name: echo
-        run: echo ${{ needs.dynamic-actions.outputs.doc }}
-      - name: debug
-        run: echo OK
-        if: needs.dynamic-actions.outputs.doc == 'True'
-
-      - name: Conda init
-        uses: conda-incubator/setup-miniconda@v2
-        with:
-          auto-update-conda: true
-          activate-environment: xsar
-          python-version: ${{ matrix.python-version }}
-      - name: Conda minimal dependencies
-        run: |
-          . docs/scripts/conda_setenv
-          . docs/scripts/conda_install_minimal
+#      - uses: actions/checkout@v2
+#      - name: Conda init
+#        uses: conda-incubator/setup-miniconda@v2
+#        with:
+#          auto-update-conda: true
+#          activate-environment: xsar
+#          python-version: ${{ matrix.python-version }}
+#      - name: Conda minimal dependencies
+#        run: |
+#          . docs/scripts/conda_setenv
+#          . docs/scripts/conda_install_minimal
+      - uses: .github/actions/conda
       - name: Install xsar
         run: |
           pip install -e .

@@ -9,17 +9,14 @@ on:
       - develop
   schedule:
     - cron: '0 6 * * 0'
+  release:
+    types: [ published ]
 
 jobs:
   build-matrix:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-#      - id: os
-#        run: echo "::set-output name=os_matrix::$(.github/build_matrix.sh)"
-#      - id: python-version
-#        run: echo '::set-output name=python_version_matrix::$(.github/build_matrix.sh python-version)'
-#        run: echo '::set-output name=python_version_matrix::["3.7", "3.8", "3.9", "3.10"]'
       - id: get-matrix
         run: |
           echo "get matrix for event ${{ github.event_name }}"
@@ -41,14 +38,13 @@ jobs:
         shell: bash -l {0}
     name: python ${{ matrix.python-version }} on ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v2
       - name: Conda init
         uses: conda-incubator/setup-miniconda@v2
         with:
           auto-update-conda: true
           activate-environment: xsar
           python-version: ${{ matrix.python-version }}
-      - name: Conda dependencies
+      - name: Conda minimal dependencies
         run: |
           . docs/scripts/conda_setenv
           . docs/scripts/conda_install_minimal
@@ -63,4 +59,11 @@ jobs:
           conda list
       - name: Test install
         run: pytest
+      -name: Conda recommended dependencies
+        run: . docs/scripts/conda_install_recommended
+      -name: Documentation test
+        run: |
+          cd docs
+          make html
+          
 

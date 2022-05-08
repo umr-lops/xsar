@@ -1,1 +1,1 @@
-conda install -c conda-forge xsar 'rioxarray>=0.10' 'python<3.10' fiona tbb
+conda install -c conda-forge xsar 'rioxarray>=0.10' python fiona tbb

@@ -41,6 +41,19 @@ jobs:
     name: python ${{ matrix.python-version }} on ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v2
+      - uses: dorny/paths-filter@v2
+        id: changes
+        if: github.event_name != 'schedule'
+        with:
+          filters: |
+            doc:
+              - 'doc/**'
+              - 'doc/*/**'
+          # run only if some file in 'doc' folder was changed
+      - name: Check doc changed
+        run: echo Doc changed
+        if: github.event_name == 'schedule' || steps.changes.outputs.doc  == 'true'
+
       - uses: ./.github/actions/xsar_install
       - uses: ./.github/actions/xsar_test
 

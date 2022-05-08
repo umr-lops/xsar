@@ -38,6 +38,7 @@ jobs:
         shell: bash -l {0}
     name: python ${{ matrix.python-version }} on ${{ matrix.os }}
     steps:
+      - uses: actions/checkout@v2
       - name: Conda init
         uses: conda-incubator/setup-miniconda@v2
         with:

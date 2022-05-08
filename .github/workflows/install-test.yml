@@ -26,6 +26,7 @@ jobs:
     outputs:
       os_matrix: ${{ steps.get-actions.outputs.os_matrix }}
       python_version_matrix: ${{ steps.get-actions.outputs.python_version_matrix }}
+      doc: ${{ steps.get-actions.outputs.doc }}
 
   build:
     needs: dynamic-actions
@@ -42,7 +43,9 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: debug
-        run: echo ${{ fromJson(needs.dynamic-actions.outputs.doc) }}
+        run: |
+          echo ${{ fromJson(needs.dynamic-actions.outputs.doc) }}
+          echo ${{ needs.dynamic-actions.outputs.doc }}
       - name: Conda init
         uses: conda-incubator/setup-miniconda@v2
         with:

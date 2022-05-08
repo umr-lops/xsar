@@ -12,7 +12,6 @@ conda install
 #############
 
 
-
 .. code-block::
 
     conda create -n xsar
@@ -29,6 +28,7 @@ Default installation is minimal, and should be used in non-interactive environme
 Xsar can be used in jupyter, with holoviews and geoviews. To install aditional dependancies, run:
 
 .. code-block::
+
     pip install -r https://raw.githubusercontent.com/umr-lops/xsar/develop/requirements.txt
     pip install git+https://github.com/umr-lops/xsarsea.git
     pip install git+https://gitlab.ifremer.fr/sarlib/xsarsea.git
@@ -44,6 +44,7 @@ xsar conda package can be quite old:
 To be up to date with the developpement team, it's recommended to update the installation using pip:
 
 .. code-block::
+
     pip install git+https://github.com/umr-lops/xsar.git
 
 
@@ -52,6 +53,7 @@ Developement  installation
 ..........................
 
 .. code-block::
+
     git clone https://github.com/umr-lops/xsar
     cd xsar
     # this is needed to register git filters

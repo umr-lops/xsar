@@ -46,13 +46,12 @@ jobs:
         if: github.event_name != 'schedule'
         with:
           filters: |
-            doc:
-              - 'doc/**'
-              - 'doc/*/**'
+            docs:
+              - 'docs/**'
           # run only if some file in 'doc' folder was changed
-      - name: Check doc changed
-        run: echo Doc changed
-        if: github.event_name == 'schedule' || steps.changes.outputs.doc  == 'true'
+      - name: Check docs changed
+        run: echo Docs changed
+        if: github.event_name == 'schedule' || steps.changes.outputs.docs  == 'true'
 
       - uses: ./.github/actions/xsar_install
       - uses: ./.github/actions/xsar_test

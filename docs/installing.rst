@@ -8,79 +8,56 @@ Installation
 So insallation in a conda_ environement is recommended.
 
 
-conda setup
-###########
+conda install
+#############
 
-First, create and activate a conda environment:
 
-.. literalinclude:: scripts/conda_create_activate
-    :language: shell
 
-You can either install recommended packages or minimal packages.
+.. code-block::
 
-.. note::
-    for macOS with python<3.9 you must install tbb package with conda install
+    conda create -n xsar
+    conda activate xsar
+    conda install -c conda-forge xsar
 
-.. note::
-    for windows you must install fiona package with conda install
 
 recommended packages
 ....................
 
-.. note::
-    by using recommended install, you will be able to download examples and run them 'as is'.
+Default installation is minimal, and should be used in non-interactive environment.
 
 
-.. literalinclude:: scripts/conda_install_recommended
-    :language: shell
+Xsar can be used in jupyter, with holoviews and geoviews. To install aditional dependancies, run:
+
+.. code-block::
+    pip install -r https://raw.githubusercontent.com/umr-lops/xsar/develop/requirements.txt
+    pip install git+https://github.com/umr-lops/xsarsea.git
+    pip install git+https://gitlab.ifremer.fr/sarlib/xsarsea.git
 
 
-minimal install
-...............
+Update xsar to the latest version
+#################################
 
-.. literalinclude:: scripts/conda_install_minimal
-    :language: shell
+xsar conda package can be quite old:
 
-Install xsar
-############
+.. image:: https://anaconda.org/conda-forge/xsar/badges/latest_release_relative_date.svg
 
-Once conda environment is created and activated, **xsar** can be installed by `pip` for a normal user, or with `git clone` for a developper.
+To be up to date with the developpement team, it's recommended to update the installation using pip:
 
-As a normal user
-................
-
-.. literalinclude:: scripts/pip_install
-    :language: shell
-
-for development installation
-.............................
-
-.. literalinclude:: scripts/git_install
-    :language: shell
+.. code-block::
+    pip install git+https://github.com/umr-lops/xsar.git
 
 
---------------------------------------
 
-.. note::
-    While you are here, why not install also `xsarsea`_ ?
+Developement  installation
+..........................
 
-    .. code-block:: shell
-
-        pip install git+https://gitlab.ifremer.fr/sarlib/xsarsea.git
-
-Update xsar
-###########
-
-To update xsar installation, just rerun `pip install`, in your already activated conda environment.
-
-.. literalinclude:: scripts/pip_install
-    :language: shell
-
-.. note::
-    if you have some problems after updating **xsar**, you might have to update also your conda environment:
-
-    .. literalinclude:: scripts/conda_install_minimal
-        :language: shell
+.. code-block::
+    git clone https://github.com/umr-lops/xsar
+    cd xsar
+    # this is needed to register git filters
+    git config --local include.path ../.gitconfig
+    pip install -e .
+    pip install -r requirements.txt
 
 
 .. _conda: https://docs.anaconda.com/anaconda/install/

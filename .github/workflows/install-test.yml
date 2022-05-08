@@ -60,7 +60,9 @@ jobs:
           python -V
           conda list
       - name: Test install
-        run: pytest
+        run: |
+          pip install pytest dill
+          pytest
       - name: Conda recommended dependencies
         run: . docs/scripts/conda_install_recommended
         if: needs.dynamic-actions.outputs.doc  == 'true'

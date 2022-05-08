@@ -13,17 +13,16 @@ runs:
       if: github.event_name != 'schedule'
       with:
         filters: |
-          doc:
-            - 'doc/**'
-            - 'doc/*/**'
+          docs:
+            - 'docs/**'
     # run only if some file in 'doc' folder was changed
     - name: Notebook dependencies
       shell: bash -l {0}
       run: pip install -r requirements.txt
-      if: github.event_name == 'schedule' || steps.changes.outputs.doc  == 'true'
+      if: github.event_name == 'schedule' || steps.changes.outputs.docs  == 'true'
     - name: Documentation test
       shell: bash -l {0}
       run: |
         cd docs
         make html
-      if: github.event_name == 'schedule' || steps.changes.outputs.doc  == 'true'
+      if: github.event_name == 'schedule' || steps.changes.outputs.docs  == 'true'

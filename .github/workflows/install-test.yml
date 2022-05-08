@@ -59,9 +59,9 @@ jobs:
           conda list
       - name: Test install
         run: pytest
-      -name: Conda recommended dependencies
+      - name: Conda recommended dependencies
         run: . docs/scripts/conda_install_recommended
-      -name: Documentation test
+      - name: Documentation test
         run: |
           cd docs
           make html

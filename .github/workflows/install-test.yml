@@ -13,25 +13,26 @@ on:
     types: [ published ]
 
 jobs:
-  build-matrix:
+  dynamic-actions:
+# from https://michaelheap.com/dynamic-matrix-generation-github-actions/
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - id: get-matrix
+      - id: get-actions
         run: |
-          echo "get matrix for event ${{ github.event_name }}"
-          python .github/build_matrix.py ${{ github.event_name }}
+          echo "get actions for event ${{ github.event_name }}"
+          python .github/dynamic_actions.py ${{ github.event_name }}
     outputs:
-      os_matrix: ${{ steps.get-matrix.outputs.os_matrix }}
-      python_version_matrix: ${{ steps.get-matrix.outputs.python_version_matrix }}
+      os_matrix: ${{ steps.get-actions.outputs.os_matrix }}
+      python_version_matrix: ${{ steps.get-actions.outputs.python_version_matrix }}
 
   build:
-    needs: build-matrix
+    needs: dynamic-actions
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJson(needs.build-matrix.outputs.os_matrix) }}
-        python-version: ${{ fromJson(needs.build-matrix.outputs.python_version_matrix) }}
+        os: ${{ fromJson(needs.dynamic-actions.outputs.os_matrix) }}
+        python-version: ${{ fromJson(needs.dynamic-actions.outputs.python_version_matrix) }}
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -62,9 +63,11 @@ jobs:
         run: pytest
       - name: Conda recommended dependencies
         run: . docs/scripts/conda_install_recommended
+        if: ${{ fromJson(needs.dynamic-actions.outputs.doc) }} == 'True'
       - name: Documentation test
         run: |
           cd docs
           make html
+        if: ${{ fromJson(needs.dynamic-actions.outputs.doc) }} == 'True'
           
 

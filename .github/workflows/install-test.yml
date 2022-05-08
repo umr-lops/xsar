@@ -74,7 +74,7 @@ jobs:
 
       - name: update conda
         run: |
-          cat environment.yml | sed -E 's/(\s*-\spython\s).*/\1=='"${{ matrix.python-version }}"'/' > ~/environment-pinned-python.yml
+          cat environment.yml | sed -E 's/(\s*-\spython\s).*/\1=='"${{ matrix.python-version }}".*'/' > ~/environment-pinned-python.yml
           mamba env update -n xsar -f ~/environment-pinned-python.yml python=${{ matrix.python-version }}
         # if: steps.cache.outputs.cache-hit != 'true'
 

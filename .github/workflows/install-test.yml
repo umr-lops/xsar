@@ -54,6 +54,7 @@ jobs:
           miniforge-version: latest
           activate-environment: xsar
           use-mamba: true
+          use-only-tar-bz2: true
 
       - name: Set cache date
         run: echo "DATE=$(date +'%Y%m%d')" >> $GITHUB_ENV
@@ -61,7 +62,7 @@ jobs:
       - uses: actions/cache@v2
         with:
           path: ~/conda_pkgs_dir
-          key: ${{ runner.os }}-conda-${{ hashFiles('environment.yml') }}-${{ env.DATE }}-${{ env.CACHE_NUMBER }}
+          key: conda-cache-${{ matrix.os }}-${{ matrix.python-version }}-${{ hashFiles('environment.yml') }}-${{ env.DATE }}-${{ env.CACHE_NUMBER }}
         id: cache
 
       - name: Update environment

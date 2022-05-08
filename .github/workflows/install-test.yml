@@ -69,6 +69,7 @@ jobs:
         id: cache
 
       - name: Cache found
+        run: echo Cache found
         if: steps.cache.outputs.cache-hit == 'true'
 
       - name: update conda

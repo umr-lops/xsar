@@ -73,7 +73,7 @@ jobs:
         if: steps.cache.outputs.cache-hit == 'true'
 
       - name: update conda
-        run: mamba env install -n xsar -f environment.yml python=${{ matrix.python-version }}
+        run: mamba install -n xsar -f environment.yml python=${{ matrix.python-version }}
         # if: steps.cache.outputs.cache-hit != 'true'
 
       - name: List Packages

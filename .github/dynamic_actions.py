@@ -5,7 +5,7 @@ matrix = {
     'default': {
         'os': ['ubuntu-latest'],
         'python_version': ['3.10'],
-        'doc': True
+        'doc': False
     },
     'pull_request': {
         'os': ['ubuntu-latest'],

@@ -9,6 +9,8 @@ runs:
         auto-update-conda: true
         activate-environment: xsar
         python-version: ${{ matrix.python-version }}
-    run: |
-      . docs/scripts/conda_setenv
-      . docs/scripts/conda_install_minimal
+    - name: xsar deps
+      shell: bash -l {0}
+      run: |
+        . docs/scripts/conda_setenv
+        . docs/scripts/conda_install_minimal

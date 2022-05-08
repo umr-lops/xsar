@@ -7,12 +7,11 @@ runs:
     - uses: conda-incubator/setup-miniconda@v2
       with:
         auto-update-conda: true
+        auto-activate-base: true
+        activate-environment: xsar
+        environment-file: environment.yml
+        condarc-file: condarc.yml
         python-version: ${{ matrix.python-version }}
-    - name: xsar deps
-      shell: bash -l {0}
-      run: |
-        conda env create -f environment.yml
-        conda activate xsar
     - name: Install xsar
       shell: bash -l {0}
       run: |
@@ -23,3 +22,9 @@ runs:
         conda info
         python -V
         conda list
+    - name: Install xsar
+      shell: bash -l {0}
+      run: |
+        pip install -e .
+        
+    

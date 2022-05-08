@@ -42,33 +42,27 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: ./.github/actions/xsar_install
-      #- name: Install xsar
+      - uses: ./.github/actions/xsar_test
+      #- name: Test install
       #  run: |
-      #    pip install -e .
-      #- name: Packages list
+      #    pip install pytest dill
+      #    pytest
+      #
+#
+      #- uses: dorny/paths-filter@v2
+      #  id: changes
+      #  with:
+      #    filters: |
+      #      doc:
+      #        - 'doc/**'
+      #  # run only if some file in 'src' folder was changed
+      #- name: Notebook dependencies
+      #  run: pip install -r requirements.txt
+      #  if: steps.changes.outputs.doc  == 'true'
+      #- name: Documentation test
       #  run: |
-      #    conda info
-      #    python -V
-      #    conda list
-      - name: Test install
-        run: |
-          pip install pytest dill
-          pytest
-
-      - uses: dorny/paths-filter@v2
-        id: changes
-        with:
-          filters: |
-            doc:
-              - 'doc/**'
-        # run only if some file in 'src' folder was changed
-      - name: Notebook dependencies
-        run: pip install -r requirements.txt
-        if: steps.changes.outputs.doc  == 'true'
-      - name: Documentation test
-        run: |
-          cd docs
-          make html
-        if: steps.changes.outputs.doc  == 'true'
+      #    cd docs
+      #    make html
+      #  if: steps.changes.outputs.doc  == 'true'
           
 

@@ -1,0 +1,22 @@
+name: "xsar test"
+description: "xsar test with optional doc test"
+runs:
+  using: "composite"
+  steps:
+    - uses: dorny/paths-filter@v2
+      id: changes
+      with:
+        filters: |
+          doc:
+            - 'doc/**'
+    # run only if some file in 'doc' folder was changed
+    - name: Notebook dependencies
+      shell: bash -l {0}
+      run: pip install -r requirements.txt
+      if: steps.changes.outputs.doc  == 'true'
+    - name: Documentation test
+      shell: bash -l {0}
+      run: |
+        cd docs
+        make html
+      if: steps.changes.outputs.doc  == 'true'

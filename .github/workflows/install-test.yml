@@ -60,11 +60,11 @@ jobs:
       - name: Set cache date and CONDA_PREFIX
         run: |
         echo "DATE=$(date +'%Y%m%d')" >> $GITHUB_ENV
-        echo "conda prefix ${CONDA_PREFIX}"
+        echo "conda prefix ${{ env.CONDA_PREFIX }}"
 
       - uses: actions/cache@v2
         with:
-          path: ${CONDA_PREFIX}
+          path: ${{ env.CONDA_PREFIX }}
           key: conda-cache-${{ matrix.os }}-${{ matrix.python-version }}-${{ hashFiles('environment.yml') }}-${{ env.DATE }}-${{ env.CACHE_NUMBER }}
         id: cache
 

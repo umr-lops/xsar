@@ -41,6 +41,8 @@ jobs:
     name: python ${{ matrix.python-version }} on ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v2
+      - name: debug
+        run: echo ${{ needs.dynamic-actions.outputs.doc }}
       - name: Conda init
         uses: conda-incubator/setup-miniconda@v2
         with:

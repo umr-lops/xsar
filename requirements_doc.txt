@@ -1,0 +1,10 @@
+# requirements for doc
+# no need to manul install it. (See doc/Makefile)
+jinja2<=3.03
+pandoc
+sphinx
+numpydoc
+sphinx-rtd-theme
+nbsphinx
+jupyter-sphinx
+sphinxcontrib-programoutput

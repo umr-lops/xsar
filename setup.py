@@ -33,6 +33,8 @@ setup(
         'fsspec',
         'aiohttp',
         'pytz',
+        'psutil',
+        'requests'
     ],
     entry_points={
         "xarray.backends": ["xsar=xsar.xarray_backends:XsarXarrayBackend"]

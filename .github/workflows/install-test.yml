@@ -51,7 +51,7 @@ jobs:
 #        run: |
 #          . docs/scripts/conda_setenv
 #          . docs/scripts/conda_install_minimal
-      - uses: .github/actions/conda
+      - uses: ./.github/actions/conda
       - name: Install xsar
         run: |
           pip install -e .

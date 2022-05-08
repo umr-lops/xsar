@@ -10,7 +10,7 @@ matrix = {
     'pull_request': {
         'os': ['ubuntu-latest'],
         'python_version': ['3.10'],
-        'doc': True
+        'doc': False
     },
     'schedule': {
         'os': ['ubuntu-latest', 'macos-latest', 'windows-latest'],

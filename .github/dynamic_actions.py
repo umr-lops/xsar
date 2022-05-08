@@ -27,4 +27,4 @@ if __name__ == "__main__":
 
     print('::set-output name=os_matrix::%s' % str(matrix[event]['os']))
     print('::set-output name=python_version_matrix::%s' % str(matrix[event]['python_version']))
-    print('::set-output name=doc::%s' % str(matrix[event]['doc']))
+    print('::set-output name=doc::"%s"' % str(matrix[event]['doc']))

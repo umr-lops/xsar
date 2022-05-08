@@ -8,7 +8,7 @@ on:
     branches:
       - develop
   schedule:
-    - cron: '0 8 * * 0'
+    - cron: '20 10 * * 0'
   release:
     types: [ published ]
 

@@ -5,17 +5,17 @@ matrix = {
     'default': {
         'os': ['ubuntu-latest'],
         'python_version': ['3.10'],
-        'doc': False
+        'doc': 'false'
     },
     'pull_request': {
         'os': ['ubuntu-latest'],
         'python_version': ['3.10'],
-        'doc': True
+        'doc': 'true'
     },
     'schedule': {
         'os': ['ubuntu-latest', 'macos-latest', 'windows-latest'],
         'python_version': ['3.7', '3.8', '3.9', '3.10'],
-        'doc': True
+        'doc': 'true'
     },
 
 }

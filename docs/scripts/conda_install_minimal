@@ -1,1 +1,1 @@
-conda install -c conda-forge xsar 'rioxarray>=0.10' 'gdal>=3.3'
+conda install -c conda-forge xsar

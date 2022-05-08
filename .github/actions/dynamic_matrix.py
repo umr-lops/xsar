@@ -33,7 +33,11 @@ matrix = {
     'pull_request_review': {
         'os': ['ubuntu-latest', 'macos-latest', 'windows-latest'],
         'python_version': python_supported_versions,
-    }
+    },
+    'workflow_dispatch': {
+        'os': ['ubuntu-latest', 'macos-latest', 'windows-latest'],
+        'python_version': python_supported_versions,
+    },
 }
 
 if __name__ == "__main__":

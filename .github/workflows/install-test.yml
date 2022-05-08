@@ -53,7 +53,7 @@ jobs:
       - name: Install xsar
         run: |
           pip install -e .
-          pip install -r requirements.txt
+#          pip install -r requirements.txt
       - name: Packages list
         run: |
           conda info

@@ -14,9 +14,6 @@ matplotlib
 graphviz
 cachey
 psutil
-sphinx
-numpydoc
-sphinx-rtd-theme
 rasterio
 lxml
 shapely
@@ -28,9 +25,6 @@ pandas
 affine
 jmespath
 setuptools
-nbsphinx
-jupyter-sphinx
-sphinxcontrib-programoutput
 pyyaml
 fsspec
 aiohttp

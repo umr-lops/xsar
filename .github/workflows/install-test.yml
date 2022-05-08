@@ -8,7 +8,7 @@ on:
     branches:
       - develop
   schedule:
-    - cron: '20 10 * * 0'
+    - cron: '25 16 * * 0'
   release:
     types: [ published ]
 
@@ -72,12 +72,12 @@ jobs:
         run: echo Cache found
         if: steps.cache.outputs.cache-hit == 'true'
 
+      # update conda. Cache will be used if available
+      # we remove python from environment.yml, because we want the version from  matrix.python-version
       - name: update conda
         run: |
-          cat environment.yml | egrep -vw 'python' > ~/environment-pinned-python.yml
-          mamba env update -n xsar -f ~/environment-pinned-python.yml python=${{ matrix.python-version }}
-        # if: steps.cache.outputs.cache-hit != 'true'
-        # cat environment.yml | sed -E 's/(\s*-\spython\s).*/\1=='"${{ matrix.python-version }}".*'/' > ~/environment-pinned-python.yml
+          cat environment.yml | egrep -vw 'python' > ~/environment-nopython.yml
+          mamba env update -n xsar -f ~/environment-nopython.yml 
 
       - name: List Packages
         run: |

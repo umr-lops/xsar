@@ -5,7 +5,7 @@ Conda package can only be built if a release tag has been set
   * Go to [new release](https://github.com/umr-lops/xsar/releases/new) and choose a tag name like `v0.9`
   * Download the `.tar.gz` you've just created, and get `sha256`
     ```
-    curl -sL https://github.com/umr-lops/xsar/archive/refs/tags/v0.0.tar.gz | openssl sha256
+    curl -sL https://github.com/umr-lops/xsar/archive/refs/tags/v0.9.1.tar.gz | openssl sha256
     ```
   * fork https://github.com/conda-forge/xsar-feedstock
   * In the forked repository, edit `main/recipe/meta.yaml`
@@ -25,4 +25,9 @@ Conda package can only be built if a release tag has been set
     ```
     conda search -c conda-forge xsar
     ```
+    * Manually trigger workflow https://github.com/umr-lops/xsar/actions/workflows/conda-feedstock-check.yml
+      If everything is correct, the workflow should success. 
+      Otherwise, it seems that there is a problem with the package. 
+      Fix it, and go to step 0, increasing the version number by 0.0.1..
+  
     

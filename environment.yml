@@ -1,7 +1,7 @@
 name: xsar
 channels:
   - conda-forge
-# remove comment
+# remove comments
 dependencies:
   - aiohttp
   #- attrs

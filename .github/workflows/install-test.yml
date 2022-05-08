@@ -60,17 +60,16 @@ jobs:
       - name: Set cache date
         run: |
           echo "DATE=$(date +'%Y%m%d')" >> $GITHUB_ENV
-          echo "conda prefix ${CONDA_PREFIX}"
 
       - uses: actions/cache@v2
         with:
-          path: ${CONDA_PREFIX}
+          path: ~/conda_pkgs_dir
           key: conda-cache-${{ matrix.os }}-${{ matrix.python-version }}-${{ hashFiles('environment.yml') }}-${{ env.DATE }}-${{ env.CACHE_NUMBER }}
         id: cache
 
-      - name: No conda cache available, create from scracth
+      - name: update conda
         run: mamba env update -n xsar -f environment.yml
-        if: steps.cache.outputs.cache-hit != 'true'
+        # if: steps.cache.outputs.cache-hit != 'true'
 
       - name: List Packages
         run: |

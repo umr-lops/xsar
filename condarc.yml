@@ -1,5 +1,4 @@
 always_yes: true
 quiet: true
-pkgs_dirs:
-  - ~/conda_pkgs_dir
+
 

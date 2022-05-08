@@ -70,13 +70,21 @@ jobs:
         run: |
           pip install pytest dill
           pytest
+
+      - uses: dorny/paths-filter@v2
+        id: changes
+        with:
+          filters: |
+            doc:
+              - 'doc/**'
+        # run only if some file in 'src' folder was changed
       - name: Notebook dependencies
         run: pip install -r requirements.txt
-        if: needs.dynamic-actions.outputs.doc  == 'true'
+        if: steps.changes.outputs.doc  == 'true'
       - name: Documentation test
         run: |
           cd docs
           make html
-        if: needs.dynamic-actions.outputs.doc  == 'true'
+        if: steps.changes.outputs.doc  == 'true'
           
 

@@ -21,6 +21,7 @@ jobs:
       - id: get-actions
         run: |
           echo "get actions for event ${{ github.event_name }}"
+          echo "::echo::on"
           python .github/dynamic_actions.py ${{ github.event_name }}
     outputs:
       os_matrix: ${{ steps.get-actions.outputs.os_matrix }}

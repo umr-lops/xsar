@@ -69,6 +69,12 @@ jobs:
         run: mamba env update -n xsar -f environment.yml
         if: steps.cache.outputs.cache-hit != 'true'
 
+      - name: List Packages
+        run: |
+          python -V
+          conda info
+          conda list
+
       - name: Minimal install
         run: pip install -e .
 

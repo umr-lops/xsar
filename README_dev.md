@@ -1,4 +1,16 @@
-# Builing conda package
+# Developement notes
+
+## Making a new conda release
+
+### When ?
+
+The [conda-feedstok workflow](https://github.com/umr-lops/xsar/actions/workflows/conda-feedstock-check.yml) is scheduled once a week.
+It's main purpose is to check that the documentation from the dev branch can be generated with the conda package.
+
+If not, an error will be raised, indicating that's we need to build a new conda release.
+
+
+### How ?
 
 Conda package can only be built if a release tag has been set
 
@@ -25,9 +37,9 @@ Conda package can only be built if a release tag has been set
     ```
     conda search -c conda-forge xsar
     ```
-    * Manually trigger workflow https://github.com/umr-lops/xsar/actions/workflows/conda-feedstock-check.yml
-      If everything is correct, the workflow should success. 
-      Otherwise, it seems that there is a problem with the package. 
-      Fix it, and go to step 0, increasing the version number by 0.0.1..
+  * Manually trigger workflow https://github.com/umr-lops/xsar/actions/workflows/conda-feedstock-check.yml
+    If everything is correct, the workflow should success. 
+    Otherwise, it seems that there is a problem with the package. 
+    Fix it, and go to step 0, increasing the version number by 0.0.1..
   
     

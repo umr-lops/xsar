@@ -63,11 +63,11 @@ jobs:
         run: pytest
       - name: Conda recommended dependencies
         run: . docs/scripts/conda_install_recommended
-        if: ${{ fromJson(needs.dynamic-actions.outputs.doc) }} == 'True'
+        if: ${{ fromJson(needs.dynamic-actions.outputs.doc) }} == 'true'
       - name: Documentation test
         run: |
           cd docs
           make html
-        if: ${{ fromJson(needs.dynamic-actions.outputs.doc) }} == 'True'
+        if: ${{ fromJson(needs.dynamic-actions.outputs.doc) }} == 'true'
           
 

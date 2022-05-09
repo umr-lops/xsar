@@ -38,7 +38,7 @@ jobs:
     name: python ${{ matrix.python-version }} on ${{ matrix.os }}
     steps:
       - name: Strip python version
-        run: cat environment.yml | egrep -vw 'python > environment-nopython.yml
+        run: cat environment.yml | egrep -vw python > environment-nopython.yml
       - uses: actions/checkout@v2
       - uses: conda-incubator/setup-miniconda@v2
         with:

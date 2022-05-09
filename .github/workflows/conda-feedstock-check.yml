@@ -37,12 +37,14 @@ jobs:
         shell: bash -l {0}
     name: python ${{ matrix.python-version }} on ${{ matrix.os }}
     steps:
+      - name: Strip python version
+        run: cat environment.yml | egrep -vw 'python > environment-nopython.yml
       - uses: actions/checkout@v2
       - uses: conda-incubator/setup-miniconda@v2
         with:
           auto-update-conda: true
           activate-environment: xsar
-          environment-file: environment.yml
+          environment-file: environment-nopython.yml
           condarc-file: condarc.yml
           python-version: ${{ matrix.python-version }}
 

@@ -1,7 +1,4 @@
-![Ubuntu](https://github.com/umr-lops/xsar/actions/workflows/ubuntu-install-test.yml/badge.svg)
-![MacOS](https://github.com/umr-lops/xsar/actions/workflows/mac-os-install-test.yml/badge.svg)
-![Windows](https://github.com/umr-lops/xsar/actions/workflows/windows-install-test.yml/badge.svg)
-
+[![Install test](https://github.com/umr-lops/xsar/actions/workflows/install-test.yml/badge.svg)]
 # xsar
 
 Sentinel1 Level 1 python reader for efficient xarray/dask based processor
@@ -10,8 +7,10 @@ Sentinel1 Level 1 python reader for efficient xarray/dask based processor
 
 # Install
 
-![conda-version](https://anaconda.org/conda-forge/xsar/badges/version.svg) 
-![conda-date](https://anaconda.org/conda-forge/xsar/badges/latest_release_date.svg)
+[![conda-version](https://anaconda.org/conda-forge/xsar/badges/version.svg) 
+[![conda-date](https://anaconda.org/conda-forge/xsar/badges/latest_release_date.svg)
+[![Conda feedstock test](https://github.com/umr-lops/xsar/actions/workflows/conda-feedstock-check.yml/badge.svg)
+
 ```
 conda install -c conda-forge xsar
 ```

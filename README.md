@@ -7,7 +7,6 @@ Sentinel1 Level 1 python reader for efficient xarray/dask based processor
 
 # Install
 
-![conda-feedstok](https://github.com/umr-lops/xsar/actions/workflows/conda-feedstock-check.yml/badge.svg"/>)
 
 ```
 conda install -c conda-forge xsar

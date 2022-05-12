@@ -14,18 +14,8 @@ It currently handles Level-1 Sentinel-1 data in `SAFE format`_, as found on `sci
 Documentation
 -------------
 
-Getting Started
-...............
-
-:doc:`installing`
-~~~~~~~~~~~~~~~~~
-
-   Quick install:
-
-   .. program-output:: cat scripts/conda_create_activate scripts/conda_install_recommended
-
 Overview
-~~~~~~~~
+........
 
     **xsar** rely on `xarray.open_rasterio`_, `rasterio`_ and `GDAL`_ to read *digital_number* from SAFE
     product to return an `xarray.Dataset`_ object with `dask`_ chunks.

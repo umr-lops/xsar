@@ -2,6 +2,7 @@
 import logging
 import warnings
 import numpy as np
+import xarray
 from scipy.interpolate import RectBivariateSpline
 import xarray as xr
 import dask
@@ -435,6 +436,41 @@ class Sentinel1Dataset:
         return max(
             [np.unique(np.round(np.diff(self._dataset[dim].values), 1)).size for dim in ['atrack', 'xtrack']]) == 1
 
+    def _set_rio(self, ds):
+        # set .rio accessor for ds. ds must be same kind a self._dataset (not checked!)
+        gcps = self._local_gcps
+
+        want_dataset = True
+        if isinstance(ds, xarray.DataArray):
+            # temporary convert to dataset
+            try:
+                ds = ds.to_dataset()
+            except ValueError:
+                ds = ds.to_dataset(name='_tmp_rio')
+            want_dataset = False
+
+        for v in ds:
+            if set(['atrack', 'xtrack']).issubset(set(ds[v].dims)):
+                ds[v] = ds[v].set_index({'xtrack': 'xtrack', 'atrack': 'atrack'})
+                ds[v] = ds[v].rio.write_gcps(
+                    gcps, 'epsg:4326', inplace=True
+                ).rio.set_spatial_dims(
+                    'xtrack', 'atrack', inplace=True
+                ).rio.write_coordinate_system(
+                    inplace=True)
+                # remove/reset some incorrect attrs set by rio
+                # (long_name is 'latitude', but it's incorrect for atrack axis ...)
+                for ax in ['atrack', 'xtrack']:
+                    [ds[v][ax].attrs.pop(k, None) for k in ['long_name', 'standard_name']]
+                    ds[v][ax].attrs['units'] = '1'
+
+        if not want_dataset:
+            # convert back to dataarray
+            ds = ds[v]
+            if ds.name == '_tmp_rio':
+                ds.name = None
+        return ds
+
     def recompute_attrs(self):
         """
         Recompute dataset attributes. It's automaticaly called if you assign a new dataset, for example
@@ -463,18 +499,9 @@ class Sentinel1Dataset:
 
         self.dataset.attrs.update(attrs)
 
-        gcps = self._local_gcps
+        self._dataset = self._set_rio(self._dataset)
 
-        for v in self._dataset.variables:
-            if set(['atrack', 'xtrack']).issubset(set(self._dataset[v].dims)):
-                self._dataset[v] = self._dataset[v].rio.write_gcps(
-                gcps, 'epsg:4326', inplace=True
-            ).rio.set_spatial_dims(
-                'xtrack', 'atrack', inplace=True
-            ).rio.write_coordinate_system(
-                inplace=True)
-
-        return attrs
+        return None
 
     def _patch_lut(self, lut):
         """
@@ -808,7 +835,6 @@ class Sentinel1Dataset:
 
         return xr.merge(da_list)
 
-
     @timing
     def _load_ground_heading(self):
         def coords2heading(atracks, xtracks):
@@ -828,13 +854,6 @@ class Sentinel1Dataset:
 
     @timing
     def _load_rasterized_masks(self):
-        def _test(atrack, xtrack, mask=None):
-            chunk_coords = bbox_coords(atrack, xtrack, pad=None)
-            # chunk footprint polygon, in dataset coordinates (with buffer, to enlarge a little the footprint)
-            chunk_footprint_coords = Polygon(chunk_coords).buffer(10)
-            tmp = self.s1meta.name
-            # vector_mask_ll = s1meta.get_mask(mask) #
-            return np.meshgrid(xtrack, atrack)[0] * 0
 
         def _rasterize_mask_by_chunks(atrack, xtrack, mask='land'):
             chunk_coords = bbox_coords(atrack, xtrack, pad=None)
@@ -885,6 +904,76 @@ class Sentinel1Dataset:
         return xr.merge(da_list)
 
     @timing
+    def map_raster(self, raster_ds):
+        """
+        Map a raster onto xsar grid
+
+        Parameters
+        ----------
+        raster_ds: xarray.Dataset or xarray.DataArray
+            The dataset we want to project onto xsar grid. The `raster_ds.rio` accessor must be valid.
+
+        Returns
+        -------
+        xarray.Dataset or xarray.DataArray
+            The projected dataset, with 'atrack' and 'xtrack' coordinate (same size as xsar dataset), and with valid `.rio` accessor.
+
+
+        """
+        if not raster_ds.rio.crs.is_geographic:
+            raster_ds = raster_ds.rio.reproject(4326)
+
+        if self.s1meta.cross_antemeridian:
+            raise NotImplementedError('Antimeridian crossing not yet checked')
+
+        # get lon/lat box for xsar dataset
+        lon1, lat1, lon2, lat2 = self.s1meta.footprint.exterior.bounds
+        lon_range = [lon1, lon2]
+        lat_range = [lat1, lat2]
+
+        # from lon/lat box in xsar dataset, get the corresponding box in raster_ds (by index)
+        ilon_range = [
+            np.searchsorted(raster_ds.x.values, lon_range[0]),
+            np.searchsorted(raster_ds.x.values, lon_range[1])
+        ]
+
+        if raster_ds.y.values[-1] < raster_ds.y.values[0]:
+            # lat is descending. need a sorter for np.searchsorted
+            sorter = np.arange(raster_ds.y.size, 0, -1)
+        else:
+            sorter = None
+
+        ilat_range = [
+            np.searchsorted(raster_ds.y.values, lat_range[0], sorter=sorter),
+            np.searchsorted(raster_ds.y.values, lat_range[1], sorter=sorter)
+        ]
+        if sorter is not None:
+            ilat_range = list(reversed([raster_ds.y.size - ilat for ilat in ilat_range]))
+
+        # enlarge the raster selection range, for correct interpolation
+        ilon_range, ilat_range = [[rg[0] - 1, rg[1] + 1] for rg in (ilon_range, ilat_range)]
+
+        # select the xsar box in the raster
+        raster_ds = raster_ds.isel(x=slice(*ilon_range), y=slice(*ilat_range))
+
+        if isinstance(raster_ds, xr.DataArray):
+            mapped_ds = raster_ds.interp(
+                x=self._dataset.longitude,
+                y=self._dataset.latitude
+            )
+        else:
+            mapped_ds = xr.merge(
+                [
+                    raster_ds[var].interp(
+                        x=self._dataset.longitude,
+                        y=self._dataset.latitude
+                    ).drop_vars(['x', 'y'])
+                    for var in raster_ds
+                ]
+            )
+        return self._set_rio(mapped_ds)
+
+    @timing
     def _load_rasters_vars(self):
         # load and map variables from rasterfile (like ecmwf) on dataset
         if self.s1meta.rasters.empty:
@@ -894,11 +983,6 @@ class Sentinel1Dataset:
 
         if self.s1meta.cross_antemeridian:
             raise NotImplementedError('Antimeridian crossing not yet checked')
-
-        # get lon/lat box for xsar dataset
-        lons, lats = list(zip(*self.s1meta.footprint.exterior.coords))
-        lon_range = [min(lons), max(lons)]
-        lat_range = [min(lats), max(lats)]
 
         # will contain xr.DataArray to merge
         da_var_list = []
@@ -933,71 +1017,12 @@ class Sentinel1Dataset:
             if get_function is not None:
                 hist_res.update({'resource_decoded': resource_dec})
 
-            if not raster_ds.rio.crs.is_geographic:
-                raise NotImplementedError("Non geographic crs not implemented")
+            reprojected_ds = self.map_raster(raster_ds).rename({v: '%s_%s' % (name, v) for v in raster_ds})
 
-            # ensure dim ordering
-            raster_ds = raster_ds.transpose('y', 'x')
-            if np.all(raster_ds.y.diff('y') <= 0):
-                # sort y (lat) ascending (for RectBiVariateSpline)
-                raster_ds = raster_ds.reindex(y=raster_ds.y[::-1])
+            for v in reprojected_ds:
+                reprojected_ds[v].attrs['history'] = yaml.safe_dump({v: hist_res})
 
-            # from lon/lat box in xsar dataset, get the corresponding box in raster_ds (by index)
-            ilon_range = [
-                np.searchsorted(raster_ds.x.values, lon_range[0], side='right'),
-                np.searchsorted(raster_ds.x.values, lon_range[1], side='left')
-            ]
-            ilat_range = [
-                np.searchsorted(raster_ds.y.values, lat_range[0], side='right'),
-                np.searchsorted(raster_ds.y.values, lat_range[1], side='left')
-            ]
-            # select the xsar box in the raster
-            raster_ds = raster_ds.isel(x=slice(*ilon_range), y=slice(*ilat_range))
-
-            # 1D array of lons/lats, trying to have same spacing as dataset (if not to high)
-            num = min((self._dataset.xtrack.size + self._dataset.atrack.size) // 2, 1000)
-            lons = np.linspace(*lon_range, num=num)
-            lats = np.linspace(*lat_range, num=num)
-
-            @dask.delayed
-            def _map_raster2xsar(da):
-                # map the 'da' dataarray variable from the raster to xsar dataset
-                da = da.drop_vars(['spatial_ref', 'crs'], errors='ignore')
-
-                upscaled_da = map_blocks_coords(
-                    xr.DataArray(dims=['y', 'x'], coords={'x': lons, 'y': lats}).chunk(1000),
-                    RectBivariateSpline(da.y.values, da.x.values, da.values)
-                )
-
-                reprojected_da = upscaled_da.interp(
-                    x=self._dataset.longitude,
-                    y=self._dataset.latitude
-                )
-                reprojected_da = reprojected_da.drop_vars(['x', 'y', 'spatial_ref', 'crs'], errors='ignore')
-                reprojected_da.attrs.update(da.attrs)
-
-                reprojected_da.name = '%s_%s' % (name, da.name)
-
-                # reprojected_da has same shape as other variables is xsar dataset, with optional 3rd dim
-                return reprojected_da
-
-            for var in raster_ds:
-                var_name = '%s_%s' % (name, raster_ds[var].name)
-                da_var = xr.DataArray(
-                    dask.array.from_delayed(
-                        _map_raster2xsar(raster_ds[var]),
-                        self._da_tmpl.shape,
-                        dtype='f8',
-                        name='%s' % var_name
-                    ),
-                    dims=['atrack', 'xtrack'],
-                    coords={'atrack': self._da_tmpl.atrack, 'xtrack': self._da_tmpl.xtrack},
-                    attrs=raster_ds[var].attrs
-                ).chunk(self._da_tmpl.chunks)
-                da_var.attrs['history'] = yaml.safe_dump({var_name: hist_res})
-                logger.debug('adding variable "%s" from raster "%s"' % (var_name, name))
-                da_var_list.append(da_var)
-
+            da_var_list.append(reprojected_ds)
         return xr.merge(da_var_list)
 
     def _get_lut(self, var_name):

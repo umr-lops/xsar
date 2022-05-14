@@ -931,46 +931,63 @@ class Sentinel1Dataset:
         lon_range = [lon1, lon2]
         lat_range = [lat1, lat2]
 
+        # ensure dims ordering
+        raster_ds = raster_ds.transpose('y', 'x')
+
+        # ensure coords are increasing ( for RectBiVariateSpline )
+        for coord in ['x', 'y']:
+            if raster_ds[coord].values[-1] < raster_ds[coord].values[0]:
+                raster_ds = raster_ds.reindex({coord : raster_ds[coord][::-1]})
+
         # from lon/lat box in xsar dataset, get the corresponding box in raster_ds (by index)
         ilon_range = [
             np.searchsorted(raster_ds.x.values, lon_range[0]),
             np.searchsorted(raster_ds.x.values, lon_range[1])
         ]
-
-        if raster_ds.y.values[-1] < raster_ds.y.values[0]:
-            # lat is descending. need a sorter for np.searchsorted
-            sorter = np.arange(raster_ds.y.size, 0, -1)
-        else:
-            sorter = None
-
         ilat_range = [
-            np.searchsorted(raster_ds.y.values, lat_range[0], sorter=sorter),
-            np.searchsorted(raster_ds.y.values, lat_range[1], sorter=sorter)
+            np.searchsorted(raster_ds.y.values, lat_range[0]),
+            np.searchsorted(raster_ds.y.values, lat_range[1])
         ]
-        if sorter is not None:
-            ilat_range = list(reversed([raster_ds.y.size - ilat for ilat in ilat_range]))
-
         # enlarge the raster selection range, for correct interpolation
         ilon_range, ilat_range = [[rg[0] - 1, rg[1] + 1] for rg in (ilon_range, ilat_range)]
 
         # select the xsar box in the raster
         raster_ds = raster_ds.isel(x=slice(*ilon_range), y=slice(*ilat_range))
 
+        # upscale coordinates, in original projection
+        # 1D array of lons/lats, trying to have same spacing as dataset (if not to high)
+        num = min((self._dataset.xtrack.size + self._dataset.atrack.size) // 2, 1000)
+        lons = np.linspace(*lon_range, num=num)
+        lats = np.linspace(*lat_range, num=num)
+
+        name = None
         if isinstance(raster_ds, xr.DataArray):
-            mapped_ds = raster_ds.interp(
-                x=self._dataset.longitude,
-                y=self._dataset.latitude
+            # convert to temporary dataset
+            name = raster_ds or '_tmp_name'
+            raster_ds = raster_ds.to_dataset(name=name)
+
+        mapped_ds_list = []
+        for var in raster_ds:
+            # upscale in original projection using RectBiVariateSpline
+            upscaled_da = map_blocks_coords(
+                xr.DataArray(dims=['y', 'x'], coords={'x': lons, 'y': lats}).chunk(1000),
+                RectBivariateSpline(raster_ds[var].y.values, raster_ds[var].x.values, raster_ds[var].values)
             )
-        else:
-            mapped_ds = xr.merge(
-                [
-                    raster_ds[var].interp(
-                        x=self._dataset.longitude,
-                        y=self._dataset.latitude
-                    ).drop_vars(['x', 'y'])
-                    for var in raster_ds
-                ]
+            upscaled_da.name = var
+            # interp upscaled_da on sar grid
+            mapped_ds_list.append(
+                upscaled_da.interp(
+                    x=self._dataset.longitude,
+                    y=self._dataset.latitude
+                ).drop_vars(['x', 'y'])
             )
+        mapped_ds = xr.merge(mapped_ds_list)
+
+        if name is not None:
+            # convert back to dataArray
+            mapped_ds = mapped_ds[name]
+            if name == '_tmp_name':
+                mapped_ds.name = None
         return self._set_rio(mapped_ds)
 
     @timing

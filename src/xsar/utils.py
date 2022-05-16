@@ -18,6 +18,11 @@ import re
 import datetime
 import string
 import pytz
+import yaml
+from importlib_resources import files
+from pathlib import Path
+import fsspec
+import aiohttp
 
 logger = logging.getLogger('xsar.utils')
 logger.addHandler(logging.NullHandler())
@@ -29,6 +34,31 @@ try:
 except ImportError:
     logger.warning("psutil module not found. Disabling memory monitor")
     mem_monitor = False
+
+def _load_config():
+    """
+    load config from default xsar/config.yml file or user ~/.xsar/config.yml
+    Returns
+    -------
+    dict
+    """
+    user_config_file = Path('~/.xsar/config.yml').expanduser()
+    default_config_file = files('xsar').joinpath('config.yml')
+
+    if user_config_file.exists():
+        config_file = user_config_file
+    else:
+        config_file = default_config_file
+
+    config = yaml.load(
+        config_file.open(),
+        Loader=yaml.FullLoader)
+    return config
+
+
+global config
+config = _load_config()
+
 
 
 class bind(partial):
@@ -520,3 +550,39 @@ def safe_dir(filename, path='.', only_exists=False):
                 # a path was found. Stop iterating over path list
                 break
     return filepath
+
+def url_get(url, cache_dir=os.path.join(config['data_dir'], 'fsspec_cache')):
+    """
+    Get fil from url, using caching.
+
+    Parameters
+    ----------
+    url: str
+    cache_dir: str
+        Cache dir to use. default to `os.path.join(config['data_dir'], 'fsspec_cache')`
+
+    Raises
+    ------
+    FileNotFoundError
+
+    Returns
+    -------
+    filename: str
+        The local file name
+
+    Notes
+    -----
+    Due to fsspec, the returned filename won't match the remote one.
+    """
+
+    if '://' in url:
+        with fsspec.open(
+                'filecache::%s' % url,
+                https={'client_kwargs': {'timeout': aiohttp.ClientTimeout(total=3600)}},
+                filecache={'cache_storage': os.path.join(os.path.join(config['data_dir'], 'fsspec_cache'))}
+        ) as f:
+            fname = f.name
+    else:
+        fname = url
+
+    return fname

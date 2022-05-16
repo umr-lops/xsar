@@ -10,11 +10,8 @@ except ImportError: # for Python<3.8
 __version__ = metadata.version('xsar')
 
 import logging
-from .utils import timing
+from .utils import timing, config, url_get
 import os
-import yaml
-from importlib_resources import files
-from pathlib import Path
 import fsspec
 import aiohttp
 import zipfile
@@ -23,26 +20,6 @@ from .xml_parser import XmlParser
 import pandas as pd
 import geopandas as gpd
 
-
-def _load_config():
-    """
-    load config from default xsar/config.yml file or user ~/.xsar/config.yml
-    Returns
-    -------
-    dict
-    """
-    user_config_file = Path('~/.xsar/config.yml').expanduser()
-    default_config_file = files('xsar').joinpath('config.yml')
-
-    if user_config_file.exists():
-        config_file = user_config_file
-    else:
-        config_file = default_config_file
-
-    config = yaml.load(
-        config_file.open(),
-        Loader=yaml.FullLoader)
-    return config
 
 
 from .sentinel1_meta import Sentinel1Meta
@@ -185,18 +162,13 @@ def get_test_file(fname):
         path to file, relative to `config['data_dir']`
 
     """
-    config = _load_config()
     res_path = config['data_dir']
     base_url = 'https://cyclobs.ifremer.fr/static/sarwing_datarmor/xsardata'
     file_url = '%s/%s.zip' % (base_url, fname)
     if not os.path.exists(os.path.join(res_path, fname)):
         warnings.warn("Downloading %s" % file_url)
-        with fsspec.open(
-                'filecache::%s' % file_url,
-                https={'client_kwargs': {'timeout': aiohttp.ClientTimeout(total=3600)}},
-                filecache={'cache_storage': os.path.join(os.path.join(config['data_dir'], 'fsspec_cache'))}
-        ) as f:
-            warnings.warn("Unzipping %s" % os.path.join(res_path, fname))
-            with zipfile.ZipFile(f, 'r') as zip_ref:
-                zip_ref.extractall(res_path)
+        local_file = url_get(file_url)
+        warnings.warn("Unzipping %s" % os.path.join(res_path, fname))
+        with zipfile.ZipFile(local_file, 'r') as zip_ref:
+            zip_ref.extractall(res_path)
     return os.path.join(res_path, fname)

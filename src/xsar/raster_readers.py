@@ -2,7 +2,7 @@ import xarray as xr
 import datetime
 import numpy as np
 import glob
-from .utils import bind
+from .utils import bind, url_get
 import pandas as pd
 
 
@@ -10,6 +10,8 @@ def resource_strftime(resource, **kwargs):
     """
     From a resource string like '%Y/%j/myfile_%Y%m%d%H%M.nc' and a date like 'Timestamp('2018-10-13 06:23:22.317102')',
     returns a string like '/2018/286/myfile_201810130600.nc'
+
+    If ressource string is an url (ie 'ftp://ecmwf/%Y/%j/myfile_%Y%m%d%H%M.nc'), fsspec will be used to retreive the file locally.
 
     Parameters
     ----------
@@ -45,7 +47,8 @@ def resource_strftime(resource, **kwargs):
         second=0,
         microsecond=0
     )
-    return date.strftime(resource)
+    return url_get(date.strftime(resource))
+
 
 
 def _to_lon180(ds):

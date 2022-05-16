@@ -969,28 +969,21 @@ class Sentinel1Dataset:
 
         mapped_ds_list = []
         for var in raster_ds:
-            # upscale in original projection using RectBiVariateSpline
-            # RectBiVariateSpline give good results, but can't handle Nans
-            # So we have to remove them before interpolation
-            raster_da = raster_ds[var]
-            raster_da_nonan = raster_da.interpolate_na('x', fill_value="extrapolate")
-            raster_da_nonan = raster_da_nonan.interpolate_na('y', fill_value="extrapolate")
-            upscaled_da_nonan = map_blocks_coords(
-                xr.DataArray(dims=['y', 'x'], coords={'x': lons, 'y': lats}).chunk(500),
-                RectBivariateSpline(
-                    raster_da_nonan.y.values,
-                    raster_da_nonan.x.values,
-                    raster_da_nonan.values,
-                    kx=1, ky=1
-                )
-            )
+            raster_da = raster_ds[var].chunk(raster_ds[var].shape)
+            # upscale in original projection using interpolation
+            # in most cases, RectBiVariateSpline give better results, but can't handle Nans
             if np.any(np.isnan(raster_da)):
-                # nan present in original array.
-                # we use xarray.interp (less accurate, but handle nan), to fill nan in upscaled_da
-                upscaled_da_nan = raster_da.interp(x=lons, y=lats)
-                upscaled_da = xr.where(np.isnan(upscaled_da_nan), np.nan, upscaled_da_nonan)
+                upscaled_da = raster_da.interp(x=lons, y=lats)
             else:
-                upscaled_da = upscaled_da_nonan
+                upscaled_da = map_blocks_coords(
+                    xr.DataArray(dims=['y', 'x'], coords={'x': lons, 'y': lats}).chunk(1000),
+                    RectBivariateSpline(
+                        raster_da.y.values,
+                        raster_da.x.values,
+                        raster_da.values,
+                        kx=3, ky=3
+                    )
+                )
             upscaled_da.name = var
             # interp upscaled_da on sar grid
             mapped_ds_list.append(

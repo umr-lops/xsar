@@ -1294,8 +1294,8 @@ class Sentinel1Dataset:
     def _local_gcps(self):
         # get local gcps, for rioxarray.reproject (row and col are *index*, not coordinates)
         local_gcps = []
-        for atrack in self.dataset.atrack.values[::int(self.dataset.atrack.size / 20)]:
-            for xtrack in self.dataset.xtrack.values[::int(self.dataset.xtrack.size / 20)]:
+        for atrack in self.dataset.atrack.values[::int(self.dataset.atrack.size / 20)+1]:
+            for xtrack in self.dataset.xtrack.values[::int(self.dataset.xtrack.size / 20)+1]:
                 irow = np.argmin(np.abs(self.dataset.atrack.values - atrack))
                 icol = np.argmin(np.abs(self.dataset.xtrack.values - xtrack))
                 lon, lat = self.s1meta.coords2ll(atrack, xtrack)

@@ -310,7 +310,7 @@ class Sentinel1Dataset:
             # check if new ds has changed coordinates
             if not self.sliced:
                 self.sliced = any(
-                    [list(ds[d].values) != list(self._dataset[d].values) for d in ['atrack', 'xtrack', 'pol']])
+                    [list(ds[d].values) != list(self._dataset[d].values) for d in ['atrack', 'xtrack']])
             self._dataset = ds
             self.recompute_attrs()
         else:
@@ -774,7 +774,6 @@ class Sentinel1Dataset:
             return wrapperfunc(vect1dazti[:, np.newaxis], vect1dxtrac[np.newaxis, :], rbs)
 
         for varname in varnames:
-            logger.debug('varname : %s', varname)
             if varname in ['azimuth_time']:
                 z_values = self.s1meta.geoloc[varname].astype(float)
             elif varname == 'longitude':

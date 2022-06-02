@@ -31,7 +31,6 @@ Xsar can be used in jupyter, with holoviews and geoviews. To install aditional d
 
     pip install -r https://raw.githubusercontent.com/umr-lops/xsar/develop/requirements.txt
     pip install git+https://github.com/umr-lops/xsarsea.git
-    pip install git+https://gitlab.ifremer.fr/sarlib/xsarsea.git
 
 
 Update xsar to the latest version

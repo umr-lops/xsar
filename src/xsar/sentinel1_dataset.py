@@ -310,7 +310,7 @@ class Sentinel1Dataset:
             # check if new ds has changed coordinates
             if not self.sliced:
                 self.sliced = any(
-                    [list(ds[d].values) != list(self._dataset[d].values) for d in ['atrack', 'xtrack', 'pol']])
+                    [list(ds[d].values) != list(self._dataset[d].values) for d in ['atrack', 'xtrack']])
             self._dataset = ds
             self.recompute_attrs()
         else:
@@ -774,7 +774,6 @@ class Sentinel1Dataset:
             return wrapperfunc(vect1dazti[:, np.newaxis], vect1dxtrac[np.newaxis, :], rbs)
 
         for varname in varnames:
-            logger.debug('varname : %s', varname)
             if varname in ['azimuth_time']:
                 z_values = self.s1meta.geoloc[varname].astype(float)
             elif varname == 'longitude':
@@ -969,28 +968,21 @@ class Sentinel1Dataset:
 
         mapped_ds_list = []
         for var in raster_ds:
-            # upscale in original projection using RectBiVariateSpline
-            # RectBiVariateSpline give good results, but can't handle Nans
-            # So we have to remove them before interpolation
-            raster_da = raster_ds[var]
-            raster_da_nonan = raster_da.interpolate_na('x', fill_value="extrapolate")
-            raster_da_nonan = raster_da_nonan.interpolate_na('y', fill_value="extrapolate")
-            upscaled_da_nonan = map_blocks_coords(
-                xr.DataArray(dims=['y', 'x'], coords={'x': lons, 'y': lats}).chunk(500),
-                RectBivariateSpline(
-                    raster_da_nonan.y.values,
-                    raster_da_nonan.x.values,
-                    raster_da_nonan.values,
-                    kx=1, ky=1
-                )
-            )
+            raster_da = raster_ds[var].chunk(raster_ds[var].shape)
+            # upscale in original projection using interpolation
+            # in most cases, RectBiVariateSpline give better results, but can't handle Nans
             if np.any(np.isnan(raster_da)):
-                # nan present in original array.
-                # we use xarray.interp (less accurate, but handle nan), to fill nan in upscaled_da
-                upscaled_da_nan = raster_da.interp(x=lons, y=lats)
-                upscaled_da = xr.where(np.isnan(upscaled_da_nan), np.nan, upscaled_da_nonan)
+                upscaled_da = raster_da.interp(x=lons, y=lats)
             else:
-                upscaled_da = upscaled_da_nonan
+                upscaled_da = map_blocks_coords(
+                    xr.DataArray(dims=['y', 'x'], coords={'x': lons, 'y': lats}).chunk(1000),
+                    RectBivariateSpline(
+                        raster_da.y.values,
+                        raster_da.x.values,
+                        raster_da.values,
+                        kx=3, ky=3
+                    )
+                )
             upscaled_da.name = var
             # interp upscaled_da on sar grid
             mapped_ds_list.append(
@@ -1302,8 +1294,8 @@ class Sentinel1Dataset:
     def _local_gcps(self):
         # get local gcps, for rioxarray.reproject (row and col are *index*, not coordinates)
         local_gcps = []
-        for atrack in self.dataset.atrack.values[::int(self.dataset.atrack.size / 20)]:
-            for xtrack in self.dataset.xtrack.values[::int(self.dataset.xtrack.size / 20)]:
+        for atrack in self.dataset.atrack.values[::int(self.dataset.atrack.size / 20)+1]:
+            for xtrack in self.dataset.xtrack.values[::int(self.dataset.xtrack.size / 20)+1]:
                 irow = np.argmin(np.abs(self.dataset.atrack.values - atrack))
                 icol = np.argmin(np.abs(self.dataset.xtrack.values - xtrack))
                 lon, lat = self.s1meta.coords2ll(atrack, xtrack)

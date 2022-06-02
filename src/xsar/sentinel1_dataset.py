@@ -420,12 +420,12 @@ class Sentinel1Dataset:
     @property
     def pixel_atrack_m(self):
         """atrack pixel spacing, in meters (relative to dataset)"""
-        return self.len_atrack_m / self.dataset.atrack.size
+        return self.s1meta.pixel_atrack_m * np.unique(np.round(np.diff(self._dataset['atrack'].values), 1))[0]
 
     @property
     def pixel_xtrack_m(self):
         """xtrack pixel spacing, in meters (relative to dataset)"""
-        return self.len_xtrack_m / self.dataset.xtrack.size
+        return self.s1meta.pixel_xtrack_m * np.unique(np.round(np.diff(self._dataset['xtrack'].values), 1))[0]
 
     @property
     def coverage(self):

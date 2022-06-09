@@ -79,6 +79,28 @@ def ecmwf_0100_1h(fname):
 
     return ecmwf_ds
 
+def ecmwf_0125_1h(fname):
+    """ecmwf 0.125 deg 1h reader (ecmwf_201709071100.nc)"""
+    ecmwf_ds = xr.open_dataset(fname, chunks={'longitude': 1000, 'atitude': 1000})
+
+    ecmwf_ds = ecmwf_ds.rename(
+        {'longitude': 'x', 'latitude': 'y'}
+    ).rename(
+        {'Longitude': 'x', 'Latitude': 'y', 'U': 'U10', 'V': 'V10'}
+    ).set_coords(['x', 'y'])
+
+    ecmwf_ds['x'] = ecmwf_ds.x.compute()
+    ecmwf_ds['y'] = ecmwf_ds.y.compute()
+
+    # dataset is lon [0, 360], make it [-180,180]
+    ecmwf_ds = _to_lon180(ecmwf_ds)
+
+    ecmwf_ds.attrs['time'] = datetime.datetime.fromisoformat(ecmwf_ds.attrs['date'])
+
+    ecmwf_ds.rio.write_crs("EPSG:4326", inplace=True)
+
+    return ecmwf_ds
+
 def gebco(gebco_files):
     """gebco file reader (geotiff from https://www.gebco.net/data_and_products/gridded_bathymetry_data)"""
     return xr.combine_by_coords(
@@ -93,3 +115,4 @@ def gebco(gebco_files):
 available_rasters = pd.DataFrame(columns=['resource', 'read_function', 'get_function'])
 available_rasters.loc['gebco'] = [None, gebco, glob.glob]
 available_rasters.loc['ecmwf_0100_1h'] = [None, ecmwf_0100_1h, bind(resource_strftime, ..., step=1)]
+available_rasters.loc['ecmwf_0125_1h'] = [None, ecmwf_0125_1h, bind(resource_strftime, ..., step=1)]

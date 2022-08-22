@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import logging
 import warnings
+import xarray.core.formatting as formatting
 import numpy as np
 import xarray
 from scipy.interpolate import RectBivariateSpline
@@ -274,7 +275,7 @@ class Sentinel1Dataset:
 
         self._dataset = self._dataset.merge(self._get_sensor_velocity())
         self._dataset = self._dataset.merge(self._range_ground_spacing())
-        self._dataset = self._add_denoised(self._dataset)
+        self._dataset = self._add_denoised(self._dataset,clip=True)
         self.recompute_attrs()
 
         # set miscellaneous attrs
@@ -1092,8 +1093,9 @@ class Sentinel1Dataset:
         """
         lut = self._get_lut(var_name)
         res = (np.abs(self._dataset.digital_number) ** 2. / (lut ** 2))
+        #res = (np.abs(self._dataset.digital_number) ** 2. / (abs(lut) ** 2)) # test agrouaze
         # dn default value is 0: convert to Nan
-        res = res.where(res > 0)
+        #res = res.where(res > 0)
         astype = self._dtypes.get(var_name)
         if astype is not None:
             res = res.astype(astype)
@@ -1172,7 +1174,8 @@ class Sentinel1Dataset:
         """
         noise_lut = self._luts['noise_lut']
         lut = self._get_lut(var_name)
-        dataarr = noise_lut / lut ** 2
+        #dataarr = noise_lut / lut ** 2
+        dataarr = abs(noise_lut) / lut ** 2 # test agrouaze
         name = 'ne%sz' % var_name[0]
         astype = self._dtypes.get(name)
         if astype is not None:
@@ -1309,12 +1312,56 @@ class Sentinel1Dataset:
                 local_gcps.append(gcp)
         return local_gcps
 
-    def __repr__(self):
-        if self.sliced:
-            intro = "sliced"
-        else:
-            intro = "full covevage"
-        return "<Sentinel1Dataset %s object>" % intro
 
-    def _repr_mimebundle_(self, include=None, exclude=None):
-        return repr_mimebundle(self, include=include, exclude=exclude)
+    def __repr__(self):# -> str:
+    #     # if self.sliced:
+    #     #     intro = "sliced"
+    #     # else:
+    #     #     intro = "full covevage"
+    #     # intt = "<Sentinel1Dataset %s object>" % intro
+    #     from IPython.core.display import HTML
+    #     full_repr = f"<p>Sentinel1Dataset is a class to read Level-1 Sentinel-1 data\n <\p>" +self.dataset._repr_html_()
+    #     #             "it contains:\n \
+    #     #                -a dataset;:%s\n \
+    #     #                -a meta: %s
+    #     #             %s
+    #     #             """%(self.dataset.__repr__,self.s1meta.__repr__,intt)
+    #     #full_repr = formatting.data_vars_repr(self)
+    #     #full_repr = self.dataset._repr_html_
+
+        full_repr = self._repr_html_()
+        return full_repr
+
+    def _repr_html_(self):
+        from IPython.core.display import HTML
+        from xarray.core.formatting_html import collapsible_section, summarize_attrs
+        collapsible = collapsible_section(
+            "tututu",
+            # details={'radis':3,'viande':7}
+            details=summarize_attrs({'radis': 3, 'viande': 7, 'pain': 56.8})
+            , n_items=3, enabled=True, collapsed=True
+        )
+        # collap_geoloc = collapsible_section(
+        # "geoloc",
+        #               details= summarize_attrs(self.s1meta.geoloc._repr_html_())
+        #     ,n_items=1, enabled=True, collapsed=True
+        # )
+        list_meta = f"""<ul>
+                       <li>s1meta.image</li>
+                       <li>s1meta.azimuth_fmrate</li>
+                       <li>s1meta._bursts</li>
+                       <li>s1meta.orbit</li>
+                       <li>s1meta.geoloc</li>
+                       <li>s1meta.doppler_estimate</li>
+                       </ul>
+                       """  # .format(collap_geoloc)
+        full_repr = f"<p>Sentinel1Dataset is a class to read Level-1 Sentinel-1 data <br /> {self.dataset._repr_html_()}" + \
+                    " <b>Sentinel-1 META</b> <br>" + list_meta + '<br>'  # +collapsible
+        #full_repr = self.__repr__()
+        return full_repr
+
+    def __str__(self):
+        return 'toto'
+
+    # def _repr_mimebundle_(self, include=None, exclude=None):
+    #     return repr_mimebundle(self, include=include, exclude=exclude)

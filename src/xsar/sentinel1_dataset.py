@@ -1346,15 +1346,21 @@ class Sentinel1Dataset:
         #               details= summarize_attrs(self.s1meta.geoloc._repr_html_())
         #     ,n_items=1, enabled=True, collapsed=True
         # )
-        list_meta = f"""<ul>
-                       <li>s1meta.image</li>
-                       <li>s1meta.azimuth_fmrate</li>
-                       <li>s1meta._bursts</li>
-                       <li>s1meta.orbit</li>
-                       <li>s1meta.geoloc</li>
-                       <li>s1meta.doppler_estimate</li>
-                       </ul>
-                       """  # .format(collap_geoloc)
+        if False:
+            list_meta = f"""<ul>
+                           <li>s1meta.image</li>
+                           <li>s1meta.azimuth_fmrate</li>
+                           <li>s1meta._bursts</li>
+                           <li>s1meta.orbit</li>
+                           <li>s1meta.geoloc</li>
+                           <li>s1meta.doppler_estimate</li>
+                           </ul>
+                           """  # .format(collap_geoloc)
+        else:
+            import datatree
+            arbre = datatree.DataTree.from_dict({'s1meta.geoloc': self.s1meta.geoloc, 'azimuth_fmrate': self.s1meta.azimuth_fmrate})
+            #list_meta = arbre.__repr__()
+            list_meta = arbre._repr_html_()
         full_repr = f"<p>Sentinel1Dataset is a class to read Level-1 Sentinel-1 data <br /> {self.dataset._repr_html_()}" + \
                     " <b>Sentinel-1 META</b> <br>" + list_meta + '<br>'  # +collapsible
         #full_repr = self.__repr__()

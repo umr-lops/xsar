@@ -84,7 +84,14 @@ def open_dataset(*args, **kwargs):
     ds['xtrack'].attrs = {'slant_spacing':sar_obj.s1meta.image['slant_pixel_spacing'][1],'unit':'m'}
     ds['atrack'].attrs = {'slant_spacing': sar_obj.s1meta.image['slant_pixel_spacing'][0],'unit':'m'}
     ds = ds.rename({'atrack':'line','xtrack':'pixel'})
-    final_ds = xr.merge([ds, geoloc, bu,FM])
+    #doppler
+    dop = sar_obj.s1meta._doppler_estimate
+    #final_ds = xr.merge([ds, geoloc, bu,FM])
+    import datatree
+    final_ds = datatree.DataTree.from_dict({'high_resolution_dataset': ds, 'geolocation_annotation': geoloc,
+                                            'bursts':bu,'FMrate':FM,'doppler_estimate':dop,#'image_information':
+                                            })
+    final_ds.attrs=xr.Dataset(attrs=sar_obj.s1meta.image)
     return final_ds
 
 

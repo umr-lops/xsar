@@ -1,6 +1,8 @@
 """
 TODO: this docstring is the main xsar module documentation shown to the user. It's should be updated with some examples.
 """
+import pdb
+
 import warnings
 
 try:
@@ -66,9 +68,10 @@ def open_dataset(*args, **kwargs):
         raise TypeError("Unknown dataset type from %s" % str(dataset_id))
     ### geoloc
     geoloc = sar_obj.s1meta.geoloc
-    geoloc = geoloc.rename({'xtrack':'sample_low_res','atrack':'line_low_res'})
-    for uu in geoloc:
-        geoloc = geoloc.rename({uu:uu+'_low_resolution'})
+    #geoloc = geoloc.rename({'xtrack':'sample_low_res','atrack':'line_low_res'})
+    geoloc = geoloc.rename({'xtrack': 'sample', 'atrack': 'line'})
+    # for uu in geoloc:
+    #     geoloc = geoloc.rename({uu:uu+'_low_resolution'})
     ### bursts
     bu = sar_obj.s1meta._bursts
     bu = bu.rename({'azimuthTime':'azimuthTimeBursts'})
@@ -76,9 +79,9 @@ def open_dataset(*args, **kwargs):
 
     #azimuth fm rate
     FM = sar_obj.s1meta.azimuth_fmrate
-    FM = FM.rename({'azimuth_time':'line_FMRate'})
-    for uu in FM:
-        FM[uu].attrs = {'group':'azimuth FM rate'}
+    # FM = FM.rename({'azimuth_time':'line_FMRate'})
+    # for uu in FM:
+    #     FM[uu].attrs = {'group':'azimuth FM rate'}
     # dataset principal
     ds = sar_obj.dataset
     ds['xtrack'].attrs = {'slant_spacing':sar_obj.s1meta.image['slant_pixel_spacing'][1],'unit':'m'}

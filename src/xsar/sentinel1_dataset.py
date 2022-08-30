@@ -1274,7 +1274,7 @@ class Sentinel1Dataset:
         -----
         For GRD products is it the same same value along xtrack axis
         """
-        ground_spacing = np.array(self.s1meta.image['slant_pixel_spacing'])
+        ground_spacing = np.array([self.s1meta.image['azimuthPixelSpacing'],self.s1meta.image['slantRangePixelSpacing']])
         if self.s1meta.product == 'SLC':
             atrack_tmp = self._dataset['atrack']
             xtrack_tmp = self._dataset['xtrack']

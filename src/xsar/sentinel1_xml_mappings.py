@@ -482,21 +482,28 @@ def image(product_type, atrack_time_range, atrack_size, xtrack_size, incidence_a
         pixel_xtrack_m = rangePixelSpacing / np.sin(np.radians(incidence_angle_mid_swath))
     else:
         pixel_xtrack_m = rangePixelSpacing
-    return {
-        'atrack_time_range': atrack_time_range,
-        'shape': (atrack_size, xtrack_size),
-        'slant_pixel_spacing': (azimuthPixelSpacing, rangePixelSpacing),
-        'pixel_xtrack_m': pixel_xtrack_m,
-        'pixel_atrack_m': azimuthPixelSpacing,
-        'ground_pixel_spacing': (azimuthPixelSpacing, pixel_xtrack_m),
-        'incidence_angle_mid_swath': incidence_angle_mid_swath,
-        'azimuth_time_interval': azimuth_time_interval,
-        'slant_range_time_image': slant_range_time_image,
-        'swath_subswath': swath_subswath,
-        'radar_frequency': radar_frequency,
-        'range_sampling_rate': range_sampling_rate,
-        'azimuth_steering_rate': azimuth_steering_rate,
+    tmp = {
+        'slantRangeTime': (atrack_time_range,'atrack_time_range'),
+        #'shape': (atrack_size, xtrack_size),
+        'numberOfLines':(atrack_size,'atrack_size'),
+        'numberOfSamples':(xtrack_size,'xtrack_size'),
+        'azimuthPixelSpacing': (azimuthPixelSpacing,'azimuthPixelSpacing'),
+        'slantRangePixelSpacing':(rangePixelSpacing,'rangePixelSpacing'),
+        #'pixel_xtrack_m': pixel_xtrack_m,
+        #'pixel_atrack_m': azimuthPixelSpacing,
+        'groundRangePixelSpacing': (pixel_xtrack_m,'rangePixelSpacing'),
+        'incidenceAngleMidSwath': (incidence_angle_mid_swath,'incidence_angle_mid_swath'),
+        'azimuthTimeInterval': (azimuth_time_interval,'azimuth_time_interval'),
+        'slantRangeTime': (slant_range_time_image,'slant_range_time_image'),
+        'swath_subswath': (swath_subswath,'swath_subswath'),
+        'radarFrequency': (radar_frequency,'radar_frequency'),
+        'rangeSamplingRate': (range_sampling_rate,'range_sampling_rate'),
+        'azimuthSteeringRate': (azimuth_steering_rate,'azimuth_steering_rate'),
     }
+    ds = xr.Dataset()
+    for ke in tmp:
+        ds[ke] = xr.DataArray(tmp[ke][0],attrs={'source':xpath_mappings['annotation'][tmp[ke][1]][1]})
+    return ds
 
 
 def bursts(atrack_per_burst, xtrack_per_burst, burst_azimuthTime, burst_azimuthAnxTime, burst_sensingTime,

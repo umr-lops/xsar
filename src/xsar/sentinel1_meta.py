@@ -508,7 +508,7 @@ class Sentinel1Meta:
         if self.multidataset:
             res = None  # not defined for multidataset
         else:
-            res = self.image['ground_pixel_spacing'][0]
+            res = self.image['azimuthPixelSpacing']
         return res
 
     @property
@@ -517,7 +517,7 @@ class Sentinel1Meta:
         if self.multidataset:
             res = None  # not defined for multidataset
         else:
-            res = self.image['ground_pixel_spacing'][1]
+            res = self.image['groundRangePixelSpacing']
         return res
 
     @property
@@ -915,7 +915,7 @@ class Sentinel1Meta:
             # find the indice of the bursts in the geolocation grid
             geoloc_iburst = np.floor(geoloc_line / float(burst_nlines)).astype('int32')
             # find the indices of the bursts in the high resolution grid
-            atrack = np.arange(0, self.image['shape'][0])
+            atrack = np.arange(0, self.image['numberOfLines'])
             iburst = np.floor(atrack / float(burst_nlines)).astype('int32')
             # find the indices of the burst transitions
             ind = np.searchsorted(geoloc_iburst, iburst, side='left')
@@ -935,9 +935,9 @@ class Sentinel1Meta:
         np.ndarray
             the high resolution azimuth time vector interpolated at the midle of the subswath
         """
-        atrack = np.arange(0, self.image['shape'][0])
+        atrack = np.arange(0, self.image['numberOfLines'])
         if self.product == 'SLC' and 'WV' not in self.swath:
-            azi_time_int = self.image['azimuth_time_interval']
+            azi_time_int = self.image['azimuthTimeInterval']
             # turn this interval float/seconds into timedelta/picoseconds
             azi_time_int = np.timedelta64(int(azi_time_int * 1e12), 'ps')
             ind, geoloc_azitime, geoloc_iburst, geoloc_line = self._get_indices_bursts()
@@ -998,7 +998,7 @@ class Sentinel1Meta:
                     else:
                         inds_one_val = np.where(inds_burst == uu)[0]
                         bursts_az_inds[uu] = inds_one_val
-                        area = box(bursts_az_inds[burst_ind][0], 0, bursts_az_inds[burst_ind][-1], self.image['shape'][1])
+                        area = box(bursts_az_inds[burst_ind][0], 0, bursts_az_inds[burst_ind][-1], self.image['numberOfSamples'])
                     burst = pd.Series(dict([
                         ('geometry_image', area)]))
                     bursts.append(burst)

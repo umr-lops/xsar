@@ -87,12 +87,13 @@ def open_dataset(*args, **kwargs):
     # for uu in FM:
     #     FM[uu].attrs = {'group':'azimuth FM rate'}
     # dataset principal
-    ds = sar_obj.dataset
+
     #ds['sample'].attrs = {'slant_spacing':sar_obj.s1meta.image['slantRangePixelSpacing'],'unit':'m'}
     #ds['line'].attrs = {'slant_spacing': sar_obj.s1meta.image['azimuthPixelSpacing'],'unit':'m'}
-    ds['sampleSpacing'] = xarray.DataArray(sar_obj.s1meta.image['slantRangePixelSpacing'],attrs={'unit':'m','referential':'slant'})
-    ds['lineSpacing'] = xarray.DataArray(sar_obj.s1meta.image['azimuthPixelSpacing'],
+    sar_obj.dataset['sampleSpacing'] = xarray.DataArray(sar_obj.s1meta.image['slantRangePixelSpacing'],attrs={'unit':'m','referential':'slant'})
+    sar_obj.dataset['lineSpacing'] = xarray.DataArray(sar_obj.s1meta.image['azimuthPixelSpacing'],
                                            attrs={'unit': 'm'})
+    ds = sar_obj.dataset
     #ds = ds.rename({'atrack':'line','xtrack':'pixel'})
     #doppler
     dop = sar_obj.s1meta._doppler_estimate

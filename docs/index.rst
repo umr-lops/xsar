@@ -6,7 +6,7 @@ xsar: efficient level 1 sar reader for xarray/dask
 
 It currently handles Level-1 Sentinel-1 data in `SAFE format`_, as found on `scihub`_ or `PEPS`_.
 
-**xsar** is as simple to use as the well known `xarray.open_dataset`_ : simply give the dataset path, and :meth:`xsar.open_dataset` will return an `xarray.Dataset`:
+**xsar** is as simple to use as the well known `xarray.open_dataset`_ : simply give the dataset path, and :meth:`xsar.open_dataset` will return an `datatree.DataTree`:
 
 .. jupyter-execute:: examples/intro.py
 

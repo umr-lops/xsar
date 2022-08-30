@@ -535,6 +535,13 @@ def bursts(atrack_per_burst, xtrack_per_burst, burst_azimuthTime, burst_azimuthA
                                                    'description': 'start atrack index, start xtrack index, stop atrack index, stop xtrack index'}),
             }
         )
+        da['azimuthTime'].attrs = {'source': xpath_mappings['annotation']['burst_azimuthTime'][1]}
+        da['azimuthAnxTime'].attrs = {'source': xpath_mappings['annotation']['burst_azimuthAnxTime'][1]}
+        da['sensingTime'].attrs = {'source': xpath_mappings['annotation']['burst_sensingTime'][1]}
+        da['byteOffset'].attrs = {'source': xpath_mappings['annotation']['burst_byteOffset'][1]}
+        da['firstValidSample'].attrs = {'source': xpath_mappings['annotation']['burst_firstValidSample'][1]}
+        da['lastValidSample'].attrs = {'source': xpath_mappings['annotation']['burst_lastValidSample'][1]}
+        da['valid_location'].attrs = {'source': xpath_mappings['annotation']['burst_firstValidSample'][1]+'\n'+xpath_mappings['annotation']['burst_lastValidSample'][1]}
     da.attrs['atrack_per_burst'] = atrack_per_burst
     da.attrs['xtrack_per_burst'] = xtrack_per_burst
     return da

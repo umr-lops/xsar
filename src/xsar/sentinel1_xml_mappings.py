@@ -468,29 +468,49 @@ def azimuth_fmrate(azimuthtime, t0, c0, c1, c2, polynomial):
         # old IPF annotation
         polynomial = np.stack([c0, c1, c2], axis=1)
     res = xr.Dataset()
-    res['t0'] = xr.DataArray(t0, dims=['azimuth_time'], coords={'azimuth_time': azimuthtime})
-    res['polynomial'] = xr.DataArray([Polynomial(p) for p in polynomial],
+    res['t0'] = xr.DataArray(t0, dims=['azimuth_time'], coords={'azimuth_time': azimuthtime},
+                             attrs={'source':xpath_mappings['annotation']['fmrate_t0'][1]})
+    res['azimuthFmRatePolynomial'] = xr.DataArray([Polynomial(p) for p in polynomial],
                                      dims=['azimuth_time'],
-                                     coords={'azimuth_time': azimuthtime})
+                                     coords={'azimuth_time': azimuthtime},
+                                    attrs={'source':xpath_mappings['annotation']['fmrate_azimuthFmRatePolynomial'][1]})
     return res
 
 
 def image(product_type, atrack_time_range, atrack_size, xtrack_size, incidence_angle_mid_swath, azimuth_time_interval,
           slant_range_time_image, azimuthPixelSpacing, rangePixelSpacing, swath_subswath, radar_frequency,
           range_sampling_rate, azimuth_steering_rate):
+    """
+    Decode attribute describing the SAR image
+    Parameters
+    ----------
+    product_type: str
+    atrack_time_range: int
+    atrack_size: int
+    xtrack_size: int
+    incidence_angle_mid_swath: float
+    azimuth_time_interval: float [ in seconds]
+    slant_range_time_image: float [ in seconds]
+    azimuthPixelSpacing: int [m]
+    rangePixelSpacing: int [m]
+    swath_subswath: str
+    radar_frequency: float [second-1]
+    range_sampling_rate: float
+    azimuth_steering_rate: float
+    Returns
+    -------
+    xarray.Dataset
+    """
     if product_type == 'SLC':
         pixel_xtrack_m = rangePixelSpacing / np.sin(np.radians(incidence_angle_mid_swath))
     else:
         pixel_xtrack_m = rangePixelSpacing
     tmp = {
         'slantRangeTime': (atrack_time_range,'atrack_time_range'),
-        #'shape': (atrack_size, xtrack_size),
         'numberOfLines':(atrack_size,'atrack_size'),
         'numberOfSamples':(xtrack_size,'xtrack_size'),
         'azimuthPixelSpacing': (azimuthPixelSpacing,'azimuthPixelSpacing'),
         'slantRangePixelSpacing':(rangePixelSpacing,'rangePixelSpacing'),
-        #'pixel_xtrack_m': pixel_xtrack_m,
-        #'pixel_atrack_m': azimuthPixelSpacing,
         'groundRangePixelSpacing': (pixel_xtrack_m,'rangePixelSpacing'),
         'incidenceAngleMidSwath': (incidence_angle_mid_swath,'incidence_angle_mid_swath'),
         'azimuthTimeInterval': (azimuth_time_interval,'azimuth_time_interval'),

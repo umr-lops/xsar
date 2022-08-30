@@ -163,7 +163,7 @@ class Sentinel1Meta:
         if self.multidataset:
             time_range = [self.manifest_attrs['start_date'], self.manifest_attrs['stop_date']]
         else:
-            time_range = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.atrack_time_range')
+            time_range = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.line_time_range')
         return pd.Interval(left=pd.Timestamp(time_range[0]), right=pd.Timestamp(time_range[-1]), closed='both')
 
     def to_dict(self, keys='minimal'):
@@ -172,7 +172,7 @@ class Sentinel1Meta:
             'minimal': ['ipf', 'platform', 'swath', 'product', 'pols']
         }
         info_keys['all'] = info_keys['minimal'] + ['name', 'start_date', 'stop_date', 'footprint', 'coverage',
-                                                   'pixel_atrack_m', 'pixel_xtrack_m', 'orbit_pass', 'platform_heading']
+                                                   'pixel_line_m', 'pixel_sample_m', 'orbit_pass', 'platform_heading']
 
         if isinstance(keys, str):
             keys = info_keys[keys]
@@ -284,7 +284,7 @@ class Sentinel1Meta:
     def geoloc(self):
         """
         xarray.Dataset with `['longitude', 'latitude', 'altitude', 'azimuth_time', 'slant_range_time','incidence','elevation' ]` variables
-        and `['atrack', 'xtrack']` coordinates, at the geolocation grid
+        and `['line', 'sample']` coordinates, at the geolocation grid
         """
         if self.multidataset:
             raise TypeError('geolocation_grid not available for multidataset')
@@ -308,19 +308,19 @@ class Sentinel1Meta:
             footprint_dict = {}
             for ll in ['longitude', 'latitude']:
                 footprint_dict[ll] = [
-                    self._geoloc[ll].isel(atrack=a, xtrack=x).values for a, x in [(0, 0), (0, -1), (-1, -1), (-1, 0)]
+                    self._geoloc[ll].isel(line=a, sample=x).values for a, x in [(0, 0), (0, -1), (-1, -1), (-1, 0)]
                 ]
             corners = list(zip(footprint_dict['longitude'], footprint_dict['latitude']))
             p = Polygon(corners)
             self._geoloc.attrs['footprint'] = p
 
             # compute acquisition size/resolution in meters
-            # first vector is on xtrack
-            acq_xtrack_meters, _ = haversine(*corners[0], *corners[1])
-            # second vector is on atrack
-            acq_atrack_meters, _ = haversine(*corners[1], *corners[2])
-            self._geoloc.attrs['coverage'] = "%dkm * %dkm (atrack * xtrack )" % (
-                acq_atrack_meters / 1000, acq_xtrack_meters / 1000)
+            # first vector is on sample
+            acq_sample_meters, _ = haversine(*corners[0], *corners[1])
+            # second vector is on line
+            acq_line_meters, _ = haversine(*corners[1], *corners[2])
+            self._geoloc.attrs['coverage'] = "%dkm * %dkm (line * sample )" % (
+                acq_line_meters / 1000, acq_sample_meters / 1000)
             
             # compute self._geoloc.attrs['approx_transform'], from gcps
             # we need to convert self._geoloc to  a list of GroundControlPoint
@@ -330,13 +330,13 @@ class Sentinel1Meta:
                     x=pt_geoloc.longitude.item(),
                     y=pt_geoloc.latitude.item(),
                     z=pt_geoloc.altitude.item(),
-                    col=pt_geoloc.atrack.item(),
-                    row=pt_geoloc.xtrack.item()
+                    col=pt_geoloc.line.item(),
+                    row=pt_geoloc.sample.item()
                 )
 
             gcps = [
-                _to_rio_gcp(self._geoloc.sel(atrack=atrack, xtrack=xtrack))
-                for atrack in  self._geoloc.atrack for xtrack in self._geoloc.xtrack
+                _to_rio_gcp(self._geoloc.sel(line=line, sample=sample))
+                for line in  self._geoloc.line for sample in self._geoloc.sample
             ]
             # approx transform, from all gcps (inaccurate)
             self._geoloc.attrs['approx_transform'] = rasterio.transform.from_gcps(gcps)
@@ -497,14 +497,14 @@ class Sentinel1Meta:
 
     @property
     def coverage(self):
-        """coverage, as a string like '251km * 170km (xtrack * atrack )'"""
+        """coverage, as a string like '251km * 170km (sample * line )'"""
         if self.multidataset:
             return None  # not defined for multidataset
         return self.geoloc.attrs['coverage']
 
     @property
-    def pixel_atrack_m(self):
-        """pixel atrack spacing, in meters (at sensor level)"""
+    def pixel_line_m(self):
+        """pixel line spacing, in meters (at sensor level)"""
         if self.multidataset:
             res = None  # not defined for multidataset
         else:
@@ -512,8 +512,8 @@ class Sentinel1Meta:
         return res
 
     @property
-    def pixel_xtrack_m(self):
-        """pixel xtrack spacing, in meters (at sensor level)"""
+    def pixel_sample_m(self):
+        """pixel sample spacing, in meters (at sensor level)"""
         if self.multidataset:
             res = None  # not defined for multidataset
         else:
@@ -617,7 +617,7 @@ class Sentinel1Meta:
 
         Examples:
         ---------
-            get longitude at atrack=100 and xtrack=200:
+            get longitude at line=100 and sample=200:
             ```
             >>> self._dict_coords2ll['longitude'].ev(100,200)
             array(-66.43947434)
@@ -631,11 +631,11 @@ class Sentinel1Meta:
         if self.cross_antemeridian:
             geoloc['longitude'] = geoloc['longitude'] % 360
 
-        idx_xtrack = np.array(geoloc.xtrack)
-        idx_atrack = np.array(geoloc.atrack)
+        idx_sample = np.array(geoloc.sample)
+        idx_line = np.array(geoloc.line)
 
         for ll in ['longitude', 'latitude']:
-            resdict[ll] = RectBivariateSpline(idx_atrack, idx_xtrack, np.asarray(geoloc[ll]), kx=1, ky=1)
+            resdict[ll] = RectBivariateSpline(idx_line, idx_sample, np.asarray(geoloc[ll]), kx=1, ky=1)
 
         return resdict
 
@@ -655,16 +655,16 @@ class Sentinel1Meta:
 
     def coords2ll(self, *args, to_grid=False, approx=False):
         """
-        convert `atracks`, `xtracks` arrays to `longitude` and `latitude` arrays.
-        or a shapely object in `atracks`, `xtracks` coordinates to `longitude` and `latitude`.
+        convert `lines`, `samples` arrays to `longitude` and `latitude` arrays.
+        or a shapely object in `lines`, `samples` coordinates to `longitude` and `latitude`.
 
         Parameters
         ----------
-        *args: atracks, xtracks  or a shapely geometry
-            atracks, xtracks are iterables or scalar
+        *args: lines, samples  or a shapely geometry
+            lines, samples are iterables or scalar
 
         to_grid: bool, default False
-            If True, `atracks` and `xtracks` must be 1D arrays. The results will be 2D array of shape (atracks.size, xtracks.size).
+            If True, `lines` and `samples` must be 1D arrays. The results will be 2D array of shape (lines.size, samples.size).
 
         Returns
         -------
@@ -681,27 +681,27 @@ class Sentinel1Meta:
         if isinstance(args[0], shapely.geometry.base.BaseGeometry):
             return self._coords2ll_shapely(args[0])
 
-        atracks, xtracks = args
+        lines, samples = args
 
         scalar = True
-        if hasattr(atracks, '__iter__'):
+        if hasattr(lines, '__iter__'):
             scalar = False
 
         if approx:
             if to_grid:
-                xtracks2D, atracks2D = np.meshgrid(xtracks, atracks)
-                lon, lat = self.approx_transform * (atracks2D, xtracks2D)
+                samples2D, lines2D = np.meshgrid(samples, lines)
+                lon, lat = self.approx_transform * (lines2D, samples2D)
                 pass
             else:
-                lon, lat = self.approx_transform * (atracks, xtracks)
+                lon, lat = self.approx_transform * (lines, samples)
         else:
             dict_coords2ll = self._dict_coords2ll
             if to_grid:
-                lon = dict_coords2ll['longitude'](atracks, xtracks)
-                lat = dict_coords2ll['latitude'](atracks, xtracks)
+                lon = dict_coords2ll['longitude'](lines, samples)
+                lat = dict_coords2ll['latitude'](lines, samples)
             else:
-                lon = dict_coords2ll['longitude'].ev(atracks, xtracks)
-                lat = dict_coords2ll['latitude'].ev(atracks, xtracks)
+                lon = dict_coords2ll['longitude'].ev(lines, samples)
+                lat = dict_coords2ll['latitude'].ev(lines, samples)
 
         if self.cross_antemeridian:
             lon = to_lon180(lon)
@@ -710,16 +710,16 @@ class Sentinel1Meta:
             lon = lon.item()
             lat = lat.item()
 
-        if hasattr(lon, '__iter__') and type(lon) is not type(atracks):
-            lon = type(atracks)(lon)
-            lat = type(atracks)(lat)
+        if hasattr(lon, '__iter__') and type(lon) is not type(lines):
+            lon = type(lines)(lon)
+            lat = type(lines)(lat)
 
         return lon, lat
 
     def ll2coords(self, *args):
         """
-        Get `(atracks, xtracks)` from `(lon, lat)`,
-        or convert a lon/lat shapely shapely object to atrack/xtrack coordinates.
+        Get `(lines, samples)` from `(lon, lat)`,
+        or convert a lon/lat shapely shapely object to line/sample coordinates.
 
         Parameters
         ----------
@@ -728,14 +728,14 @@ class Sentinel1Meta:
 
         Returns
         -------
-        tuple of np.array or tuple of float (atracks, xtracks) , or a shapely object
+        tuple of np.array or tuple of float (lines, samples) , or a shapely object
 
         Examples
         --------
-            get nearest (atrack,xtrack) from (lon,lat) = (84.81, 21.32) in ds, without bounds checks
+            get nearest (line,sample) from (lon,lat) = (84.81, 21.32) in ds, without bounds checks
 
-            >>> (atrack, xtrack) = meta.ll2coords(84.81, 21.32) # (lon, lat)
-            >>> (atrack, xtrack)
+            >>> (line, sample) = meta.ll2coords(84.81, 21.32) # (lon, lat)
+            >>> (line, sample)
             (9752.766349989339, 17852.571322887554)
 
         See Also
@@ -751,36 +751,36 @@ class Sentinel1Meta:
         lon, lat = args
 
         # approximation with global inaccurate transform
-        atrack_approx, xtrack_approx = ~self.approx_transform * (np.asarray(lon), np.asarray(lat))
+        line_approx, sample_approx = ~self.approx_transform * (np.asarray(lon), np.asarray(lat))
 
         # Theoretical identity. It should be the same, but the difference show the error.
-        lon_identity, lat_identity = self.coords2ll(atrack_approx, xtrack_approx, to_grid=False)
-        atrack_identity, xtrack_identity = ~self.approx_transform * (lon_identity, lat_identity)
+        lon_identity, lat_identity = self.coords2ll(line_approx, sample_approx, to_grid=False)
+        line_identity, sample_identity = ~self.approx_transform * (lon_identity, lat_identity)
 
         # we are now able to compute the error, and make a correction
-        atrack_error = atrack_identity - atrack_approx
-        xtrack_error = xtrack_identity - xtrack_approx
+        line_error = line_identity - line_approx
+        sample_error = sample_identity - sample_approx
 
-        atrack = atrack_approx - atrack_error
-        xtrack = xtrack_approx - xtrack_error
+        line = line_approx - line_error
+        sample = sample_approx - sample_error
 
         if hasattr(lon, '__iter__'):
             scalar = False
         else:
             scalar = True
 
-        return atrack, xtrack
+        return line, sample
 
-    def coords2heading(self, atracks, xtracks, to_grid=False, approx=True):
+    def coords2heading(self, lines, samples, to_grid=False, approx=True):
         """
-        Get image heading (atracks increasing direction) at coords `atracks`, `xtracks`.
+        Get image heading (lines increasing direction) at coords `lines`, `samples`.
 
         Parameters
         ----------
-        atracks: np.array or scalar
-        xtracks: np.array or scalar
+        lines: np.array or scalar
+        samples: np.array or scalar
         to_grid: bool
-            If True, `atracks` and `xtracks` must be 1D arrays. The results will be 2D array of shape (atracks.size, xtracks.size).
+            If True, `lines` and `samples` must be 1D arrays. The results will be 2D array of shape (lines.size, samples.size).
 
         Returns
         -------
@@ -789,8 +789,8 @@ class Sentinel1Meta:
 
         """
 
-        lon1, lat1 = self.coords2ll(atracks - 1, xtracks, to_grid=to_grid, approx=approx)
-        lon2, lat2 = self.coords2ll(atracks + 1, xtracks, to_grid=to_grid, approx=approx)
+        lon1, lat1 = self.coords2ll(lines - 1, samples, to_grid=to_grid, approx=approx)
+        lon2, lat2 = self.coords2ll(lines + 1, samples, to_grid=to_grid, approx=approx)
         _, heading = haversine(lon1, lat1, lon2, lat2)
         return heading
 
@@ -818,13 +818,13 @@ class Sentinel1Meta:
 
         Examples
         --------
-            get `longitude` and `latitude` from tuple `(atrack, xtrack)`:
+            get `longitude` and `latitude` from tuple `(line, sample)`:
 
-            >>> longitude, latitude = self.approx_transform * (atrack, xtrack)
+            >>> longitude, latitude = self.approx_transform * (line, sample)
 
-            get `atrack` and `xtrack` from tuple `(longitude, latitude)`
+            get `line` and `sample` from tuple `(longitude, latitude)`
 
-            >>> atrack, xtrack = ~self.approx_transform * (longitude, latitude)
+            >>> line, sample = ~self.approx_transform * (longitude, latitude)
 
         See Also
         --------
@@ -898,7 +898,7 @@ class Sentinel1Meta:
         Returns
         -------
         ind np.array
-            index of the burst start in the atrack coordinates
+            index of the burst start in the line coordinates
         geoloc_azitime np.array
             azimuth time at the middle of the image from geolocation grid (low resolution)
         geoloc_iburst np.array
@@ -909,19 +909,19 @@ class Sentinel1Meta:
         geoloc_iburst = None
         geoloc_line = None
         if self.product == 'SLC' and 'WV' not in self.swath:
-            burst_nlines = self._bursts.attrs['atrack_per_burst']
+            burst_nlines = self._bursts.attrs['line_per_burst']
 
-            geoloc_line = self.geoloc['atrack'].values
+            geoloc_line = self.geoloc['line'].values
             # find the indice of the bursts in the geolocation grid
             geoloc_iburst = np.floor(geoloc_line / float(burst_nlines)).astype('int32')
             # find the indices of the bursts in the high resolution grid
-            atrack = np.arange(0, self.image['numberOfLines'])
-            iburst = np.floor(atrack / float(burst_nlines)).astype('int32')
+            line = np.arange(0, self.image['numberOfLines'])
+            iburst = np.floor(line / float(burst_nlines)).astype('int32')
             # find the indices of the burst transitions
             ind = np.searchsorted(geoloc_iburst, iburst, side='left')
-            n_pixels = int((len(self.geoloc['xtrack']) - 1) / 2)
+            n_pixels = int((len(self.geoloc['sample']) - 1) / 2)
             geoloc_azitime = self.geoloc['azimuth_time'].values[:, n_pixels]
-            # security check for unrealistic atrack_values exceeding the image extent
+            # security check for unrealistic line_values exceeding the image extent
             if ind.max() >= len(geoloc_azitime):
                 ind[ind >= len(geoloc_azitime)] = len(geoloc_azitime) - 1
         return ind, geoloc_azitime, geoloc_iburst, geoloc_line
@@ -935,24 +935,24 @@ class Sentinel1Meta:
         np.ndarray
             the high resolution azimuth time vector interpolated at the midle of the subswath
         """
-        atrack = np.arange(0, self.image['numberOfLines'])
+        line = np.arange(0, self.image['numberOfLines'])
         if self.product == 'SLC' and 'WV' not in self.swath:
             azi_time_int = self.image['azimuthTimeInterval']
             # turn this interval float/seconds into timedelta/picoseconds
             azi_time_int = np.timedelta64(int(azi_time_int * 1e12), 'ps')
             ind, geoloc_azitime, geoloc_iburst, geoloc_line = self._get_indices_bursts()
             # compute the azimuth time by adding a step function (first term) and a growing term (second term)
-            azitime = geoloc_azitime[ind] + (atrack - geoloc_line[ind]) * azi_time_int.astype('<m8[ns]')
+            azitime = geoloc_azitime[ind] + (line - geoloc_line[ind]) * azi_time_int.astype('<m8[ns]')
         else:  # GRD* cases
-            n_pixels = int((len(self.geoloc['xtrack']) - 1) / 2)
+            n_pixels = int((len(self.geoloc['sample']) - 1) / 2)
             geoloc_azitime = self.geoloc['azimuth_time'].values[:, n_pixels]
-            geoloc_line = self.geoloc['atrack'].values
+            geoloc_line = self.geoloc['line'].values
             finterp = interp1d(geoloc_line, geoloc_azitime.astype(float))
-            azitime = finterp(atrack)
+            azitime = finterp(line)
             azitime = azitime.astype('<m8[ns]')
-        azitime = xr.DataArray(azitime, coords={'atrack': atrack}, dims=['atrack'],
+        azitime = xr.DataArray(azitime, coords={'line': line}, dims=['line'],
                                attrs={
-                                   'description': 'azimuth times interpolated along atrack dimension at the middle of range dimension'})
+                                   'description': 'azimuth times interpolated along line dimension at the middle of range dimension'})
 
         return azitime
 
@@ -969,7 +969,7 @@ class Sentinel1Meta:
         Returns
         -------
         geopandas.GeoDataframe
-            polygons of the burst in the image (ie atrack/xtrack) geometry
+            polygons of the burst in the image (ie line/sample) geometry
             'geometry' is the polygon
 
         """

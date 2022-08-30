@@ -93,6 +93,7 @@ def open_dataset(*args, **kwargs):
     import datatree
     final_ds = datatree.DataTree.from_dict({'high_resolution_dataset': ds, 'geolocation_annotation': geoloc,
                                             'bursts':bu,'FMrate':FM,'doppler_estimate':dop,#'image_information':
+                                            'orbit':sar_obj.s1meta.orbit
                                             })
     final_ds.attrs=xr.Dataset(attrs=sar_obj.s1meta.image)
     return final_ds

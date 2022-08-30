@@ -417,8 +417,11 @@ def df_files(annotation_files, measurement_files, noise_files, calibration_files
     return df
 
 
-def orbit(time, frame, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z, orbit_pass, platform_heading):
+def orbit(time, frame, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z, orbit_pass, platform_heading,return_xarray=True):
     """
+    Parameters
+    ----------
+    return_xarray: bool, True-> return a xarray.Dataset, False-> returns a GeoDataFrame
     Returns
     -------
     geopandas.GeoDataFrame
@@ -427,24 +430,30 @@ def orbit(time, frame, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z, orbit_pass, pla
 
     if (frame[0] != 'Earth Fixed') or (np.unique(frame).size != 1):
         raise NotImplementedError('All orbit frames must be of type "Earth Fixed"')
+    if return_xarray is False:
+        crs = pyproj.crs.CRS(proj='geocent', ellps='WGS84', datum='WGS84')
 
-    crs = pyproj.crs.CRS(proj='geocent', ellps='WGS84', datum='WGS84')
-
-    gdf = gpd.GeoDataFrame(
-        {
-            'velocity': list(map(Point, zip(vel_x, vel_y, vel_z)))
-        },
-        geometry=list(map(Point, zip(pos_x, pos_y, pos_z))),
-        crs=crs,
-        index=time
-    )
-
-    gdf.attrs = {
+        res = gpd.GeoDataFrame(
+            {
+                'velocity': list(map(Point, zip(vel_x, vel_y, vel_z)))
+            },
+            geometry=list(map(Point, zip(pos_x, pos_y, pos_z))),
+            crs=crs,
+            index=time
+        )
+    else:
+        res = xr.Dataset()
+        res['velocity_x'] = xr.DataArray(vel_x,dims=['time'],coords={'time':time})
+        res['velocity_y'] = xr.DataArray(vel_y, dims = ['time'], coords = {'time': time})
+        res['velocity_z'] = xr.DataArray(vel_z, dims = ['time'], coords = {'time': time})
+        res['position_x'] = xr.DataArray(pos_x,dims=['time'],coords={'time':time})
+        res['position_y'] = xr.DataArray(pos_y, dims=['time'], coords={'time': time})
+        res['position_z'] = xr.DataArray(pos_z, dims=['time'], coords={'time': time})
+    res.attrs = {
         'orbit_pass': orbit_pass,
         'platform_heading': platform_heading
     }
-
-    return gdf
+    return res
 
 
 def azimuth_fmrate(azimuthtime, t0, c0, c1, c2, polynomial):

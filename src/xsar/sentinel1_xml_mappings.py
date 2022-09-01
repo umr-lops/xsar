@@ -549,26 +549,26 @@ def bursts(line_per_burst, sample_per_burst, burst_azimuthTime, burst_azimuthAnx
         burst_firstValidSample[burst_firstValidSample == -1] = np.nan
         burst_lastValidSample[burst_lastValidSample == -1] = np.nan
         nbursts = len(burst_azimuthTime)
-        valid_locations = np.empty((nbursts, 4), dtype='int32')
-        for ibur in range(nbursts):
-            fvs = burst_firstValidSample[ibur, :]
-            lvs = burst_lastValidSample[ibur, :]
-            # valind = np.where((fvs != -1) | (lvs != -1))[0]
-            valind = np.where(np.isfinite(fvs) | np.isfinite(lvs))[0]
-            valloc = [ibur * line_per_burst + valind.min(), fvs[valind].min(),
-                      ibur * line_per_burst + valind.max(), lvs[valind].max()]
-            valid_locations[ibur, :] = valloc
+        # valid_locations = np.empty((nbursts, 4), dtype='int32')
+        # for ibur in range(nbursts):
+        #     fvs = burst_firstValidSample[ibur, :]
+        #     lvs = burst_lastValidSample[ibur, :]
+        #     # valind = np.where((fvs != -1) | (lvs != -1))[0]
+        #     valind = np.where(np.isfinite(fvs) | np.isfinite(lvs))[0]
+        #     valloc = [ibur * line_per_burst + valind.min(), fvs[valind].min(),
+        #               ibur * line_per_burst + valind.max(), lvs[valind].max()]
+        #     valid_locations[ibur, :] = valloc
         da = xr.Dataset(
             {
                 'azimuthTime': ('burst', burst_azimuthTime),
                 'azimuthAnxTime': ('burst', burst_azimuthAnxTime),
                 'sensingTime': ('burst', burst_sensingTime),
                 'byteOffset': ('burst', burst_byteOffset),
-                'firstValidSample': (['burst', 'sample'], burst_firstValidSample),
-                'lastValidSample': (['burst', 'sample'], burst_lastValidSample),
-                'valid_location': xr.DataArray(dims=['burst', 'limits'], data=valid_locations,
-                                               attrs={
-                                                   'description': 'start line index, start sample index, stop line index, stop sample index'}),
+                'firstValidSample': (['burst', 'line'], burst_firstValidSample),
+                'lastValidSample': (['burst', 'line'], burst_lastValidSample),
+                # 'valid_location': xr.DataArray(dims=['burst', 'limits'], data=valid_locations,
+                #                                attrs={
+                #                                    'description': 'start line index, start sample index, stop line index, stop sample index'}),
             }
         )
         da['azimuthTime'].attrs = {'source': xpath_mappings['annotation']['burst_azimuthTime'][1]}
@@ -577,7 +577,7 @@ def bursts(line_per_burst, sample_per_burst, burst_azimuthTime, burst_azimuthAnx
         da['byteOffset'].attrs = {'source': xpath_mappings['annotation']['burst_byteOffset'][1]}
         da['firstValidSample'].attrs = {'source': xpath_mappings['annotation']['burst_firstValidSample'][1]}
         da['lastValidSample'].attrs = {'source': xpath_mappings['annotation']['burst_lastValidSample'][1]}
-        da['valid_location'].attrs = {'source': xpath_mappings['annotation']['burst_firstValidSample'][1]+'\n'+xpath_mappings['annotation']['burst_lastValidSample'][1]}
+        #da['valid_location'].attrs = {'source': xpath_mappings['annotation']['burst_firstValidSample'][1]+'\n'+xpath_mappings['annotation']['burst_lastValidSample'][1]}
     da.attrs['line_per_burst'] = line_per_burst
     da.attrs['sample_per_burst'] = sample_per_burst
     return da

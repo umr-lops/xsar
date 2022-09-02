@@ -1030,16 +1030,23 @@ class Sentinel1Meta:
         return blocks
 
     def get_annotation_definitions(self):
+        """
+        
+        :return:
+        """
+        final_dict = {}
         ds_path_xsd = self.xml_parser.get_compound_var(self.manifest, 'xsd_files')
         full_path_xsd = os.path.join(self.path, ds_path_xsd['xsd_product'].values[0])
-        rootxsd = self.xml_parser.getroot(full_path_xsd)
-        mypath = '/xsd:schema/xsd:complexType/xsd:sequence/xsd:element'
-        final_dict = {}
-        for lulu, uu in enumerate(rootxsd.xpath(mypath, namespaces=sentinel1_xml_mappings.namespaces)):
-            mykey = uu.values()[0]
-            if uu.getchildren() != []:
-                myvalue = uu.getchildren()[0].getchildren()[0]
-            else:
-                myvalue = None
-            final_dict[mykey] = myvalue
+        if os.path.exists(full_path_xsd):
+            rootxsd = self.xml_parser.getroot(full_path_xsd)
+            mypath = '/xsd:schema/xsd:complexType/xsd:sequence/xsd:element'
+
+            for lulu, uu in enumerate(rootxsd.xpath(mypath, namespaces=sentinel1_xml_mappings.namespaces)):
+                mykey = uu.values()[0]
+                if uu.getchildren() != []:
+                    myvalue = uu.getchildren()[0].getchildren()[0]
+                else:
+                    myvalue = None
+                final_dict[mykey] = myvalue
+
         return final_dict

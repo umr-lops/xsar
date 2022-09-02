@@ -1,7 +1,7 @@
 """
 xpath mapping from xml file, with convertion functions
 """
-
+import xarray
 from datetime import datetime
 import numpy as np
 from scipy.interpolate import RectBivariateSpline, interp1d
@@ -87,7 +87,15 @@ xpath_mappings = {
             normpath, '/xfdu:XFDU/dataObjectSection/*[@repID="s1Level1NoiseSchema"]/byteStream/fileLocation/@href'),
         'calibration_files': (
             normpath,
-            '/xfdu:XFDU/dataObjectSection/*[@repID="s1Level1CalibrationSchema"]/byteStream/fileLocation/@href')
+            '/xfdu:XFDU/dataObjectSection/*[@repID="s1Level1CalibrationSchema"]/byteStream/fileLocation/@href'),
+        'xsd_product_file':(normpath,'/xfdu:XFDU/metadataSection/metadataObject[@ID="s1Level1ProductSchema"]/metadataReference/@href'),
+        'xsd_Noise_file':(normpath,'/xfdu:XFDU/metadataSection/metadataObject[@ID="s1Level1NoiseSchema"]/metadataReference/@href'),
+        'xsd_RFI_file':(normpath,'/xfdu:XFDU/metadataSection/metadataObject[@ID="s1Level1RfiSchema"]/metadataReference/@href'),
+        'xsd_calibration_file':(normpath,'/xfdu:XFDU/metadataSection/metadataObject[@ID="s1Level1CalibrationSchema"]/metadataReference/@href'),
+        'xsd_objecttype_file':(normpath,'/xfdu:XFDU/metadataSection/metadataObject[@ID="s1ObjectTypesSchema"]/metadataReference/@href'),
+        'xsd_measurement_file':(normpath,'/xfdu:XFDU/metadataSection/metadataObject[@ID="s1Level1MeasurementSchema"]/metadataReference/@href'),
+        'xsd_level1product_file':(normpath,'/xfdu:XFDU/metadataSection/metadataObject[@ID="s1Level1ProductPreviewSchema"]/metadataReference/@href'),
+        'xsd_overlay_file':(normpath,'/xfdu:XFDU/metadataSection/metadataObject[@ID="s1Level1MapOverlaySchema"]/metadataReference/@href'),
     },
     'calibration': {
         'polarization': (scalar, '/calibration/adsHeader/polarisation'),
@@ -208,7 +216,12 @@ xpath_mappings = {
             list_of_float_1D_array_from_string,
             '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/azimuthFmRatePolynomial'),
 
-    }
+    },
+    'xsd':{'all':(str,'/xsd:schema/xsd:complexType/xsd:sequence/xsd:element/xsd:annotation/xsd:documentation'),
+           'names':(str,'/xsd:schema/xsd:complexType/xsd:sequence/xsd:element/@name'),
+           'sensingtime':(str,'/xsd:schema/xsd:complexType/xsd:sequence/xsd:element/sensingTime')
+           }
+
 }
 
 
@@ -410,11 +423,22 @@ def df_files(annotation_files, measurement_files, noise_files, calibration_files
             'annotation': annotation_files,
             'measurement': measurement_files,
             'noise': noise_files,
-            'calibration': calibration_files
+            'calibration': calibration_files,
         },
         index=num
     )
     return df
+
+def xsd_files_func(xsd_product_file):
+    """
+    return a xarray Dataset with path of the different xsd files
+    :param xsd_product:
+    :return:
+    """
+    ds = xr.Dataset()
+
+    ds['xsd_product'] = xarray.DataArray(xsd_product_file)
+    return ds
 
 
 def orbit(time, frame, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z, orbit_pass, platform_heading,return_xarray=True):
@@ -515,7 +539,7 @@ def image(product_type, line_time_range, line_size, sample_size, incidence_angle
     else:
         pixel_sample_m = rangePixelSpacing
     tmp = {
-        'slantRangeTime': (line_time_range,'line_time_range'),
+        'LineUtcTime': (line_time_range,'line_time_range'),
         'numberOfLines':(line_size,'line_size'),
         'numberOfSamples':(sample_size,'sample_size'),
         'azimuthPixelSpacing': (azimuthPixelSpacing,'azimuthPixelSpacing'),
@@ -679,6 +703,13 @@ compounds_vars = {
             'manifest.annotation_files', 'manifest.measurement_files', 'manifest.noise_files',
             'manifest.calibration_files')
     },
+    'xsd_files': {
+        'func': xsd_files_func,
+        'args': (
+            'manifest.xsd_product_file',
+        )
+    },
+
     'sigma0_lut': {
         'func': signal_lut,
         'args': ('calibration.line', 'calibration.sample', 'calibration.sigma0_lut')

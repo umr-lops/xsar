@@ -62,6 +62,7 @@ class Sentinel1Meta:
     subdatasets = None
     dsid = None
     manifest_attrs = None
+    xsd_definitions = None
 
     @timing
     def __init__(self, name, _xml_parser=None):
@@ -100,12 +101,14 @@ class Sentinel1Meta:
         """Product type, like 'GRDH', 'SLC', etc .."""
         self.manifest = os.path.join(self.path, 'manifest.safe')
         self.manifest_attrs = self.xml_parser.get_compound_var(self.manifest, 'safe_attributes')
+
         self._safe_files = None
         self.multidataset = False
         """True if multi dataset"""
         self.subdatasets = gpd.GeoDataFrame(geometry=[], index=[])
         """Subdatasets as GeodataFrame (empty if single dataset)"""
         datasets_names = list(self.safe_files['dsid'].sort_index().unique())
+        self.xsd_definitions = self.get_annotation_definitions()
         if self.name.endswith(':') and len(datasets_names) == 1:
             self.name = datasets_names[0]
         self.dsid = self.name.split(':')[-1]
@@ -268,6 +271,8 @@ class Sentinel1Meta:
         return self.safe_files[self.safe_files['dsid'] == self.name]
 
 
+
+
     @property
     def footprint(self):
         """footprint, as a shapely polygon or multi polygon"""
@@ -340,6 +345,9 @@ class Sentinel1Meta:
             ]
             # approx transform, from all gcps (inaccurate)
             self._geoloc.attrs['approx_transform'] = rasterio.transform.from_gcps(gcps)
+            for vv in self._geoloc:
+                if vv in self.xsd_definitions:
+                    self._geoloc[vv].attrs['definition'] = self.xsd_definitions[vv]
 
 
         return self._geoloc
@@ -587,6 +595,9 @@ class Sentinel1Meta:
         if self.multidataset:
             return None  # not defined for multidataset
         gdf_orbit = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'orbit')
+        for vv in gdf_orbit:
+            if vv in self.xsd_definitions:
+                gdf_orbit[vv].attrs['definition'] = self.xsd_definitions[vv]
         gdf_orbit.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'orbit',
                                                                       describe=True)
         return gdf_orbit
@@ -608,6 +619,9 @@ class Sentinel1Meta:
         fmrates = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'azimuth_fmrate')
         fmrates.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'azimuth_fmrate',
                                                                     describe=True)
+        for vv in fmrates:
+            if vv in self.xsd_definitions:
+                fmrates[vv].attrs['definition'] = self.xsd_definitions[vv]
         return fmrates
 
     @property
@@ -798,6 +812,9 @@ class Sentinel1Meta:
     def _bursts(self):
         if self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.number_of_bursts') > 0:
             bursts = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts')
+            for vv in bursts:
+                if vv in self.xsd_definitions:
+                    bursts[vv].attrs['definition'] = self.xsd_definitions[vv]
             bursts.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts',
                                                                        describe=True)
             return bursts
@@ -888,6 +905,9 @@ class Sentinel1Meta:
             with Doppler Centroid Estimates from annotations such as geo_polynom,data_polynom or frequency
         """
         dce = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'doppler_estimate')
+        for vv in dce:
+            if vv in self.xsd_definitions:
+                dce[vv].attrs['definition'] = self.xsd_definitions[vv]
         dce.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'doppler_estimate',
                                                                 describe=True)
         return dce
@@ -1008,3 +1028,18 @@ class Sentinel1Meta:
                 blocks['geometry'] = blocks['geometry_image'].apply(self.coords2ll)
                 blocks.index.name = 'burst'
         return blocks
+
+    def get_annotation_definitions(self):
+        ds_path_xsd = self.xml_parser.get_compound_var(self.manifest, 'xsd_files')
+        full_path_xsd = os.path.join(self.path, ds_path_xsd['xsd_product'].values[0])
+        rootxsd = self.xml_parser.getroot(full_path_xsd)
+        mypath = '/xsd:schema/xsd:complexType/xsd:sequence/xsd:element'
+        final_dict = {}
+        for lulu, uu in enumerate(rootxsd.xpath(mypath, namespaces=sentinel1_xml_mappings.namespaces)):
+            mykey = uu.values()[0]
+            if uu.getchildren() != []:
+                myvalue = uu.getchildren()[0].getchildren()[0]
+            else:
+                myvalue = None
+            final_dict[mykey] = myvalue
+        return final_dict

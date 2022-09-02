@@ -20,6 +20,7 @@ from affine import Affine
 from .sentinel1_meta import Sentinel1Meta
 from .ipython_backends import repr_mimebundle
 import yaml
+import datatree
 
 logger = logging.getLogger('xsar.sentinel1_dataset')
 logger.addHandler(logging.NullHandler())
@@ -292,6 +293,33 @@ class Sentinel1Dataset:
 
         # save original bbox
         self._bbox_coords_ori = self._bbox_coords
+
+        # build datatree
+        ### geoloc
+        geoloc = self.s1meta.geoloc
+        geoloc.attrs['history'] = 'annotations'
+        ### bursts
+        bu = self.s1meta._bursts
+        bu.attrs['history'] = 'annotations'
+
+        # azimuth fm rate
+        FM = self.s1meta.azimuth_fmrate
+        FM.attrs['history'] = 'annotations'
+        # dataset principal
+        self._dataset['sampleSpacing'] = xarray.DataArray(self.s1meta.image['slantRangePixelSpacing'],
+                                                            attrs={'unit': 'm', 'referential': 'slant'})
+        self._dataset['lineSpacing'] = xarray.DataArray(self.s1meta.image['azimuthPixelSpacing'],
+                                                          attrs={'unit': 'm'})
+        # doppler
+        dop = self.s1meta._doppler_estimate
+        dop.attrs['history'] = 'annotations'
+
+        self.datatree = datatree.DataTree.from_dict({'high_resolution_dataset': self._dataset, 'geolocation_annotation': geoloc,
+                                                'bursts': bu, 'FMrate': FM, 'doppler_estimate': dop,
+                                                # 'image_information':
+                                                'orbit': self.s1meta.orbit
+                                                })
+        self.datatree.attrs = xr.Dataset(self.s1meta.image)
 
     def __del__(self):
         logger.debug('__del__')
@@ -1318,3 +1346,30 @@ class Sentinel1Dataset:
 
     def _repr_mimebundle_(self, include=None, exclude=None):
         return repr_mimebundle(self, include=include, exclude=exclude)
+
+    def get_burst_valid_location(self):
+        """
+        add a field 'valid_location' in the bursts sub-group of the datatree
+        :return:
+        """
+        nbursts = len(self.datatree['bursts'].ds['burst'])
+        burst_firstValidSample = self.datatree['bursts'].ds['firstValidSample'].values
+        burst_lastValidSample = self.datatree['bursts'].ds['lastValidSample'].values
+        valid_locations = np.empty((nbursts, 4), dtype='int32')
+        line_per_burst = len(self.datatree['bursts'].ds['line'])
+        for ibur in range(nbursts):
+            fvs = burst_firstValidSample[ibur, :]
+            lvs = burst_lastValidSample[ibur, :]
+            # valind = np.where((fvs != -1) | (lvs != -1))[0]
+            valind = np.where(np.isfinite(fvs) | np.isfinite(lvs))[0]
+            valloc = [ibur * line_per_burst + valind.min(), fvs[valind].min(),
+                      ibur * line_per_burst + valind.max(), lvs[valind].max()]
+            valid_locations[ibur, :] = valloc
+        tmpda = xr.DataArray(dims=['burst', 'limits'],
+                                    coords={'burst':self.datatree['bursts'].ds['burst'].values,'limits':np.arange(4)},
+                                    data=valid_locations,
+                                    attrs={
+                           'description': 'start line index, start sample index, stop line index, stop sample index'})
+        self.datatree['bursts'].ds['valid_location'] = tmpda
+
+

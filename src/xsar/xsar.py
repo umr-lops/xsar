@@ -67,45 +67,8 @@ def open_dataset(*args, **kwargs):
         sar_obj = Sentinel1Dataset(*args, **kwargs)
     else:
         raise TypeError("Unknown dataset type from %s" % str(dataset_id))
-    ### geoloc
-    geoloc = sar_obj.s1meta.geoloc
-    geoloc.attrs['history'] = 'annotations'
-    #geoloc = geoloc.rename({'xtrack':'sample_low_res','atrack':'line_low_res'})
-    #geoloc = geoloc.rename({'xtrack': 'sample', 'atrack': 'line'})
-    # for uu in geoloc:
-    #     geoloc = geoloc.rename({uu:uu+'_low_resolution'})
-    ### bursts
-    bu = sar_obj.s1meta._bursts
-    bu.attrs['history'] = 'annotations'
-    #bu = bu.rename({'azimuthTime':'azimuthTimeBursts'})
-    #bu = bu.rename({'xtrack': 'sample_burst'})
-
-    #azimuth fm rate
-    FM = sar_obj.s1meta.azimuth_fmrate
-    FM.attrs['history'] = 'annotations'
-    # FM = FM.rename({'azimuth_time':'line_FMRate'})
-    # for uu in FM:
-    #     FM[uu].attrs = {'group':'azimuth FM rate'}
-    # dataset principal
-
-    #ds['sample'].attrs = {'slant_spacing':sar_obj.s1meta.image['slantRangePixelSpacing'],'unit':'m'}
-    #ds['line'].attrs = {'slant_spacing': sar_obj.s1meta.image['azimuthPixelSpacing'],'unit':'m'}
-    sar_obj.dataset['sampleSpacing'] = xarray.DataArray(sar_obj.s1meta.image['slantRangePixelSpacing'],attrs={'unit':'m','referential':'slant'})
-    sar_obj.dataset['lineSpacing'] = xarray.DataArray(sar_obj.s1meta.image['azimuthPixelSpacing'],
-                                           attrs={'unit': 'm'})
-    ds = sar_obj.dataset
-    #ds = ds.rename({'atrack':'line','xtrack':'pixel'})
-    #doppler
-    dop = sar_obj.s1meta._doppler_estimate
-    dop.attrs['history'] = 'annotations'
-    #final_ds = xr.merge([ds, geoloc, bu,FM])
-    import datatree
-    final_ds = datatree.DataTree.from_dict({'high_resolution_dataset': ds, 'geolocation_annotation': geoloc,
-                                            'bursts':bu,'FMrate':FM,'doppler_estimate':dop,#'image_information':
-                                            'orbit':sar_obj.s1meta.orbit
-                                            })
-    final_ds.attrs=xr.Dataset(sar_obj.s1meta.image)
-    return final_ds
+    dt = sar_obj.datatree
+    return dt
 
 
 def product_info(path, columns='minimal', include_multi=False, _xml_parser=None):

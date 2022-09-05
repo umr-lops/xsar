@@ -160,8 +160,10 @@ class Sentinel1Dataset:
             raise IndexError(
                 """Can't open an multi-dataset. Use `xsar.Sentinel1Meta('%s').subdatasets` to show availables ones""" % self.s1meta.path
             )
+        self.datatree = datatree.DataTree.from_dict({'high_resolution_dataset':self._load_digital_number(resolution=resolution, resampling=resampling, chunks=chunks)})
 
-        self._dataset = self._load_digital_number(resolution=resolution, resampling=resampling, chunks=chunks)
+        #self.datatree['high_resolution_dataset'].ds = .from_dict({'high_resolution_dataset':self._load_digital_number(resolution=resolution, resampling=resampling, chunks=chunks)
+        self._dataset = self.datatree['high_resolution_dataset'].ds #the two variables should be linken then.
         self._dataset = xr.merge([xr.Dataset({'time': self.get_burst_azitime}), self._dataset])
 
         # dataset no-pol template for function evaluation on coordinates (*no* values used)
@@ -249,9 +251,9 @@ class Sentinel1Dataset:
                 section='noise_lut'
             )
 
-        self._rasterized_masks = self._load_rasterized_masks()
+        #self._rasterized_masks = self.load_rasterized_masks()
 
-        ds_merge_list = [self._dataset, self._rasterized_masks, self._load_ground_heading(),  # lon_lat
+        ds_merge_list = [self._dataset, self._load_ground_heading(),  # lon_lat
                          self._luts.drop_vars(self._hidden_vars, errors='ignore')]
 
         if luts:
@@ -310,9 +312,9 @@ class Sentinel1Dataset:
         FM.attrs['history'] = 'annotations'
         # dataset principal
         self._dataset['sampleSpacing'] = xarray.DataArray(self.s1meta.image['slantRangePixelSpacing'],
-                                                            attrs={'unit': 'm', 'referential': 'slant'})
+                                                            attrs={'units': 'm', 'referential': 'slant'})
         self._dataset['lineSpacing'] = xarray.DataArray(self.s1meta.image['azimuthPixelSpacing'],
-                                                          attrs={'unit': 'm'})
+                                                          attrs={'units': 'm'})
         # doppler
         dop = self.s1meta._doppler_estimate
         dop.attrs['history'] = 'annotations'
@@ -333,7 +335,8 @@ class Sentinel1Dataset:
         `xarray.Dataset` representation of this `xsar.Sentinel1Dataset` object.
         This property can be set with a new dataset, if the dataset was computed from the original dataset.
         """
-        return self._dataset
+        #return self._dataset
+        return self.datatree['high_resolution_dataset'].ds
 
     @dataset.setter
     def dataset(self, ds):
@@ -343,6 +346,7 @@ class Sentinel1Dataset:
                 self.sliced = any(
                     [list(ds[d].values) != list(self._dataset[d].values) for d in ['line', 'sample']])
             self._dataset = ds
+            #self._dataset = self.datatree['high_resolution_dataset'].ds
             self.recompute_attrs()
         else:
             raise ValueError("dataset must be same kind as original one.")
@@ -940,6 +944,10 @@ class Sentinel1Dataset:
             da_list.append(da_mask.to_dataset(name=name))
 
         return xr.merge(da_list)
+
+    def add_rasterized_masks(self):
+        self._rasterized_masks = self._load_rasterized_masks()
+        self.datatree['high_resolution_dataset'].ds = xr.merge([self.datatree['high_resolution_dataset'].ds,self._rasterized_masks])
 
     @timing
     def map_raster(self, raster_ds):

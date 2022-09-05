@@ -1465,7 +1465,7 @@ class Sentinel1Dataset:
         geoloc_line = None
         if self.s1meta.product == 'SLC' and 'WV' not in self.s1meta.swath:
         #if self.datatree.attrs['product'] == 'SLC' and 'WV' not in self.datatree.attrs['swath']:
-            burst_nlines = self.s1meta._bursts.attrs['line_per_burst']
+            burst_nlines = int(self.s1meta._bursts['linesPerBurst'])
             #burst_nlines = self.datatree['bursts'].ds['line'].size
 
             geoloc_line = self.s1meta.geoloc['line'].values

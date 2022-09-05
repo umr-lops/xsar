@@ -171,8 +171,8 @@ xpath_mappings = {
         'orbit_vel_y': (float_array, '//product/generalAnnotation/orbitList/orbit/velocity/y'),
         'orbit_vel_z': (float_array, '//product/generalAnnotation/orbitList/orbit/velocity/z'),
         'number_of_bursts': (scalar_int, '/product/swathTiming/burstList/@count'),
-        'line_per_burst': (scalar, '/product/swathTiming/linesPerBurst'),
-        'sample_per_burst': (scalar, '/product/swathTiming/samplesPerBurst'),
+        'linesPerBurst': (scalar, '/product/swathTiming/linesPerBurst'),
+        'samplesPerBurst': (scalar, '/product/swathTiming/samplesPerBurst'),
         'all_bursts': (np.array, '//product/swathTiming/burstList/burst'),
         'burst_azimuthTime': (datetime64_array, '//product/swathTiming/burstList/burst/azimuthTime'),
         'burst_azimuthAnxTime': (float_array, '//product/swathTiming/burstList/burst/azimuthAnxTime'),
@@ -602,8 +602,8 @@ def bursts(line_per_burst, sample_per_burst, burst_azimuthTime, burst_azimuthAnx
         da['firstValidSample'].attrs = {'source': xpath_mappings['annotation']['burst_firstValidSample'][1]}
         da['lastValidSample'].attrs = {'source': xpath_mappings['annotation']['burst_lastValidSample'][1]}
         #da['valid_location'].attrs = {'source': xpath_mappings['annotation']['burst_firstValidSample'][1]+'\n'+xpath_mappings['annotation']['burst_lastValidSample'][1]}
-    da.attrs['line_per_burst'] = line_per_burst
-    da.attrs['sample_per_burst'] = sample_per_burst
+    da['linesPerBurst'] = xr.DataArray(line_per_burst,attrs={'source':xpath_mappings['annotation']['linesPerBurst'][1]})
+    da['samplesPerBurst'] = xr.DataArray(sample_per_burst,attrs={'source':xpath_mappings['annotation']['samplesPerBurst'][1]})
     return da
 
 
@@ -611,8 +611,8 @@ def bursts_grd(line_per_burst, sample_per_burst):
     """return burst as an xarray dataset"""
     da = xr.Dataset({'azimuthTime': ('burst', [])})
 
-    da.attrs['line_per_burst'] = line_per_burst
-    da.attrs['sample_per_burst'] = sample_per_burst
+    da['linesPerBurst'] = xr.DataArray(line_per_burst)
+    da['samplesPerBurst'] = xr.DataArray(sample_per_burst)
     return da
 
 
@@ -761,13 +761,13 @@ compounds_vars = {
     },
     'bursts': {
         'func': bursts,
-        'args': ('annotation.line_per_burst', 'annotation. sample_per_burst', 'annotation. burst_azimuthTime',
+        'args': ('annotation.linesPerBurst', 'annotation.samplesPerBurst', 'annotation. burst_azimuthTime',
                  'annotation. burst_azimuthAnxTime', 'annotation. burst_sensingTime', 'annotation.burst_byteOffset',
                  'annotation. burst_firstValidSample', 'annotation.burst_lastValidSample')
     },
     'bursts_grd': {
         'func': bursts_grd,
-        'args': ('annotation.line_per_burst', 'annotation. sample_per_burst',)
+        'args': ('annotation.linesPerBurst', 'annotation. samplesPerBurst',)
     },
 
     'orbit': {

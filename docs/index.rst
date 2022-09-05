@@ -113,7 +113,7 @@ Last documentation build: |today|
 .. _ESA Sentinel-1 Product Specification: https://earth.esa.int/documents/247904/1877131/Sentinel-1-Product-Specification
 .. _xarray.Dataset: http://xarray.pydata.org/en/stable/generated/xarray.Dataset.html
 .. _open a dataset at lower resolution: examples/xsar_advanced.ipynb#Open-a-dataset-at-lower-resolution
-.. _convert lon/lat to dataset coordinates: examples/xsar_advanced.ipynb#Convert-(lon,lat)-to-(atrack,-xtrack)
+.. _convert lon/lat to dataset coordinates: examples/xsar_advanced.ipynb#Convert-(lon,lat)-to-(line,-sample)
 .. _`recommended installation`: installing.rst#recommended-packages
 .. _SAFE format: https://sentinel.esa.int/web/sentinel/user-guides/sentinel-1-sar/data-formats
 .. _jupyter notebook: https://jupyter.readthedocs.io/en/latest/running.html#running

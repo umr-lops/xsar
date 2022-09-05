@@ -608,6 +608,9 @@ class Sentinel1Meta:
             return None
         img_dict = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'image')
         img_dict['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'image', describe=True)
+        for vv in img_dict:
+            if vv in self.xsd_definitions:
+                img_dict[vv].attrs['definition'] = self.xsd_definitions[vv]
         return img_dict
 
     @property

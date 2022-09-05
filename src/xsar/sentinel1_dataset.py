@@ -21,6 +21,8 @@ from .sentinel1_meta import Sentinel1Meta
 from .ipython_backends import repr_mimebundle
 import yaml
 import datatree
+import pandas as pd
+import geopandas as gpd
 
 logger = logging.getLogger('xsar.sentinel1_dataset')
 logger.addHandler(logging.NullHandler())
@@ -160,7 +162,7 @@ class Sentinel1Dataset:
             )
 
         self._dataset = self._load_digital_number(resolution=resolution, resampling=resampling, chunks=chunks)
-        self._dataset = xr.merge([xr.Dataset({'time': self._burst_azitime}), self._dataset])
+        self._dataset = xr.merge([xr.Dataset({'time': self.get_burst_azitime}), self._dataset])
 
         # dataset no-pol template for function evaluation on coordinates (*no* values used)
         # what's matter here is the shape of the image, not the values.
@@ -168,7 +170,8 @@ class Sentinel1Dataset:
             warnings.simplefilter("ignore", np.ComplexWarning)
             if self.s1meta._bursts['burst'].size != 0:
                 # SLC TOPS, tune the high res grid because of bursts overlapping
-                line_time = self._burst_azitime
+                #line_time = self._burst_azitime
+                line_time = self.get_burst_azitime
                 self._da_tmpl = xr.DataArray(
                     dask.array.empty_like(
                         np.empty((len(line_time), len(self._dataset.digital_number.sample))),
@@ -777,7 +780,13 @@ class Sentinel1Dataset:
             With interpolated vaiables
 
         """
-
+        mapping_dataset_geoloc = {'latitude': 'latitude',
+            'longitude': 'longitude',
+            'incidence': 'incidenceAngle',
+            'elevation': 'elevationAngle',
+            'altitude': 'height',
+            'azimuth_time': 'azimuthTime',
+            'slant_range_time': 'slantRangeTime'}
         da_list = []
 
         def interp_func_slc(vect1dazti, vect1dxtrac, **kwargs):
@@ -802,19 +811,20 @@ class Sentinel1Dataset:
             return wrapperfunc(vect1dazti[:, np.newaxis], vect1dxtrac[np.newaxis, :], rbs)
 
         for varname in varnames:
+            varname_in_geoloc = mapping_dataset_geoloc[varname]
             if varname in ['azimuth_time']:
-                z_values = self.s1meta.geoloc[varname].astype(float)
+                z_values = self.s1meta.geoloc[varname_in_geoloc].astype(float)
             elif varname == 'longitude':
-                z_values = self.s1meta.geoloc[varname]
+                z_values = self.s1meta.geoloc[varname_in_geoloc]
                 if self.s1meta.cross_antemeridian:
                     logger.debug('translate longitudes between 0 and 360')
                     z_values = z_values % 360
             else:
-                z_values = self.s1meta.geoloc[varname]
+                z_values = self.s1meta.geoloc[varname_in_geoloc]
             if self.s1meta._bursts['burst'].size != 0:
                 # TOPS SLC
                 rbs = RectBivariateSpline(
-                    self.s1meta.geoloc.azimuth_time[:, 0].astype(float),
+                    self.s1meta.geoloc.azimuthTime[:, 0].astype(float),
                     self.s1meta.geoloc.sample,
                     z_values,
                     kx=1, ky=1,
@@ -830,7 +840,7 @@ class Sentinel1Dataset:
                 )
             # the following take much cpu and memory, so we want to use dask
             # interp_func(self._dataset.line, self.dataset.sample)
-            typee = self.s1meta.geoloc[varname].dtype
+            typee = self.s1meta.geoloc[varname_in_geoloc].dtype
             if self.s1meta._bursts['burst'].size != 0:
                 datemplate = self._da_tmpl.astype(typee).copy()
                 # replace the line coordinates by line_time coordinates
@@ -855,7 +865,7 @@ class Sentinel1Dataset:
 
             # copy history
             try:
-                da_var.attrs['history'] = self.s1meta.geoloc[varname].attrs['history']
+                da_var.attrs['history'] = self.s1meta.geoloc[varname_in_geoloc].attrs['history']
             except KeyError:
                 pass
 
@@ -1253,7 +1263,7 @@ class Sentinel1Dataset:
         return ds
 
     @property
-    def _burst_azitime(self):
+    def get_burst_azitime(self):
         """
         Get azimuth time at high resolution.
 
@@ -1262,7 +1272,8 @@ class Sentinel1Dataset:
         xarray.DataArray
             the high resolution azimuth time vector interpolated at the middle of the sub-swath
         """
-        azitime = self.s1meta._burst_azitime()
+        #azitime = self.s1meta._burst_azitime()
+        azitime = self._burst_azitime()
         iz = np.searchsorted(azitime.line, self._dataset.line)
         azitime = azitime.isel({'line': iz})
         azitime = azitime.assign_coords({"line": self._dataset.line})
@@ -1277,7 +1288,7 @@ class Sentinel1Dataset:
             containing a single variable velocity
         """
 
-        azimuth_times = self._burst_azitime
+        azimuth_times = self.get_burst_azitime
         orbstatevect = self.s1meta.orbit
         azi_times = orbstatevect['time'].values
         velos = np.array([orbstatevect['velocity_x'] ** 2.,orbstatevect['velocity_y'] ** 2.,orbstatevect['velocity_z'] ** 2.])
@@ -1371,5 +1382,136 @@ class Sentinel1Dataset:
                                     attrs={
                            'description': 'start line index, start sample index, stop line index, stop sample index'})
         self.datatree['bursts'].ds['valid_location'] = tmpda
+
+    def get_bursts_polygons(self, only_valid_location=True):
+        """
+        get the polygons of radar bursts in the image geometry
+
+        Parameters
+        ----------
+        only_valid_location : bool
+            [True] -> polygons of the TOPS SLC bursts are cropped using valid location index
+            False -> polygons of the TOPS SLC bursts are aligned with azimuth time start/stop index
+
+        Returns
+        -------
+        geopandas.GeoDataframe
+            polygons of the burst in the image (ie line/sample) geometry
+            'geometry' is the polygon
+
+        """
+        if self.s1meta.multidataset:
+            blocks_list = []
+            # for subswath in self.subdatasets.index:
+            for submeta in self.s1meta._submeta:
+                block = submeta.bursts(only_valid_location=only_valid_location)
+                block['subswath'] = submeta.dsid
+                block = block.set_index('subswath', append=True).reorder_levels(['subswath', 'burst'])
+                blocks_list.append(block)
+            blocks = pd.concat(blocks_list)
+        else:
+            #burst_list = self._bursts
+            self.get_burst_valid_location()
+            burst_list = self.datatree['bursts'].ds
+            nb_samples = self.datatree.attrs['numberOfSamples']
+            if burst_list['burst'].size == 0:
+                blocks = gpd.GeoDataFrame()
+            else:
+                bursts = []
+                bursts_az_inds = {}
+                inds_burst, geoloc_azitime, geoloc_iburst, geoloc_line = self._get_indices_bursts()
+                for burst_ind, uu in enumerate(np.unique(inds_burst)):
+                    if only_valid_location:
+                        extent = np.copy(burst_list['valid_location'].values[burst_ind, :])
+                        area = box(extent[0], extent[1], extent[2], extent[3])
+
+                    else:
+                        inds_one_val = np.where(inds_burst == uu)[0]
+                        bursts_az_inds[uu] = inds_one_val
+                        area = box(bursts_az_inds[burst_ind][0], 0, bursts_az_inds[burst_ind][-1], nb_samples)
+                    burst = pd.Series(dict([
+                        ('geometry_image', area)]))
+                    bursts.append(burst)
+                # to geopandas
+                blocks = pd.concat(bursts, axis=1).T
+                blocks = gpd.GeoDataFrame(blocks)
+                blocks['geometry'] = blocks['geometry_image'].apply(self.coords2ll)
+                blocks.index.name = 'burst'
+        return blocks
+
+    def _get_indices_bursts(self):
+        """
+
+        Returns
+        -------
+        ind np.array
+            index of the burst start in the line coordinates
+        geoloc_azitime np.array
+            azimuth time at the middle of the image from geolocation grid (low resolution)
+        geoloc_iburst np.array
+
+        """
+        ind = None
+        geoloc_azitime = None
+        geoloc_iburst = None
+        geoloc_line = None
+        if self.s1meta.product == 'SLC' and 'WV' not in self.s1meta.swath:
+        #if self.datatree.attrs['product'] == 'SLC' and 'WV' not in self.datatree.attrs['swath']:
+            burst_nlines = self.s1meta._bursts.attrs['line_per_burst']
+            #burst_nlines = self.datatree['bursts'].ds['line'].size
+
+            geoloc_line = self.s1meta.geoloc['line'].values
+            #geoloc_line = self.datatree['geolocation_annotation'].ds['line'].values
+            # find the indice of the bursts in the geolocation grid
+            geoloc_iburst = np.floor(geoloc_line / float(burst_nlines)).astype('int32')
+            # find the indices of the bursts in the high resolution grid
+            line = np.arange(0, self.s1meta.image['numberOfLines'])
+            #line = np.arange(0, self.datatree.attrs['numberOfLines'])
+            iburst = np.floor(line / float(burst_nlines)).astype('int32')
+            # find the indices of the burst transitions
+            ind = np.searchsorted(geoloc_iburst, iburst, side='left')
+            n_pixels = int((len(self.s1meta.geoloc['sample']) - 1) / 2)
+            geoloc_azitime = self.s1meta.geoloc['azimuthTime'].values[:, n_pixels]
+            # security check for unrealistic line_values exceeding the image extent
+            if ind.max() >= len(geoloc_azitime):
+                ind[ind >= len(geoloc_azitime)] = len(geoloc_azitime) - 1
+        return ind, geoloc_azitime, geoloc_iburst, geoloc_line
+
+
+    def _burst_azitime(self):
+        """
+        Get azimuth time at high resolution on the full image shape
+
+        Returns
+        -------
+        np.ndarray
+            the high resolution azimuth time vector interpolated at the midle of the subswath
+        """
+        line = np.arange(0, self.s1meta.image['numberOfLines'])
+        #line = np.arange(0,self.datatree.attrs['numberOfLines'])
+        if self.s1meta.product == 'SLC' and 'WV' not in self.s1meta.swath:
+        #if self.datatree.attrs['product'] == 'SLC' and 'WV' not in self.datatree.attrs['swath']:
+            azi_time_int = self.s1meta.image['azimuthTimeInterval']
+            #azi_time_int = self.datatree.attrs['azimuthTimeInterval']
+            # turn this interval float/seconds into timedelta/picoseconds
+            azi_time_int = np.timedelta64(int(azi_time_int * 1e12), 'ps')
+            ind, geoloc_azitime, geoloc_iburst, geoloc_line = self._get_indices_bursts()
+            # compute the azimuth time by adding a step function (first term) and a growing term (second term)
+            azitime = geoloc_azitime[ind] + (line - geoloc_line[ind]) * azi_time_int.astype('<m8[ns]')
+        else:  # GRD* cases
+            # n_pixels = int((len(self.datatree['geolocation_annotation'].ds['sample']) - 1) / 2)
+            # geoloc_azitime = self.datatree['geolocation_annotation'].ds['azimuth_time'].values[:, n_pixels]
+            # geoloc_line = self.datatree['geolocation_annotation'].ds['line'].values
+            n_pixels = int((len(self.s1meta.geoloc['sample']) - 1) / 2)
+            geoloc_azitime = self.s1meta.geoloc['azimuthTime'].values[:, n_pixels]
+            geoloc_line = self.s1meta.geoloc['line'].values
+            finterp = interp1d(geoloc_line, geoloc_azitime.astype(float))
+            azitime = finterp(line)
+            azitime = azitime.astype('<m8[ns]')
+        azitime = xr.DataArray(azitime, coords={'line': line}, dims=['line'],
+                               attrs={
+                                   'description': 'azimuth times interpolated along line dimension at the middle of range dimension'})
+
+        return azitime
 
 

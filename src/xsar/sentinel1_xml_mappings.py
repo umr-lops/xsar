@@ -134,14 +134,14 @@ xpath_mappings = {
         'swath_subswath': (scalar, '/product/adsHeader/swath'),
         'line': (uniq_sorted, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/line'),
         'sample': (uniq_sorted, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/pixel'),
-        'incidence': (
+        'incidenceAngle': (
             float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/incidenceAngle'),
-        'elevation': (
+        'elevationAngle': (
             float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/elevationAngle'),
-        'altitude': (float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/height'),
-        'azimuth_time': (
+        'height': (float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/height'),
+        'azimuthTime': (
             datetime64_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/azimuthTime'),
-        'slant_range_time': (
+        'slantRangeTime': (
             float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/slantRangeTime'),
         'longitude': (float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/longitude'),
         'latitude': (float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/latitude'),
@@ -731,13 +731,13 @@ compounds_vars = {
             'noise.azi.swath')
     },
     'denoised': ('annotation.pol', 'annotation.denoised'),
-    'incidence': {
+    'incidenceAngle': {
         'func': geolocation_grid,
-        'args': ('annotation.line', 'annotation.sample', 'annotation.incidence')
+        'args': ('annotation.line', 'annotation.sample', 'annotation.incidenceAngle')
     },
-    'elevation': {
+    'elevationAngle': {
         'func': geolocation_grid,
-        'args': ('annotation.line', 'annotation.sample', 'annotation.elevation')
+        'args': ('annotation.line', 'annotation.sample', 'annotation.elevationAngle')
     },
     'longitude': {
         'func': geolocation_grid,
@@ -747,17 +747,17 @@ compounds_vars = {
         'func': geolocation_grid,
         'args': ('annotation.line', 'annotation.sample', 'annotation.latitude')
     },
-    'altitude': {
+    'height': {
         'func': geolocation_grid,
-        'args': ('annotation.line', 'annotation.sample', 'annotation.altitude')
+        'args': ('annotation.line', 'annotation.sample', 'annotation.height')
     },
-    'azimuth_time': {
+    'azimuthTime': {
         'func': geolocation_grid,
-        'args': ('annotation.line', 'annotation.sample', 'annotation.azimuth_time')
+        'args': ('annotation.line', 'annotation.sample', 'annotation.azimuthTime')
     },
-    'slant_range_time': {
+    'slantRangeTime': {
         'func': geolocation_grid,
-        'args': ('annotation.line', 'annotation.sample', 'annotation.slant_range_time')
+        'args': ('annotation.line', 'annotation.sample', 'annotation.slantRangeTime')
     },
     'bursts': {
         'func': bursts,

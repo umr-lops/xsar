@@ -501,11 +501,11 @@ def azimuth_fmrate(azimuthtime, t0, c0, c1, c2, polynomial):
         # old IPF annotation
         polynomial = np.stack([c0, c1, c2], axis=1)
     res = xr.Dataset()
-    res['t0'] = xr.DataArray(t0, dims=['azimuth_time'], coords={'azimuth_time': azimuthtime},
+    res['t0'] = xr.DataArray(t0, dims=['azimuthTime'], coords={'azimuthTime': azimuthtime},
                              attrs={'source':xpath_mappings['annotation']['fmrate_t0'][1]})
     res['azimuthFmRatePolynomial'] = xr.DataArray([Polynomial(p) for p in polynomial],
-                                     dims=['azimuth_time'],
-                                     coords={'azimuth_time': azimuthtime},
+                                     dims=['azimuthTime'],
+                                     coords={'azimuthTime': azimuthtime},
                                     attrs={'source':xpath_mappings['annotation']['fmrate_azimuthFmRatePolynomial'][1]})
     return res
 

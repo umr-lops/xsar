@@ -160,11 +160,45 @@ class Sentinel1Dataset:
             raise IndexError(
                 """Can't open an multi-dataset. Use `xsar.Sentinel1Meta('%s').subdatasets` to show availables ones""" % self.s1meta.path
             )
-        self.datatree = datatree.DataTree.from_dict({'high_resolution_dataset':self._load_digital_number(resolution=resolution, resampling=resampling, chunks=chunks)})
+
+        # build datatree
+        DN_tmp = self._load_digital_number(resolution=resolution, resampling=resampling, chunks=chunks)
+        ### geoloc
+        geoloc = self.s1meta.geoloc
+        geoloc.attrs['history'] = 'annotations'
+        ### bursts
+        bu = self.s1meta._bursts
+        bu.attrs['history'] = 'annotations'
+
+        # azimuth fm rate
+        FM = self.s1meta.azimuth_fmrate
+        FM.attrs['history'] = 'annotations'
+
+        # doppler
+        dop = self.s1meta._doppler_estimate
+        dop.attrs['history'] = 'annotations'
+
+        self.datatree = datatree.DataTree.from_dict({'high_resolution_dataset': DN_tmp, 'geolocation_annotation': geoloc,
+                                                'bursts': bu, 'FMrate': FM, 'doppler_estimate': dop,
+                                                # 'image_information':
+                                                'orbit': self.s1meta.orbit
+                                                })
+        self.datatree.attrs = xr.Dataset(self.s1meta.image)
+        for att in ['name','short_name','product','safe','swath','multidataset']:
+            if att not in self.datatree.attrs:
+                tmp = xr.DataArray(self.s1meta.__getattr__(att),attrs={'source':'filename decoding'})
+                self.datatree.attrs[att] = tmp
+
+
 
         #self.datatree['high_resolution_dataset'].ds = .from_dict({'high_resolution_dataset':self._load_digital_number(resolution=resolution, resampling=resampling, chunks=chunks)
         self._dataset = self.datatree['high_resolution_dataset'].ds #the two variables should be linken then.
         self._dataset = xr.merge([xr.Dataset({'time': self.get_burst_azitime}), self._dataset])
+        # dataset principal
+        self._dataset['sampleSpacing'] = xarray.DataArray(self.s1meta.image['slantRangePixelSpacing'],
+                                                            attrs={'units': 'm', 'referential': 'slant'})
+        self._dataset['lineSpacing'] = xarray.DataArray(self.s1meta.image['azimuthPixelSpacing'],
+                                                          attrs={'units': 'm'})
 
         # dataset no-pol template for function evaluation on coordinates (*no* values used)
         # what's matter here is the shape of the image, not the values.
@@ -251,10 +285,13 @@ class Sentinel1Dataset:
                 section='noise_lut'
             )
 
-        #self._rasterized_masks = self.load_rasterized_masks()
-
         ds_merge_list = [self._dataset, self._load_ground_heading(),  # lon_lat
                          self._luts.drop_vars(self._hidden_vars, errors='ignore')]
+        if 'GRD' in str(self.datatree.attrs['product']) : # load land_mask by default for GRD products
+            self._rasterized_masks = self._load_rasterized_masks()
+            ds_merge_list.append(self._rasterized_masks)
+
+
 
         if luts:
             ds_merge_list.append(self._luts[self._hidden_vars])
@@ -298,33 +335,9 @@ class Sentinel1Dataset:
 
         # save original bbox
         self._bbox_coords_ori = self._bbox_coords
+        self.datatree['high_resolution_dataset'].ds = self._dataset #last link to make sure all previous modifications are also in the datatree
 
-        # build datatree
-        ### geoloc
-        geoloc = self.s1meta.geoloc
-        geoloc.attrs['history'] = 'annotations'
-        ### bursts
-        bu = self.s1meta._bursts
-        bu.attrs['history'] = 'annotations'
 
-        # azimuth fm rate
-        FM = self.s1meta.azimuth_fmrate
-        FM.attrs['history'] = 'annotations'
-        # dataset principal
-        self._dataset['sampleSpacing'] = xarray.DataArray(self.s1meta.image['slantRangePixelSpacing'],
-                                                            attrs={'units': 'm', 'referential': 'slant'})
-        self._dataset['lineSpacing'] = xarray.DataArray(self.s1meta.image['azimuthPixelSpacing'],
-                                                          attrs={'units': 'm'})
-        # doppler
-        dop = self.s1meta._doppler_estimate
-        dop.attrs['history'] = 'annotations'
-
-        self.datatree = datatree.DataTree.from_dict({'high_resolution_dataset': self._dataset, 'geolocation_annotation': geoloc,
-                                                'bursts': bu, 'FMrate': FM, 'doppler_estimate': dop,
-                                                # 'image_information':
-                                                'orbit': self.s1meta.orbit
-                                                })
-        self.datatree.attrs = xr.Dataset(self.s1meta.image)
 
     def __del__(self):
         logger.debug('__del__')

@@ -178,7 +178,7 @@ class Sentinel1Dataset:
         dop = self.s1meta._doppler_estimate
         dop.attrs['history'] = 'annotations'
 
-        self.datatree = datatree.DataTree.from_dict({'high_resolution_dataset': DN_tmp, 'geolocation_annotation': geoloc,
+        self.datatree = datatree.DataTree.from_dict({'measurement': DN_tmp, 'geolocation_annotation': geoloc,
                                                 'bursts': bu, 'FMrate': FM, 'doppler_estimate': dop,
                                                 # 'image_information':
                                                 'orbit': self.s1meta.orbit
@@ -191,8 +191,8 @@ class Sentinel1Dataset:
 
 
 
-        #self.datatree['high_resolution_dataset'].ds = .from_dict({'high_resolution_dataset':self._load_digital_number(resolution=resolution, resampling=resampling, chunks=chunks)
-        self._dataset = self.datatree['high_resolution_dataset'].ds #the two variables should be linken then.
+        #self.datatree['measurement'].ds = .from_dict({'measurement':self._load_digital_number(resolution=resolution, resampling=resampling, chunks=chunks)
+        self._dataset = self.datatree['measurement'].ds #the two variables should be linken then.
         self._dataset = xr.merge([xr.Dataset({'time': self.get_burst_azitime}), self._dataset])
         # dataset principal
         self._dataset['sampleSpacing'] = xarray.DataArray(self.s1meta.image['slantRangePixelSpacing'],
@@ -335,7 +335,7 @@ class Sentinel1Dataset:
 
         # save original bbox
         self._bbox_coords_ori = self._bbox_coords
-        self.datatree['high_resolution_dataset'].ds = self._dataset #last link to make sure all previous modifications are also in the datatree
+        self.datatree['measurement'].ds = self._dataset #last link to make sure all previous modifications are also in the datatree
 
 
 
@@ -349,7 +349,7 @@ class Sentinel1Dataset:
         This property can be set with a new dataset, if the dataset was computed from the original dataset.
         """
         #return self._dataset
-        return self.datatree['high_resolution_dataset'].ds
+        return self.datatree['measurement'].ds
 
     @dataset.setter
     def dataset(self, ds):
@@ -359,7 +359,7 @@ class Sentinel1Dataset:
                 self.sliced = any(
                     [list(ds[d].values) != list(self._dataset[d].values) for d in ['line', 'sample']])
             self._dataset = ds
-            #self._dataset = self.datatree['high_resolution_dataset'].ds
+            #self._dataset = self.datatree['measurement'].ds
             self.recompute_attrs()
         else:
             raise ValueError("dataset must be same kind as original one.")
@@ -960,7 +960,7 @@ class Sentinel1Dataset:
 
     def add_rasterized_masks(self):
         self._rasterized_masks = self._load_rasterized_masks()
-        self.datatree['high_resolution_dataset'].ds = xr.merge([self.datatree['high_resolution_dataset'].ds,self._rasterized_masks])
+        self.datatree['measurement'].ds = xr.merge([self.datatree['measurement'].ds,self._rasterized_masks])
 
     @timing
     def map_raster(self, raster_ds):

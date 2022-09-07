@@ -644,19 +644,20 @@ def doppler_centroid_estimates(nb_dcestimate,
 
     """
     ds = xr.Dataset()
-    ds['t0'] = xr.DataArray(dc_t0.astype(float), dims=['n_estimates'],attrs={'source': xpath_mappings['annotation']['dc_t0'][1]})
-    ds['geometryDcPolynomial'] = xr.DataArray([Polynomial(p) for p in dc_geoDcPoly], dims=['n_estimates'],attrs={'source':xpath_mappings['annotation']['dc_geoDcPoly'][1]})
-    ds['dataDcPolynomial'] = xr.DataArray([Polynomial(p) for p in dc_dataDcPoly], dims=['n_estimates'],attrs={'source':xpath_mappings['annotation']['dc_dataDcPoly'][1]})
+    ds['t0'] = xr.DataArray(dc_t0.astype(float), dims=['azimuthTime'],attrs={'source': xpath_mappings['annotation']['dc_t0'][1]},coords={'azimuthTime':dc_azimuth_time})
+    ds['geometryDcPolynomial'] = xr.DataArray([Polynomial(p) for p in dc_geoDcPoly], dims=['azimuthTime'],attrs={'source':xpath_mappings['annotation']['dc_geoDcPoly'][1]})
+    ds['dataDcPolynomial'] = xr.DataArray([Polynomial(p) for p in dc_dataDcPoly], dims=['azimuthTime'],attrs={'source':xpath_mappings['annotation']['dc_dataDcPoly'][1]})
     dims = (nb_dcestimate, nb_fineDce)
-    ds['azimuthTime'] = xr.DataArray(dc_azimuth_time, dims=['n_estimates'],attrs={'source':xpath_mappings['annotation']['dc_azimuth_time'][1]})
-    ds['fineDceAzimuthStartTime'] = xr.DataArray(dc_azstarttime, dims=['n_estimates'],attrs={'source':xpath_mappings['annotation']['dc_azstarttime'][1]})
-    ds['fineDceAzimuthStopTime'] = xr.DataArray(dc_azstoptime, dims=['n_estimates'],attrs={'source':xpath_mappings['annotation']['dc_azstoptime'][1]})
-    ds['dataDcRmsError'] = xr.DataArray(dc_rmserr.astype(float), dims=['n_estimates'],attrs={'source':xpath_mappings['annotation']['dc_rmserr'][1]})
-    ds['slantRangeTime'] = xr.DataArray(dc_slantRangeTime.reshape(dims), dims=['n_estimates', 'nb_fine_dce'],
+    #ds['azimuthTime'] = xr.DataArray(dc_azimuth_time, dims=['azimuthTime'],attrs={'source':xpath_mappings['annotation']['dc_azimuth_time'][1]})
+    ds['azimuthTime'].attrs={'source': xpath_mappings['annotation']['dc_azimuth_time'][1]}
+    ds['fineDceAzimuthStartTime'] = xr.DataArray(dc_azstarttime, dims=['azimuthTime'],attrs={'source':xpath_mappings['annotation']['dc_azstarttime'][1]})
+    ds['fineDceAzimuthStopTime'] = xr.DataArray(dc_azstoptime, dims=['azimuthTime'],attrs={'source':xpath_mappings['annotation']['dc_azstoptime'][1]})
+    ds['dataDcRmsError'] = xr.DataArray(dc_rmserr.astype(float), dims=['azimuthTime'],attrs={'source':xpath_mappings['annotation']['dc_rmserr'][1]})
+    ds['slantRangeTime'] = xr.DataArray(dc_slantRangeTime.reshape(dims), dims=['azimuthTime', 'nb_fine_dce'],
                                         attrs={'source': xpath_mappings['annotation']['dc_slantRangeTime'][1]})
-    ds['frequency'] = xr.DataArray(dc_frequency.reshape(dims), dims=['n_estimates', 'nb_fine_dce'],
+    ds['frequency'] = xr.DataArray(dc_frequency.reshape(dims), dims=['azimuthTime', 'nb_fine_dce'],
                                    attrs={'source': xpath_mappings['annotation']['dc_frequency'][1]})
-    ds['dataDcRmsErrorAboveThreshold'] = xr.DataArray(dc_rmserrAboveThres, dims=['n_estimates'],
+    ds['dataDcRmsErrorAboveThreshold'] = xr.DataArray(dc_rmserrAboveThres, dims=['azimuthTime'],
                                                       attrs={'source':xpath_mappings['annotation']['dc_rmserrAboveThres'][1]})
     return ds
 

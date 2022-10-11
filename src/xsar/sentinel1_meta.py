@@ -54,6 +54,7 @@ class Sentinel1Meta:
     multidataset = None
     xml_parser = None
     name = None
+    platform = None
     short_name = None
     safe = None
     path = None

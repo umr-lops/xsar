@@ -85,35 +85,6 @@ class Sentinel1Dataset:
                  luts=False, chunks={'line': 5000, 'sample': 5000},
                  dtypes=None, patch_variable=True):
 
-        # miscellaneous attributes that are not know from xml files
-        attrs_dict = {
-            'pol': {
-                'comment': 'ordered polarizations (copol, crosspol)'
-            },
-            'line': {
-                'units': '1',
-                'comment': 'azimuth direction, in pixels from full resolution tiff'
-            },
-            'sample': {
-                'units': '1',
-                'comment': 'cross track direction, in pixels from full resolution tiff'
-            },
-            'sigma0_raw': {
-                'units': 'linear'
-            },
-            'gamma0_raw': {
-                'units': 'linear'
-            },
-            'nesz': {
-                'units': 'linear',
-                'comment': 'sigma0 noise'
-            },
-            'negz': {
-                'units': 'linear',
-                'comment': 'beta0 noise'
-            },
-        }
-
         # default dtypes
         self._dtypes = {
             'latitude': 'f4',
@@ -183,6 +154,7 @@ class Sentinel1Dataset:
                                                 # 'image_information':
                                                 'orbit': self.s1meta.orbit
                                                 })
+
         self.datatree.attrs = xr.Dataset(self.s1meta.image)
         for att in ['name','short_name','product','safe','swath','multidataset']:
             if att not in self.datatree.attrs:
@@ -192,13 +164,27 @@ class Sentinel1Dataset:
 
 
         #self.datatree['measurement'].ds = .from_dict({'measurement':self._load_digital_number(resolution=resolution, resampling=resampling, chunks=chunks)
-        self._dataset = self.datatree['measurement'].ds #the two variables should be linken then.
+        #self._dataset = self.datatree['measurement'].ds #the two variables should be linked then.
+        self._dataset = self.datatree['measurement'].to_dataset() #test oct 22 to see if then I can modify variables of the dt
         self._dataset = xr.merge([xr.Dataset({'time': self.get_burst_azitime}), self._dataset])
+        value_res_sample = self.s1meta.image['slantRangePixelSpacing']
+        value_res_line = self.s1meta.image['azimuthPixelSpacing']
+        refe_spacing = 'slant'
+        if resolution is not None:
+            refe_spacing = 'ground' # if the data sampling changed it means that the quantities are projected on ground
+            if isinstance(resolution,str):
+                value_res_sample = float(resolution.replace('m',''))
+                value_res_line = value_res_sample
+            elif isinstance(resolution,dict):
+                value_res_sample = self.s1meta.image['slantRangePixelSpacing']*resolution['sample']
+                value_res_line = self.s1meta.image['azimuthPixelSpacing']*resolution['line']
+            else:
+                logger.warning('resolution type not handle (%s) should be str or dict -> sampleSpacing'
+                               ' and lineSpacing are not correct',type(resolution))
+        self._dataset['sampleSpacing'] = xarray.DataArray(value_res_sample,attrs={'units': 'm', 'referential': refe_spacing})
+        self._dataset['lineSpacing'] = xarray.DataArray(value_res_line,attrs={'units': 'm'})
         # dataset principal
-        self._dataset['sampleSpacing'] = xarray.DataArray(self.s1meta.image['slantRangePixelSpacing'],
-                                                            attrs={'units': 'm', 'referential': 'slant'})
-        self._dataset['lineSpacing'] = xarray.DataArray(self.s1meta.image['azimuthPixelSpacing'],
-                                                          attrs={'units': 'm'})
+
 
         # dataset no-pol template for function evaluation on coordinates (*no* values used)
         # what's matter here is the shape of the image, not the values.
@@ -240,7 +226,59 @@ class Sentinel1Dataset:
         # return
 
         self._dataset.attrs.update(self.s1meta.to_dict("all"))
+        if 'GRD' in str(self.datatree.attrs['product']):  # load land_mask by default for GRD products
+            self.add_high_resolution_variables(patch_variable=patch_variable,luts=luts)
+            self.apply_calibration_and_denoising()
 
+        self.sliced = False
+        """True if dataset is a slice of original L1 dataset"""
+
+        self.resampled = resolution is not None
+        """True if dataset is not a sensor resolution"""
+
+        # save original bbox
+        self._bbox_coords_ori = self._bbox_coords
+
+
+    def add_high_resolution_variables(self,luts=False,patch_variable=True):
+        """
+        :parameter
+        luts: bool, optional
+
+            if `True` return also luts as variables (ie `sigma0_lut`, `gamma0_lut`, etc...). False by default.
+
+        patch_variable: bool, optional
+
+            activate or not variable pathching ( currently noise lut correction for IPF2.9X)
+        """
+        # miscellaneous attributes that are not know from xml files
+        attrs_dict = {
+            'pol': {
+                'comment': 'ordered polarizations (copol, crosspol)'
+            },
+            'line': {
+                'units': '1',
+                'comment': 'azimuth direction, in pixels from full resolution tiff'
+            },
+            'sample': {
+                'units': '1',
+                'comment': 'cross track direction, in pixels from full resolution tiff'
+            },
+            'sigma0_raw': {
+                'units': 'linear'
+            },
+            'gamma0_raw': {
+                'units': 'linear'
+            },
+            'nesz': {
+                'units': 'linear',
+                'comment': 'sigma0 noise'
+            },
+            'negz': {
+                'units': 'linear',
+                'comment': 'beta0 noise'
+            },
+        }
         # dict mapping for variables names to create by applying specified lut on digital_number
         self._map_var_lut = {
             'sigma0_raw': 'sigma0_lut',
@@ -287,10 +325,9 @@ class Sentinel1Dataset:
 
         ds_merge_list = [self._dataset, self._load_ground_heading(),  # lon_lat
                          self._luts.drop_vars(self._hidden_vars, errors='ignore')]
-        if 'GRD' in str(self.datatree.attrs['product']) : # load land_mask by default for GRD products
-            self._rasterized_masks = self._load_rasterized_masks()
-            ds_merge_list.append(self._rasterized_masks)
 
+        self._rasterized_masks = self._load_rasterized_masks()
+        ds_merge_list.append(self._rasterized_masks)
 
 
         if luts:
@@ -299,14 +336,7 @@ class Sentinel1Dataset:
         self._dataset = xr.merge(ds_merge_list)
         self._dataset.attrs = attrs
 
-        for var_name, lut_name in self._map_var_lut.items():
-            if lut_name in self._luts:
-                # merge var_name into dataset (not denoised)
-                self._dataset = self._dataset.merge(self._apply_calibration_lut(var_name))
-                # merge noise equivalent for var_name (named 'ne%sz' % var_name[0)
-                self._dataset = self._dataset.merge(self._get_noise(var_name))
-            else:
-                logger.debug("Skipping variable '%s' ('%s' lut is missing)" % (var_name, lut_name))
+
 
         self._dataset = self._dataset.merge(self._load_from_geoloc(['altitude', 'azimuth_time', 'slant_range_time',
                                                                     'incidence', 'elevation', 'longitude', 'latitude']))
@@ -317,7 +347,7 @@ class Sentinel1Dataset:
 
         self._dataset = self._dataset.merge(self._get_sensor_velocity())
         self._dataset = self._dataset.merge(self._range_ground_spacing())
-        self._dataset = self._add_denoised(self._dataset)
+
         self.recompute_attrs()
 
         # set miscellaneous attrs
@@ -326,18 +356,33 @@ class Sentinel1Dataset:
                 self._dataset[var].attrs.update(attrs)
             except KeyError:
                 pass
+        # self.datatree[
+        #     'measurement'].ds = self._dataset  # last link to make sure all previous modifications are also in the datatree
+        self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
+        return
 
-        self.sliced = False
-        """True if dataset is a slice of original L1 dataset"""
+    def apply_calibration_and_denoising(self):
+        """
+        apply calibration and denoising functions to get high resolution sigma0 , beta0 and gamma0 + variables *_raw
+        :return:
+        """
+        for var_name, lut_name in self._map_var_lut.items():
+            if lut_name in self._luts:
+                # merge var_name into dataset (not denoised)
+                self._dataset = self._dataset.merge(self._apply_calibration_lut(var_name))
+                # merge noise equivalent for var_name (named 'ne%sz' % var_name[0)
+                self._dataset = self._dataset.merge(self._get_noise(var_name))
+            else:
+                logger.debug("Skipping variable '%s' ('%s' lut is missing)" % (var_name, lut_name))
+        self._dataset = self._add_denoised(self._dataset)
+        # self.datatree[
+        #     'measurement'].ds = self._dataset  # last link to make sure all previous modifications are also in the datatree
+        #self.datatree['measurement'].assign(self._dataset)
+        self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
+        # self._dataset = self.datatree[
+        #     'measurement'].to_dataset()  # test oct 22 to see if then I can modify variables of the dt
 
-        self.resampled = resolution is not None
-        """True if dataset is not a sensor resolution"""
-
-        # save original bbox
-        self._bbox_coords_ori = self._bbox_coords
-        self.datatree['measurement'].ds = self._dataset #last link to make sure all previous modifications are also in the datatree
-
-
+        return
 
     def __del__(self):
         logger.debug('__del__')
@@ -349,7 +394,7 @@ class Sentinel1Dataset:
         This property can be set with a new dataset, if the dataset was computed from the original dataset.
         """
         #return self._dataset
-        return self.datatree['measurement'].ds
+        return self.datatree['measurement'].to_dataset()
 
     @dataset.setter
     def dataset(self, ds):

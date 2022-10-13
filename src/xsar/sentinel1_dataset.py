@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+import pdb
+
 import logging
 import warnings
 import numpy as np
@@ -152,20 +154,26 @@ class Sentinel1Dataset:
         self.datatree = datatree.DataTree.from_dict({'measurement': DN_tmp, 'geolocation_annotation': geoloc,
                                                 'bursts': bu, 'FMrate': FM, 'doppler_estimate': dop,
                                                 # 'image_information':
-                                                'orbit': self.s1meta.orbit
+                                                'orbit': self.s1meta.orbit,
+                                                'image':self.s1meta.image
                                                 })
 
-        self.datatree.attrs = xr.Dataset(self.s1meta.image)
-        for att in ['name','short_name','product','safe','swath','multidataset']:
-            if att not in self.datatree.attrs:
-                tmp = xr.DataArray(self.s1meta.__getattr__(att),attrs={'source':'filename decoding'})
-                self.datatree.attrs[att] = tmp
+        #self.datatree.attrs = xr.Dataset(self.s1meta.image)
+        #self.datatree.assign_attrs(self.s1meta.image) #non
+        #self.datatree['image'] = self.s1meta.image
+
 
 
 
         #self.datatree['measurement'].ds = .from_dict({'measurement':self._load_digital_number(resolution=resolution, resampling=resampling, chunks=chunks)
         #self._dataset = self.datatree['measurement'].ds #the two variables should be linked then.
         self._dataset = self.datatree['measurement'].to_dataset() #test oct 22 to see if then I can modify variables of the dt
+        for att in ['name','short_name','product','safe','swath','multidataset']:
+            if att not in self.datatree.attrs:
+                #tmp = xr.DataArray(self.s1meta.__getattr__(att),attrs={'source':'filename decoding'})
+                self.datatree.attrs[att] = self.s1meta.__getattr__(att)
+                self._dataset.attrs[att] = self.s1meta.__getattr__(att)
+
         self._dataset = xr.merge([xr.Dataset({'time': self.get_burst_azitime}), self._dataset])
         value_res_sample = self.s1meta.image['slantRangePixelSpacing']
         value_res_line = self.s1meta.image['azimuthPixelSpacing']
@@ -226,6 +234,7 @@ class Sentinel1Dataset:
         # return
 
         self._dataset.attrs.update(self.s1meta.to_dict("all"))
+        self.datatree.attrs.update(self.s1meta.to_dict("all"))
         if 'GRD' in str(self.datatree.attrs['product']):  # load land_mask by default for GRD products
             self.add_high_resolution_variables(patch_variable=patch_variable,luts=luts)
             self.apply_calibration_and_denoising()
@@ -335,9 +344,6 @@ class Sentinel1Dataset:
         attrs = self._dataset.attrs
         self._dataset = xr.merge(ds_merge_list)
         self._dataset.attrs = attrs
-
-
-
         self._dataset = self._dataset.merge(self._load_from_geoloc(['altitude', 'azimuth_time', 'slant_range_time',
                                                                     'incidence', 'elevation', 'longitude', 'latitude']))
 
@@ -377,7 +383,6 @@ class Sentinel1Dataset:
         self._dataset = self._add_denoised(self._dataset)
         # self.datatree[
         #     'measurement'].ds = self._dataset  # last link to make sure all previous modifications are also in the datatree
-        #self.datatree['measurement'].assign(self._dataset)
         self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
         # self._dataset = self.datatree[
         #     'measurement'].to_dataset()  # test oct 22 to see if then I can modify variables of the dt
@@ -394,7 +399,9 @@ class Sentinel1Dataset:
         This property can be set with a new dataset, if the dataset was computed from the original dataset.
         """
         #return self._dataset
-        return self.datatree['measurement'].to_dataset()
+        res = self.datatree['measurement'].to_dataset()
+        res.attrs = self.datatree.attrs
+        return res
 
     @dataset.setter
     def dataset(self, ds):
@@ -658,7 +665,7 @@ class Sentinel1Dataset:
                 # luts are identical in all pols: take the fist one
                 xml_files = xml_files.iloc[[0]]
 
-            for pol_code, xml_file in xml_files.iteritems():
+            for pol_code, xml_file in xml_files.items():
                 pol = self.s1meta.files['polarization'].cat.categories[pol_code]
                 if self._vars_with_pol[lut_name]:
                     name = "%s_%s" % (lut_name, pol)
@@ -1445,9 +1452,12 @@ class Sentinel1Dataset:
         tmpda = xr.DataArray(dims=['burst', 'limits'],
                                     coords={'burst':self.datatree['bursts'].ds['burst'].values,'limits':np.arange(4)},
                                     data=valid_locations,
+                                    name='valid_location',
                                     attrs={
                            'description': 'start line index, start sample index, stop line index, stop sample index'})
-        self.datatree['bursts'].ds['valid_location'] = tmpda
+        #self.datatree['bursts'].ds['valid_location'] = tmpda
+        tmpds = xr.merge([self.datatree['bursts'].ds,tmpda])
+        self.datatree['bursts'] = self.datatree['bursts'].assign(tmpds)
 
     def get_bursts_polygons(self, only_valid_location=True):
         """
@@ -1479,7 +1489,7 @@ class Sentinel1Dataset:
             #burst_list = self._bursts
             self.get_burst_valid_location()
             burst_list = self.datatree['bursts'].ds
-            nb_samples = self.datatree.attrs['numberOfSamples']
+            nb_samples = self.datatree['image'].ds['numberOfSamples']
             if burst_list['burst'].size == 0:
                 blocks = gpd.GeoDataFrame()
             else:

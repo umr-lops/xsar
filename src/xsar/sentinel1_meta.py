@@ -4,6 +4,7 @@ import logging
 import warnings
 import copy
 import numpy as np
+import xarray
 import xarray as xr
 import pandas as pd
 import geopandas as gpd
@@ -58,6 +59,7 @@ class Sentinel1Meta:
     safe = None
     path = None
     product = None
+    platform = None
     manifest = None
     subdatasets = None
     dsid = None
@@ -603,7 +605,7 @@ class Sentinel1Meta:
         return gdf_orbit
 
     @property
-    def image(self):
+    def image(self) -> xarray.Dataset:
         if self.multidataset:
             return None
         img_dict = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'image')

@@ -101,9 +101,9 @@ def repr_mimebundle_Sentinel1Meta(self, include=None, exclude=None):
 
     properties = self.to_dict()
     properties['orbit_pass'] = self.orbit_pass
-    if self.pixel_atrack_m is not None:
-        properties['pixel size'] = "%.1f * %.1f meters (atrack * xtrack)" % (
-            self.pixel_atrack_m, self.pixel_xtrack_m)
+    if self.pixel_line_m is not None:
+        properties['pixel size'] = "%.1f * %.1f meters (line * sample)" % (
+            self.pixel_line_m, self.pixel_sample_m)
     properties['coverage'] = self.coverage
     properties['start_date'] = self.start_date
     properties['stop_date'] = self.stop_date
@@ -170,13 +170,13 @@ def repr_mimebundle_Sentinel1Dataset(self, include=None, exclude=None):
             * hv.Polygons(Polygon(self._bbox_coords)) \
             .opts(color='blue') \
             .opts(**(opts.get(hv.Store.current_backend) or {}), backend=hv.Store.current_backend)
-    ).opts(xlabel='atrack', ylabel='xtrack')
+    ).opts(xlabel='line', ylabel='sample')
 
     data, metadata = display_hooks.render(grid)
     properties = {}
-    if self.pixel_atrack_m is not None:
-        properties['pixel size'] = "%.1f * %.1f meters (atrack * xtrack)" % (
-            self.pixel_atrack_m, self.pixel_xtrack_m)
+    if self.pixel_line_m is not None:
+        properties['pixel size'] = "%.1f * %.1f meters (line * sample)" % (
+            self.pixel_line_m, self.pixel_sample_m)
     properties['coverage'] = self.coverage
     properties = {k: v for k, v in properties.items() if v is not None}
 

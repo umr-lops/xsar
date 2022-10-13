@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+import pdb
+
 import logging
 import warnings
 import numpy as np
@@ -20,6 +22,9 @@ from affine import Affine
 from .sentinel1_meta import Sentinel1Meta
 from .ipython_backends import repr_mimebundle
 import yaml
+import datatree
+import pandas as pd
+import geopandas as gpd
 
 logger = logging.getLogger('xsar.sentinel1_dataset')
 logger.addHandler(logging.NullHandler())
@@ -47,9 +52,9 @@ class Sentinel1Dataset:
         if str, it can be a path, or a gdal dataset identifier like `'SENTINEL1_DS:%s:WV_001' % filename`)
 
     resolution: dict, number or string, optional
-        resampling dict like `{'atrack': 20, 'xtrack': 20}` where 20 is in pixels.
+        resampling dict like `{'line': 20, 'sample': 20}` where 20 is in pixels.
 
-        if a number, dict will be constructed from `{'atrack': number, 'xtrack': number}`
+        if a number, dict will be constructed from `{'line': number, 'sample': number}`
 
         if str, it must end with 'm' (meters), like '100m'. dict will be computed from sensor pixel size.
 
@@ -65,7 +70,7 @@ class Sentinel1Dataset:
 
     chunks: dict, optional
 
-        dict with keys ['pol','atrack','xtrack'] (dask chunks).
+        dict with keys ['pol','line','sample'] (dask chunks).
 
     dtypes: None or dict, optional
 
@@ -79,37 +84,8 @@ class Sentinel1Dataset:
 
     def __init__(self, dataset_id, resolution=None,
                  resampling=rasterio.enums.Resampling.rms,
-                 luts=False, chunks={'atrack': 5000, 'xtrack': 5000},
+                 luts=False, chunks={'line': 5000, 'sample': 5000},
                  dtypes=None, patch_variable=True):
-
-        # miscellaneous attributes that are not know from xml files
-        attrs_dict = {
-            'pol': {
-                'comment': 'ordered polarizations (copol, crosspol)'
-            },
-            'atrack': {
-                'units': '1',
-                'comment': 'azimuth direction, in pixels from full resolution tiff'
-            },
-            'xtrack': {
-                'units': '1',
-                'comment': 'cross track direction, in pixels from full resolution tiff'
-            },
-            'sigma0_raw': {
-                'units': 'linear'
-            },
-            'gamma0_raw': {
-                'units': 'linear'
-            },
-            'nesz': {
-                'units': 'linear',
-                'comment': 'sigma0 noise'
-            },
-            'negz': {
-                'units': 'linear',
-                'comment': 'beta0 noise'
-            },
-        }
 
         # default dtypes
         self._dtypes = {
@@ -158,8 +134,65 @@ class Sentinel1Dataset:
                 """Can't open an multi-dataset. Use `xsar.Sentinel1Meta('%s').subdatasets` to show availables ones""" % self.s1meta.path
             )
 
-        self._dataset = self._load_digital_number(resolution=resolution, resampling=resampling, chunks=chunks)
-        self._dataset = xr.merge([xr.Dataset({'time': self._burst_azitime}), self._dataset])
+        # build datatree
+        DN_tmp = self._load_digital_number(resolution=resolution, resampling=resampling, chunks=chunks)
+        ### geoloc
+        geoloc = self.s1meta.geoloc
+        geoloc.attrs['history'] = 'annotations'
+        ### bursts
+        bu = self.s1meta._bursts
+        bu.attrs['history'] = 'annotations'
+
+        # azimuth fm rate
+        FM = self.s1meta.azimuth_fmrate
+        FM.attrs['history'] = 'annotations'
+
+        # doppler
+        dop = self.s1meta._doppler_estimate
+        dop.attrs['history'] = 'annotations'
+
+        self.datatree = datatree.DataTree.from_dict({'measurement': DN_tmp, 'geolocation_annotation': geoloc,
+                                                'bursts': bu, 'FMrate': FM, 'doppler_estimate': dop,
+                                                # 'image_information':
+                                                'orbit': self.s1meta.orbit,
+                                                'image':self.s1meta.image
+                                                })
+
+        #self.datatree.attrs = xr.Dataset(self.s1meta.image)
+        #self.datatree.assign_attrs(self.s1meta.image) #non
+        #self.datatree['image'] = self.s1meta.image
+
+
+
+
+        #self.datatree['measurement'].ds = .from_dict({'measurement':self._load_digital_number(resolution=resolution, resampling=resampling, chunks=chunks)
+        #self._dataset = self.datatree['measurement'].ds #the two variables should be linked then.
+        self._dataset = self.datatree['measurement'].to_dataset() #test oct 22 to see if then I can modify variables of the dt
+        for att in ['name','short_name','product','safe','swath','multidataset']:
+            if att not in self.datatree.attrs:
+                #tmp = xr.DataArray(self.s1meta.__getattr__(att),attrs={'source':'filename decoding'})
+                self.datatree.attrs[att] = self.s1meta.__getattr__(att)
+                self._dataset.attrs[att] = self.s1meta.__getattr__(att)
+
+        self._dataset = xr.merge([xr.Dataset({'time': self.get_burst_azitime}), self._dataset])
+        value_res_sample = self.s1meta.image['slantRangePixelSpacing']
+        value_res_line = self.s1meta.image['azimuthPixelSpacing']
+        refe_spacing = 'slant'
+        if resolution is not None:
+            refe_spacing = 'ground' # if the data sampling changed it means that the quantities are projected on ground
+            if isinstance(resolution,str):
+                value_res_sample = float(resolution.replace('m',''))
+                value_res_line = value_res_sample
+            elif isinstance(resolution,dict):
+                value_res_sample = self.s1meta.image['slantRangePixelSpacing']*resolution['sample']
+                value_res_line = self.s1meta.image['azimuthPixelSpacing']*resolution['line']
+            else:
+                logger.warning('resolution type not handle (%s) should be str or dict -> sampleSpacing'
+                               ' and lineSpacing are not correct',type(resolution))
+        self._dataset['sampleSpacing'] = xarray.DataArray(value_res_sample,attrs={'units': 'm', 'referential': refe_spacing})
+        self._dataset['lineSpacing'] = xarray.DataArray(value_res_line,attrs={'units': 'm'})
+        # dataset principal
+
 
         # dataset no-pol template for function evaluation on coordinates (*no* values used)
         # what's matter here is the shape of the image, not the values.
@@ -167,16 +200,17 @@ class Sentinel1Dataset:
             warnings.simplefilter("ignore", np.ComplexWarning)
             if self.s1meta._bursts['burst'].size != 0:
                 # SLC TOPS, tune the high res grid because of bursts overlapping
-                atrack_time = self._burst_azitime
+                #line_time = self._burst_azitime
+                line_time = self.get_burst_azitime
                 self._da_tmpl = xr.DataArray(
                     dask.array.empty_like(
-                        np.empty((len(atrack_time), len(self._dataset.digital_number.xtrack))),
+                        np.empty((len(line_time), len(self._dataset.digital_number.sample))),
                         dtype=np.int8, name="empty_var_tmpl-%s" % dask.base.tokenize(self.s1meta.name)),
-                    dims=('atrack', 'xtrack'),
+                    dims=('line', 'sample'),
                     coords={
-                        'atrack': self._dataset.digital_number.atrack,
-                        'xtrack': self._dataset.digital_number.xtrack,
-                        'atrack_time': atrack_time.astype(float),
+                        'line': self._dataset.digital_number.line,
+                        'sample': self._dataset.digital_number.sample,
+                        'line_time': line_time.astype(float),
                     },
                 )
             else:
@@ -185,9 +219,9 @@ class Sentinel1Dataset:
                     dask.array.empty_like(
                         self._dataset.digital_number.isel(pol=0).drop('pol'),
                         dtype=np.int8, name="empty_var_tmpl-%s" % dask.base.tokenize(self.s1meta.name)),
-                    dims=('atrack', 'xtrack'),
-                    coords={'atrack': self._dataset.digital_number.atrack,
-                            'xtrack': self._dataset.digital_number.xtrack}
+                    dims=('line', 'sample'),
+                    coords={'line': self._dataset.digital_number.line,
+                            'sample': self._dataset.digital_number.sample}
                 )
 
         # FIXME possible memory leak
@@ -200,7 +234,60 @@ class Sentinel1Dataset:
         # return
 
         self._dataset.attrs.update(self.s1meta.to_dict("all"))
+        self.datatree.attrs.update(self.s1meta.to_dict("all"))
+        if 'GRD' in str(self.datatree.attrs['product']):  # load land_mask by default for GRD products
+            self.add_high_resolution_variables(patch_variable=patch_variable,luts=luts)
+            self.apply_calibration_and_denoising()
 
+        self.sliced = False
+        """True if dataset is a slice of original L1 dataset"""
+
+        self.resampled = resolution is not None
+        """True if dataset is not a sensor resolution"""
+
+        # save original bbox
+        self._bbox_coords_ori = self._bbox_coords
+
+
+    def add_high_resolution_variables(self,luts=False,patch_variable=True):
+        """
+        :parameter
+        luts: bool, optional
+
+            if `True` return also luts as variables (ie `sigma0_lut`, `gamma0_lut`, etc...). False by default.
+
+        patch_variable: bool, optional
+
+            activate or not variable pathching ( currently noise lut correction for IPF2.9X)
+        """
+        # miscellaneous attributes that are not know from xml files
+        attrs_dict = {
+            'pol': {
+                'comment': 'ordered polarizations (copol, crosspol)'
+            },
+            'line': {
+                'units': '1',
+                'comment': 'azimuth direction, in pixels from full resolution tiff'
+            },
+            'sample': {
+                'units': '1',
+                'comment': 'cross track direction, in pixels from full resolution tiff'
+            },
+            'sigma0_raw': {
+                'units': 'linear'
+            },
+            'gamma0_raw': {
+                'units': 'linear'
+            },
+            'nesz': {
+                'units': 'linear',
+                'comment': 'sigma0 noise'
+            },
+            'negz': {
+                'units': 'linear',
+                'comment': 'beta0 noise'
+            },
+        }
         # dict mapping for variables names to create by applying specified lut on digital_number
         self._map_var_lut = {
             'sigma0_raw': 'sigma0_lut',
@@ -245,26 +332,18 @@ class Sentinel1Dataset:
                 section='noise_lut'
             )
 
-        self._rasterized_masks = self._load_rasterized_masks()
-
-        ds_merge_list = [self._dataset, self._rasterized_masks, self._load_ground_heading(),  # lon_lat
+        ds_merge_list = [self._dataset, self._load_ground_heading(),  # lon_lat
                          self._luts.drop_vars(self._hidden_vars, errors='ignore')]
+
+        self._rasterized_masks = self._load_rasterized_masks()
+        ds_merge_list.append(self._rasterized_masks)
+
 
         if luts:
             ds_merge_list.append(self._luts[self._hidden_vars])
         attrs = self._dataset.attrs
         self._dataset = xr.merge(ds_merge_list)
         self._dataset.attrs = attrs
-
-        for var_name, lut_name in self._map_var_lut.items():
-            if lut_name in self._luts:
-                # merge var_name into dataset (not denoised)
-                self._dataset = self._dataset.merge(self._apply_calibration_lut(var_name))
-                # merge noise equivalent for var_name (named 'ne%sz' % var_name[0)
-                self._dataset = self._dataset.merge(self._get_noise(var_name))
-            else:
-                logger.debug("Skipping variable '%s' ('%s' lut is missing)" % (var_name, lut_name))
-
         self._dataset = self._dataset.merge(self._load_from_geoloc(['altitude', 'azimuth_time', 'slant_range_time',
                                                                     'incidence', 'elevation', 'longitude', 'latitude']))
 
@@ -274,7 +353,7 @@ class Sentinel1Dataset:
 
         self._dataset = self._dataset.merge(self._get_sensor_velocity())
         self._dataset = self._dataset.merge(self._range_ground_spacing())
-        self._dataset = self._add_denoised(self._dataset)
+
         self.recompute_attrs()
 
         # set miscellaneous attrs
@@ -283,15 +362,32 @@ class Sentinel1Dataset:
                 self._dataset[var].attrs.update(attrs)
             except KeyError:
                 pass
+        # self.datatree[
+        #     'measurement'].ds = self._dataset  # last link to make sure all previous modifications are also in the datatree
+        self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
+        return
 
-        self.sliced = False
-        """True if dataset is a slice of original L1 dataset"""
+    def apply_calibration_and_denoising(self):
+        """
+        apply calibration and denoising functions to get high resolution sigma0 , beta0 and gamma0 + variables *_raw
+        :return:
+        """
+        for var_name, lut_name in self._map_var_lut.items():
+            if lut_name in self._luts:
+                # merge var_name into dataset (not denoised)
+                self._dataset = self._dataset.merge(self._apply_calibration_lut(var_name))
+                # merge noise equivalent for var_name (named 'ne%sz' % var_name[0)
+                self._dataset = self._dataset.merge(self._get_noise(var_name))
+            else:
+                logger.debug("Skipping variable '%s' ('%s' lut is missing)" % (var_name, lut_name))
+        self._dataset = self._add_denoised(self._dataset)
+        # self.datatree[
+        #     'measurement'].ds = self._dataset  # last link to make sure all previous modifications are also in the datatree
+        self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
+        # self._dataset = self.datatree[
+        #     'measurement'].to_dataset()  # test oct 22 to see if then I can modify variables of the dt
 
-        self.resampled = resolution is not None
-        """True if dataset is not a sensor resolution"""
-
-        # save original bbox
-        self._bbox_coords_ori = self._bbox_coords
+        return
 
     def __del__(self):
         logger.debug('__del__')
@@ -302,7 +398,10 @@ class Sentinel1Dataset:
         `xarray.Dataset` representation of this `xsar.Sentinel1Dataset` object.
         This property can be set with a new dataset, if the dataset was computed from the original dataset.
         """
-        return self._dataset
+        #return self._dataset
+        res = self.datatree['measurement'].to_dataset()
+        res.attrs = self.datatree.attrs
+        return res
 
     @dataset.setter
     def dataset(self, ds):
@@ -310,8 +409,9 @@ class Sentinel1Dataset:
             # check if new ds has changed coordinates
             if not self.sliced:
                 self.sliced = any(
-                    [list(ds[d].values) != list(self._dataset[d].values) for d in ['atrack', 'xtrack']])
+                    [list(ds[d].values) != list(self._dataset[d].values) for d in ['line', 'sample']])
             self._dataset = ds
+            #self._dataset = self.datatree['measurement'].ds
             self.recompute_attrs()
         else:
             raise ValueError("dataset must be same kind as original one.")
@@ -323,9 +423,9 @@ class Sentinel1Dataset:
     @property
     def _bbox_coords(self):
         """
-        Dataset bounding box, in atrack/xtrack coordinates
+        Dataset bounding box, in line/sample coordinates
         """
-        bbox_ext = bbox_coords(self.dataset.atrack.values, self.dataset.xtrack.values)
+        bbox_ext = bbox_coords(self.dataset.line.values, self.dataset.sample.values)
         return bbox_ext
 
     @property
@@ -347,8 +447,8 @@ class Sentinel1Dataset:
 
     def ll2coords(self, *args):
         """
-        Get `(atracks, xtracks)` from `(lon, lat)`,
-        or convert a lon/lat shapely shapely object to atrack/xtrack coordinates.
+        Get `(lines, samples)` from `(lon, lat)`,
+        or convert a lon/lat shapely shapely object to line/sample coordinates.
 
         Parameters
         ----------
@@ -358,7 +458,7 @@ class Sentinel1Dataset:
 
         Returns
         -------
-        tuple of np.array or tuple of float (atracks, xtracks) , or a shapely object
+        tuple of np.array or tuple of float (lines, samples) , or a shapely object
 
         Notes
         -----
@@ -372,26 +472,26 @@ class Sentinel1Dataset:
         if isinstance(args[0], shapely.geometry.base.BaseGeometry):
             return self.s1meta.ll2coords_shapely(args[0].intersection(self.geometry))
 
-        atrack, xtrack = self.s1meta.ll2coords(*args)
+        line, sample = self.s1meta.ll2coords(*args)
 
         if hasattr(args[0], '__iter__'):
             scalar = False
         else:
             scalar = True
 
-        tolerance = np.max([np.percentile(np.diff(self.dataset[c].values), 90) / 2 for c in ['atrack', 'xtrack']]) + 1
+        tolerance = np.max([np.percentile(np.diff(self.dataset[c].values), 90) / 2 for c in ['line', 'sample']]) + 1
         try:
             # select the nearest valid pixel in ds
-            ds_nearest = self.dataset.sel(atrack=atrack, xtrack=xtrack, method='nearest', tolerance=tolerance)
+            ds_nearest = self.dataset.sel(line=line, sample=sample, method='nearest', tolerance=tolerance)
             if scalar:
-                (atrack, xtrack) = (ds_nearest.atrack.values.item(), ds_nearest.xtrack.values.item())
+                (line, sample) = (ds_nearest.line.values.item(), ds_nearest.sample.values.item())
             else:
-                (atrack, xtrack) = (ds_nearest.atrack.values, ds_nearest.xtrack.values)
+                (line, sample) = (ds_nearest.line.values, ds_nearest.sample.values)
         except KeyError:
             # out of bounds, because of `tolerance` keyword
-            (atrack, xtrack) = (atrack * np.nan, xtrack * np.nan)
+            (line, sample) = (line * np.nan, sample * np.nan)
 
-        return atrack, xtrack
+        return line, sample
 
     def coords2ll(self, *args, **kwargs):
         """
@@ -404,38 +504,38 @@ class Sentinel1Dataset:
         return self.s1meta.coords2ll(*args, **kwargs)
 
     @property
-    def len_atrack_m(self):
-        """atrack length, in meters"""
+    def len_line_m(self):
+        """line length, in meters"""
         bbox_ll = list(zip(*self._bbox_ll))
         len_m, _ = haversine(*bbox_ll[1], *bbox_ll[2])
         return len_m
 
     @property
-    def len_xtrack_m(self):
-        """xtrack length, in meters """
+    def len_sample_m(self):
+        """sample length, in meters """
         bbox_ll = list(zip(*self._bbox_ll))
         len_m, _ = haversine(*bbox_ll[0], *bbox_ll[1])
         return len_m
 
     @property
-    def pixel_atrack_m(self):
-        """atrack pixel spacing, in meters (relative to dataset)"""
-        return self.s1meta.pixel_atrack_m * np.unique(np.round(np.diff(self._dataset['atrack'].values), 1))[0]
+    def pixel_line_m(self):
+        """line pixel spacing, in meters (relative to dataset)"""
+        return self.s1meta.pixel_line_m * np.unique(np.round(np.diff(self._dataset['line'].values), 1))[0]
 
     @property
-    def pixel_xtrack_m(self):
-        """xtrack pixel spacing, in meters (relative to dataset)"""
-        return self.s1meta.pixel_xtrack_m * np.unique(np.round(np.diff(self._dataset['xtrack'].values), 1))[0]
+    def pixel_sample_m(self):
+        """sample pixel spacing, in meters (relative to dataset)"""
+        return self.s1meta.pixel_sample_m * np.unique(np.round(np.diff(self._dataset['sample'].values), 1))[0]
 
     @property
     def coverage(self):
         """coverage string"""
-        return "%dkm * %dkm (atrack * xtrack )" % (self.len_atrack_m / 1000, self.len_xtrack_m / 1000)
+        return "%dkm * %dkm (line * sample )" % (self.len_line_m / 1000, self.len_sample_m / 1000)
 
     @property
     def _regularly_spaced(self):
         return max(
-            [np.unique(np.round(np.diff(self._dataset[dim].values), 1)).size for dim in ['atrack', 'xtrack']]) == 1
+            [np.unique(np.round(np.diff(self._dataset[dim].values), 1)).size for dim in ['line', 'sample']]) == 1
 
     def _set_rio(self, ds):
         # set .rio accessor for ds. ds must be same kind a self._dataset (not checked!)
@@ -451,17 +551,17 @@ class Sentinel1Dataset:
             want_dataset = False
 
         for v in ds:
-            if set(['atrack', 'xtrack']).issubset(set(ds[v].dims)):
-                ds[v] = ds[v].set_index({'xtrack': 'xtrack', 'atrack': 'atrack'})
+            if set(['line', 'sample']).issubset(set(ds[v].dims)):
+                ds[v] = ds[v].set_index({'sample': 'sample', 'line': 'line'})
                 ds[v] = ds[v].rio.write_gcps(
                     gcps, 'epsg:4326', inplace=True
                 ).rio.set_spatial_dims(
-                    'xtrack', 'atrack', inplace=True
+                    'sample', 'line', inplace=True
                 ).rio.write_coordinate_system(
                     inplace=True)
                 # remove/reset some incorrect attrs set by rio
-                # (long_name is 'latitude', but it's incorrect for atrack axis ...)
-                for ax in ['atrack', 'xtrack']:
+                # (long_name is 'latitude', but it's incorrect for line axis ...)
+                for ax in ['line', 'sample']:
                     [ds[v][ax].attrs.pop(k, None) for k in ['long_name', 'standard_name']]
                     ds[v][ax].attrs['units'] = '1'
 
@@ -476,7 +576,7 @@ class Sentinel1Dataset:
         """
         Recompute dataset attributes. It's automaticaly called if you assign a new dataset, for example
 
-        >>> xsar_obj.dataset = xsar_obj.dataset.isel(atrack=slice(1000,5000))
+        >>> xsar_obj.dataset = xsar_obj.dataset.isel(line=slice(1000,5000))
         >>> #xsar_obj.recompute_attrs() # not needed
 
         This function must be manually called before using the `.rio` accessor of a variable
@@ -493,8 +593,8 @@ class Sentinel1Dataset:
             warnings.warn(
                 "Irregularly spaced dataset (probably multiple selection). Some attributes will be incorrect.")
         attrs = self._dataset.attrs
-        attrs['pixel_xtrack_m'] = self.pixel_xtrack_m
-        attrs['pixel_atrack_m'] = self.pixel_atrack_m
+        attrs['pixel_sample_m'] = self.pixel_sample_m
+        attrs['pixel_line_m'] = self.pixel_line_m
         attrs['coverage'] = self.coverage
         attrs['footprint'] = self.footprint
 
@@ -565,7 +665,7 @@ class Sentinel1Dataset:
                 # luts are identical in all pols: take the fist one
                 xml_files = xml_files.iloc[[0]]
 
-            for pol_code, xml_file in xml_files.iteritems():
+            for pol_code, xml_file in xml_files.items():
                 pol = self.s1meta.files['polarization'].cat.categories[pol_code]
                 if self._vars_with_pol[lut_name]:
                     name = "%s_%s" % (lut_name, pol)
@@ -621,8 +721,8 @@ class Sentinel1Dataset:
 
         map_dims = {
             'pol': 'band',
-            'atrack': 'y',
-            'xtrack': 'x'
+            'line': 'y',
+            'sample': 'x'
         }
 
         if resolution is not None:
@@ -655,28 +755,28 @@ class Sentinel1Dataset:
             dn = dn.rename(dict(zip(map_dims.values(), map_dims.keys())))
 
             # create coordinates from dimension index (because of parse_coordinates=False)
-            dn = dn.assign_coords({'atrack': dn.atrack, 'xtrack': dn.xtrack})
+            dn = dn.assign_coords({'line': dn.line, 'sample': dn.sample})
             dn = dn.drop_vars('spatial_ref', errors='ignore')
         else:
             if not isinstance(resolution, dict):
                 if isinstance(resolution, str) and resolution.endswith('m'):
                     resolution = float(resolution[:-1])
-                resolution = dict(atrack=resolution / self.s1meta.pixel_atrack_m,
-                                  xtrack=resolution / self.s1meta.pixel_xtrack_m)
+                resolution = dict(line=resolution / self.s1meta.pixel_line_m,
+                                  sample=resolution / self.s1meta.pixel_sample_m)
 
             # resample the DN at gdal level, before feeding it to the dataset
             out_shape = (
-                int(rio.height / resolution['atrack']),
-                int(rio.width / resolution['xtrack'])
+                int(rio.height / resolution['line']),
+                int(rio.width / resolution['sample'])
             )
             out_shape_pol = (1,) + out_shape
             # read resampled array in one chunk, and rechunk
             # this doesn't optimize memory, but total size remain quite small
 
-            if isinstance(resolution['atrack'], int):
+            if isinstance(resolution['line'], int):
                 # legacy behaviour: winsize is the maximum full image size that can be divided  by resolution (int)
-                winsize = (0, 0, rio.width // resolution['xtrack'] * resolution['xtrack'],
-                           rio.height // resolution['atrack'] * resolution['atrack'])
+                winsize = (0, 0, rio.width // resolution['sample'] * resolution['sample'],
+                           rio.height // resolution['line'] * resolution['line'])
                 window = rasterio.windows.Window(*winsize)
             else:
                 window = None
@@ -700,13 +800,13 @@ class Sentinel1Dataset:
             ).chunk(chunks)
 
             # create coordinates at box center
-            translate = Affine.translation((resolution['xtrack'] - 1) / 2, (resolution['atrack'] - 1) / 2)
+            translate = Affine.translation((resolution['sample'] - 1) / 2, (resolution['line'] - 1) / 2)
             scale = Affine.scale(
-                rio.width // resolution['xtrack'] * resolution['xtrack'] / out_shape[1],
-                rio.height // resolution['atrack'] * resolution['atrack'] / out_shape[0])
-            xtrack, _ = translate * scale * (dn.xtrack, 0)
-            _, atrack = translate * scale * (0, dn.atrack)
-            dn = dn.assign_coords({'atrack': atrack, 'xtrack': xtrack})
+                rio.width // resolution['sample'] * resolution['sample'] / out_shape[1],
+                rio.height // resolution['line'] * resolution['line'] / out_shape[0])
+            sample, _ = translate * scale * (dn.sample, 0)
+            _, line = translate * scale * (0, dn.line)
+            dn = dn.assign_coords({'line': line, 'sample': sample})
 
         # for GTiff driver, pols are already ordered. just rename them
         dn = dn.assign_coords(pol=self.s1meta.manifest_attrs['polarizations'])
@@ -749,7 +849,13 @@ class Sentinel1Dataset:
             With interpolated vaiables
 
         """
-
+        mapping_dataset_geoloc = {'latitude': 'latitude',
+            'longitude': 'longitude',
+            'incidence': 'incidenceAngle',
+            'elevation': 'elevationAngle',
+            'altitude': 'height',
+            'azimuth_time': 'azimuthTime',
+            'slant_range_time': 'slantRangeTime'}
         da_list = []
 
         def interp_func_slc(vect1dazti, vect1dxtrac, **kwargs):
@@ -774,20 +880,21 @@ class Sentinel1Dataset:
             return wrapperfunc(vect1dazti[:, np.newaxis], vect1dxtrac[np.newaxis, :], rbs)
 
         for varname in varnames:
+            varname_in_geoloc = mapping_dataset_geoloc[varname]
             if varname in ['azimuth_time']:
-                z_values = self.s1meta.geoloc[varname].astype(float)
+                z_values = self.s1meta.geoloc[varname_in_geoloc].astype(float)
             elif varname == 'longitude':
-                z_values = self.s1meta.geoloc[varname]
+                z_values = self.s1meta.geoloc[varname_in_geoloc]
                 if self.s1meta.cross_antemeridian:
                     logger.debug('translate longitudes between 0 and 360')
                     z_values = z_values % 360
             else:
-                z_values = self.s1meta.geoloc[varname]
+                z_values = self.s1meta.geoloc[varname_in_geoloc]
             if self.s1meta._bursts['burst'].size != 0:
                 # TOPS SLC
                 rbs = RectBivariateSpline(
-                    self.s1meta.geoloc.azimuth_time[:, 0].astype(float),
-                    self.s1meta.geoloc.xtrack,
+                    self.s1meta.geoloc.azimuthTime[:, 0].astype(float),
+                    self.s1meta.geoloc.sample,
                     z_values,
                     kx=1, ky=1,
                 )
@@ -795,25 +902,25 @@ class Sentinel1Dataset:
             else:
                 rbs = None
                 interp_func = RectBivariateSpline(
-                    self.s1meta.geoloc.atrack,
-                    self.s1meta.geoloc.xtrack,
+                    self.s1meta.geoloc.line,
+                    self.s1meta.geoloc.sample,
                     z_values,
                     kx=1, ky=1
                 )
             # the following take much cpu and memory, so we want to use dask
-            # interp_func(self._dataset.atrack, self.dataset.xtrack)
-            typee = self.s1meta.geoloc[varname].dtype
+            # interp_func(self._dataset.line, self.dataset.sample)
+            typee = self.s1meta.geoloc[varname_in_geoloc].dtype
             if self.s1meta._bursts['burst'].size != 0:
                 datemplate = self._da_tmpl.astype(typee).copy()
-                # replace the atrack coordinates by atrack_time coordinates
-                datemplate = datemplate.assign_coords({'atrack': datemplate.coords['atrack_time']})
+                # replace the line coordinates by line_time coordinates
+                datemplate = datemplate.assign_coords({'line': datemplate.coords['line_time']})
                 da_var = map_blocks_coords(
                     datemplate,
                     interp_func,
                     func_kwargs={"rbs": rbs}
                 )
-                # put back the real atrack coordinates
-                da_var = da_var.assign_coords({'atrack': self._dataset.digital_number.atrack})
+                # put back the real line coordinates
+                da_var = da_var.assign_coords({'line': self._dataset.digital_number.line})
             else:
                 da_var = map_blocks_coords(
                     self._da_tmpl.astype(typee),
@@ -827,7 +934,7 @@ class Sentinel1Dataset:
 
             # copy history
             try:
-                da_var.attrs['history'] = self.s1meta.geoloc[varname].attrs['history']
+                da_var.attrs['history'] = self.s1meta.geoloc[varname_in_geoloc].attrs['history']
             except KeyError:
                 pass
 
@@ -837,8 +944,8 @@ class Sentinel1Dataset:
 
     @timing
     def _load_ground_heading(self):
-        def coords2heading(atracks, xtracks):
-            return self.s1meta.coords2heading(atracks, xtracks, to_grid=True, approx=True)
+        def coords2heading(lines, samples):
+            return self.s1meta.coords2heading(lines, samples, to_grid=True, approx=True)
 
         gh = map_blocks_coords(
             self._da_tmpl.astype(self._dtypes['ground_heading']),
@@ -847,7 +954,7 @@ class Sentinel1Dataset:
         )
 
         gh.attrs = {
-            'comment': 'at ground level, computed from lon/lat in atrack direction'
+            'comment': 'at ground level, computed from lon/lat in line direction'
         }
 
         return gh.to_dataset(name='ground_heading')
@@ -855,8 +962,8 @@ class Sentinel1Dataset:
     @timing
     def _load_rasterized_masks(self):
 
-        def _rasterize_mask_by_chunks(atrack, xtrack, mask='land'):
-            chunk_coords = bbox_coords(atrack, xtrack, pad=None)
+        def _rasterize_mask_by_chunks(line, sample, mask='land'):
+            chunk_coords = bbox_coords(line, sample, pad=None)
             # chunk footprint polygon, in dataset coordinates (with buffer, to enlarge a little the footprint)
             chunk_footprint_coords = Polygon(chunk_coords).buffer(10)
             # chunk footprint polygon, in lon/lat
@@ -867,20 +974,20 @@ class Sentinel1Dataset:
 
             if vector_mask_ll.is_empty:
                 # no intersection with mask, return zeros
-                return np.zeros((atrack.size, xtrack.size))
+                return np.zeros((line.size, sample.size))
 
-            # vector mask, in atrack/xtrack coordinates
+            # vector mask, in line/sample coordinates
             vector_mask_coords = self.s1meta.ll2coords(vector_mask_ll)
 
             # shape of the returned chunk
-            out_shape = (atrack.size, xtrack.size)
+            out_shape = (line.size, sample.size)
 
-            # transform * (x, y) -> (atrack, xtrack)
+            # transform * (x, y) -> (line, sample)
             # (where (x, y) are index in out_shape)
-            # Affine.permutation() is used because (atrack, xtrack) is transposed from geographic
+            # Affine.permutation() is used because (line, sample) is transposed from geographic
 
             transform = Affine.translation(*chunk_coords[0]) * Affine.scale(
-                *[np.unique(np.diff(c))[0] for c in [atrack, xtrack]]) * Affine.permutation()
+                *[np.unique(np.diff(c))[0] for c in [line, sample]]) * Affine.permutation()
 
             raster_mask = rasterio.features.rasterize(
                 [vector_mask_coords],
@@ -903,6 +1010,10 @@ class Sentinel1Dataset:
 
         return xr.merge(da_list)
 
+    def add_rasterized_masks(self):
+        self._rasterized_masks = self._load_rasterized_masks()
+        self.datatree['measurement'].ds = xr.merge([self.datatree['measurement'].ds,self._rasterized_masks])
+
     @timing
     def map_raster(self, raster_ds):
         """
@@ -916,7 +1027,7 @@ class Sentinel1Dataset:
         Returns
         -------
         xarray.Dataset or xarray.DataArray
-            The projected dataset, with 'atrack' and 'xtrack' coordinate (same size as xsar dataset), and with valid `.rio` accessor.
+            The projected dataset, with 'line' and 'sample' coordinate (same size as xsar dataset), and with valid `.rio` accessor.
 
 
         """
@@ -956,7 +1067,7 @@ class Sentinel1Dataset:
 
         # upscale coordinates, in original projection
         # 1D array of lons/lats, trying to have same spacing as dataset (if not to high)
-        num = min((self._dataset.xtrack.size + self._dataset.atrack.size) // 2, 1000)
+        num = min((self._dataset.sample.size + self._dataset.line.size) // 2, 1000)
         lons = np.linspace(*lon_range, num=num)
         lats = np.linspace(*lat_range, num=num)
 
@@ -1133,13 +1244,13 @@ class Sentinel1Dataset:
         da_var = ds_var[var_name]
         lut = self._luts[self._map_var_lut[var_name]]
 
-        # resize lut with same a/xtrack as da_var
-        lut = lut.sel(atrack=da_var.atrack, xtrack=da_var.xtrack, method='nearest')
+        # resize lut with same a/sample as da_var
+        lut = lut.sel(line=da_var.line, sample=da_var.sample, method='nearest')
         # as we used 'nearest', force exact coords
-        lut['atrack'] = da_var.atrack
-        lut['xtrack'] = da_var.xtrack
+        lut['line'] = da_var.line
+        lut['sample'] = da_var.sample
         # waiting for https://github.com/pydata/xarray/pull/4155
-        # lut = lut.interp(atrack=da_var.atrack, xtrack=da_var.xtrack)
+        # lut = lut.interp(line=da_var.line, sample=da_var.sample)
 
         # revert lut to get dn
         dn = np.sqrt(da_var * lut ** 2)
@@ -1225,7 +1336,7 @@ class Sentinel1Dataset:
         return ds
 
     @property
-    def _burst_azitime(self):
+    def get_burst_azitime(self):
         """
         Get azimuth time at high resolution.
 
@@ -1234,10 +1345,11 @@ class Sentinel1Dataset:
         xarray.DataArray
             the high resolution azimuth time vector interpolated at the middle of the sub-swath
         """
-        azitime = self.s1meta._burst_azitime()
-        iz = np.searchsorted(azitime.atrack, self._dataset.atrack)
-        azitime = azitime.isel({'atrack': iz})
-        azitime = azitime.assign_coords({"atrack": self._dataset.atrack})
+        #azitime = self.s1meta._burst_azitime()
+        azitime = self._burst_azitime()
+        iz = np.searchsorted(azitime.line, self._dataset.line)
+        azitime = azitime.isel({'line': iz})
+        azitime = azitime.assign_coords({"line": self._dataset.line})
         return azitime
 
     def _get_sensor_velocity(self):
@@ -1249,14 +1361,14 @@ class Sentinel1Dataset:
             containing a single variable velocity
         """
 
-        azimuth_times = self._burst_azitime
+        azimuth_times = self.get_burst_azitime
         orbstatevect = self.s1meta.orbit
-        azi_times = orbstatevect.index.values
-        velos = np.array([[uu.x ** 2., uu.y ** 2., uu.z ** 2.] for uu in orbstatevect['velocity'].values])
-        vels = np.sqrt(np.sum(velos, axis=1))
+        azi_times = orbstatevect['time'].values
+        velos = np.array([orbstatevect['velocity_x'] ** 2.,orbstatevect['velocity_y'] ** 2.,orbstatevect['velocity_z'] ** 2.])
+        vels = np.sqrt(np.sum(velos, axis=0))
         interp_f = interp1d(azi_times.astype(float), vels)
         _vels = interp_f(azimuth_times.astype(float))
-        res = xr.DataArray(_vels, dims=['atrack'], coords={'atrack': self.dataset.atrack})
+        res = xr.DataArray(_vels, dims=['line'], coords={'line': self.dataset.line})
         return xr.Dataset({'velocity': res})
 
     def _range_ground_spacing(self):
@@ -1268,37 +1380,37 @@ class Sentinel1Dataset:
         Returns
         -------
         range_ground_spacing_vect : xarray.DataArray
-            range ground spacing (xtrack coordinates)
+            range ground spacing (sample coordinates)
 
         Notes
         -----
-        For GRD products is it the same same value along xtrack axis
+        For GRD products is it the same same value along sample axis
         """
-        ground_spacing = np.array(self.s1meta.image['slant_pixel_spacing'])
+        ground_spacing = np.array([self.s1meta.image['azimuthPixelSpacing'],self.s1meta.image['slantRangePixelSpacing']])
         if self.s1meta.product == 'SLC':
-            atrack_tmp = self._dataset['atrack']
-            xtrack_tmp = self._dataset['xtrack']
-            # get the incidence at the middle of atrack dimension of the part of image selected
-            inc = self._dataset['incidence'].isel({'atrack': int(len(atrack_tmp) / 2),
+            line_tmp = self._dataset['line']
+            sample_tmp = self._dataset['sample']
+            # get the incidence at the middle of line dimension of the part of image selected
+            inc = self._dataset['incidence'].isel({'line': int(len(line_tmp) / 2),
                                                    })
             range_ground_spacing_vect = ground_spacing[1] / np.sin(np.radians(inc))
             range_ground_spacing_vect.attrs['history'] = ''
 
         else:  # GRD
-            valuess = np.ones((len(self._dataset['xtrack']))) * ground_spacing[1]
-            range_ground_spacing_vect = xr.DataArray(valuess, coords={'xtrack': self._dataset['xtrack']},
-                                                     dims=['xtrack'])
+            valuess = np.ones((len(self._dataset['sample']))) * ground_spacing[1]
+            range_ground_spacing_vect = xr.DataArray(valuess, coords={'sample': self._dataset['sample']},
+                                                     dims=['sample'])
         return xr.Dataset({'range_ground_spacing': range_ground_spacing_vect})
 
     @property
     def _local_gcps(self):
         # get local gcps, for rioxarray.reproject (row and col are *index*, not coordinates)
         local_gcps = []
-        for atrack in self.dataset.atrack.values[::int(self.dataset.atrack.size / 20)+1]:
-            for xtrack in self.dataset.xtrack.values[::int(self.dataset.xtrack.size / 20)+1]:
-                irow = np.argmin(np.abs(self.dataset.atrack.values - atrack))
-                icol = np.argmin(np.abs(self.dataset.xtrack.values - xtrack))
-                lon, lat = self.s1meta.coords2ll(atrack, xtrack)
+        for line in self.dataset.line.values[::int(self.dataset.line.size / 20)+1]:
+            for sample in self.dataset.sample.values[::int(self.dataset.sample.size / 20)+1]:
+                irow = np.argmin(np.abs(self.dataset.line.values - line))
+                icol = np.argmin(np.abs(self.dataset.sample.values - sample))
+                lon, lat = self.s1meta.coords2ll(line, sample)
                 gcp = GroundControlPoint(
                     x=lon,
                     y=lat,
@@ -1318,3 +1430,164 @@ class Sentinel1Dataset:
 
     def _repr_mimebundle_(self, include=None, exclude=None):
         return repr_mimebundle(self, include=include, exclude=exclude)
+
+    def get_burst_valid_location(self):
+        """
+        add a field 'valid_location' in the bursts sub-group of the datatree
+        :return:
+        """
+        nbursts = len(self.datatree['bursts'].ds['burst'])
+        burst_firstValidSample = self.datatree['bursts'].ds['firstValidSample'].values
+        burst_lastValidSample = self.datatree['bursts'].ds['lastValidSample'].values
+        valid_locations = np.empty((nbursts, 4), dtype='int32')
+        line_per_burst = len(self.datatree['bursts'].ds['line'])
+        for ibur in range(nbursts):
+            fvs = burst_firstValidSample[ibur, :]
+            lvs = burst_lastValidSample[ibur, :]
+            # valind = np.where((fvs != -1) | (lvs != -1))[0]
+            valind = np.where(np.isfinite(fvs) | np.isfinite(lvs))[0]
+            valloc = [ibur * line_per_burst + valind.min(), fvs[valind].min(),
+                      ibur * line_per_burst + valind.max(), lvs[valind].max()]
+            valid_locations[ibur, :] = valloc
+        tmpda = xr.DataArray(dims=['burst', 'limits'],
+                                    coords={'burst':self.datatree['bursts'].ds['burst'].values,'limits':np.arange(4)},
+                                    data=valid_locations,
+                                    name='valid_location',
+                                    attrs={
+                           'description': 'start line index, start sample index, stop line index, stop sample index'})
+        #self.datatree['bursts'].ds['valid_location'] = tmpda
+        tmpds = xr.merge([self.datatree['bursts'].ds,tmpda])
+        self.datatree['bursts'] = self.datatree['bursts'].assign(tmpds)
+
+    def get_bursts_polygons(self, only_valid_location=True):
+        """
+        get the polygons of radar bursts in the image geometry
+
+        Parameters
+        ----------
+        only_valid_location : bool
+            [True] -> polygons of the TOPS SLC bursts are cropped using valid location index
+            False -> polygons of the TOPS SLC bursts are aligned with azimuth time start/stop index
+
+        Returns
+        -------
+        geopandas.GeoDataframe
+            polygons of the burst in the image (ie line/sample) geometry
+            'geometry' is the polygon
+
+        """
+        if self.s1meta.multidataset:
+            blocks_list = []
+            # for subswath in self.subdatasets.index:
+            for submeta in self.s1meta._submeta:
+                block = submeta.bursts(only_valid_location=only_valid_location)
+                block['subswath'] = submeta.dsid
+                block = block.set_index('subswath', append=True).reorder_levels(['subswath', 'burst'])
+                blocks_list.append(block)
+            blocks = pd.concat(blocks_list)
+        else:
+            #burst_list = self._bursts
+            self.get_burst_valid_location()
+            burst_list = self.datatree['bursts'].ds
+            nb_samples = self.datatree['image'].ds['numberOfSamples']
+            if burst_list['burst'].size == 0:
+                blocks = gpd.GeoDataFrame()
+            else:
+                bursts = []
+                bursts_az_inds = {}
+                inds_burst, geoloc_azitime, geoloc_iburst, geoloc_line = self._get_indices_bursts()
+                for burst_ind, uu in enumerate(np.unique(inds_burst)):
+                    if only_valid_location:
+                        extent = np.copy(burst_list['valid_location'].values[burst_ind, :])
+                        area = box(extent[0], extent[1], extent[2], extent[3])
+
+                    else:
+                        inds_one_val = np.where(inds_burst == uu)[0]
+                        bursts_az_inds[uu] = inds_one_val
+                        area = box(bursts_az_inds[burst_ind][0], 0, bursts_az_inds[burst_ind][-1], nb_samples)
+                    burst = pd.Series(dict([
+                        ('geometry_image', area)]))
+                    bursts.append(burst)
+                # to geopandas
+                blocks = pd.concat(bursts, axis=1).T
+                blocks = gpd.GeoDataFrame(blocks)
+                blocks['geometry'] = blocks['geometry_image'].apply(self.coords2ll)
+                blocks.index.name = 'burst'
+        return blocks
+
+    def _get_indices_bursts(self):
+        """
+
+        Returns
+        -------
+        ind np.array
+            index of the burst start in the line coordinates
+        geoloc_azitime np.array
+            azimuth time at the middle of the image from geolocation grid (low resolution)
+        geoloc_iburst np.array
+
+        """
+        ind = None
+        geoloc_azitime = None
+        geoloc_iburst = None
+        geoloc_line = None
+        if self.s1meta.product == 'SLC' and 'WV' not in self.s1meta.swath:
+        #if self.datatree.attrs['product'] == 'SLC' and 'WV' not in self.datatree.attrs['swath']:
+            burst_nlines = int(self.s1meta._bursts['linesPerBurst'])
+            #burst_nlines = self.datatree['bursts'].ds['line'].size
+
+            geoloc_line = self.s1meta.geoloc['line'].values
+            #geoloc_line = self.datatree['geolocation_annotation'].ds['line'].values
+            # find the indice of the bursts in the geolocation grid
+            geoloc_iburst = np.floor(geoloc_line / float(burst_nlines)).astype('int32')
+            # find the indices of the bursts in the high resolution grid
+            line = np.arange(0, self.s1meta.image['numberOfLines'])
+            #line = np.arange(0, self.datatree.attrs['numberOfLines'])
+            iburst = np.floor(line / float(burst_nlines)).astype('int32')
+            # find the indices of the burst transitions
+            ind = np.searchsorted(geoloc_iburst, iburst, side='left')
+            n_pixels = int((len(self.s1meta.geoloc['sample']) - 1) / 2)
+            geoloc_azitime = self.s1meta.geoloc['azimuthTime'].values[:, n_pixels]
+            # security check for unrealistic line_values exceeding the image extent
+            if ind.max() >= len(geoloc_azitime):
+                ind[ind >= len(geoloc_azitime)] = len(geoloc_azitime) - 1
+        return ind, geoloc_azitime, geoloc_iburst, geoloc_line
+
+
+    def _burst_azitime(self):
+        """
+        Get azimuth time at high resolution on the full image shape
+
+        Returns
+        -------
+        np.ndarray
+            the high resolution azimuth time vector interpolated at the midle of the subswath
+        """
+        line = np.arange(0, self.s1meta.image['numberOfLines'])
+        #line = np.arange(0,self.datatree.attrs['numberOfLines'])
+        if self.s1meta.product == 'SLC' and 'WV' not in self.s1meta.swath:
+        #if self.datatree.attrs['product'] == 'SLC' and 'WV' not in self.datatree.attrs['swath']:
+            azi_time_int = self.s1meta.image['azimuthTimeInterval']
+            #azi_time_int = self.datatree.attrs['azimuthTimeInterval']
+            # turn this interval float/seconds into timedelta/picoseconds
+            azi_time_int = np.timedelta64(int(azi_time_int * 1e12), 'ps')
+            ind, geoloc_azitime, geoloc_iburst, geoloc_line = self._get_indices_bursts()
+            # compute the azimuth time by adding a step function (first term) and a growing term (second term)
+            azitime = geoloc_azitime[ind] + (line - geoloc_line[ind]) * azi_time_int.astype('<m8[ns]')
+        else:  # GRD* cases
+            # n_pixels = int((len(self.datatree['geolocation_annotation'].ds['sample']) - 1) / 2)
+            # geoloc_azitime = self.datatree['geolocation_annotation'].ds['azimuth_time'].values[:, n_pixels]
+            # geoloc_line = self.datatree['geolocation_annotation'].ds['line'].values
+            n_pixels = int((len(self.s1meta.geoloc['sample']) - 1) / 2)
+            geoloc_azitime = self.s1meta.geoloc['azimuthTime'].values[:, n_pixels]
+            geoloc_line = self.s1meta.geoloc['line'].values
+            finterp = interp1d(geoloc_line, geoloc_azitime.astype(float))
+            azitime = finterp(line)
+            azitime = azitime.astype('<m8[ns]')
+        azitime = xr.DataArray(azitime, coords={'line': line}, dims=['line'],
+                               attrs={
+                                   'description': 'azimuth times interpolated along line dimension at the middle of range dimension'})
+
+        return azitime
+
+

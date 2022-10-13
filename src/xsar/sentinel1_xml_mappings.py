@@ -78,6 +78,7 @@ xpath_mappings = {
         'satellite': (scalar, '//safe:platform/safe:number'),
         'start_date': (date_converter, '//safe:acquisitionPeriod/safe:startTime'),
         'stop_date': (date_converter, '//safe:acquisitionPeriod/safe:stopTime'),
+        'aux_cal': (scalar, '//metadataSection/metadataObject/metadataWrap/xmlData/safe:processing/safe:resource/safe:processing/safe:resource[@role="AUX_CAL"]/@name'),
         'annotation_files': (
             normpath, '/xfdu:XFDU/dataObjectSection/*[@repID="s1Level1ProductSchema"]/byteStream/fileLocation/@href'),
         'measurement_files': (
@@ -696,7 +697,8 @@ compounds_vars = {
         'satellite': 'manifest.satellite',
         'start_date': 'manifest.start_date',
         'stop_date': 'manifest.stop_date',
-        'footprints': 'manifest.footprints'
+        'footprints': 'manifest.footprints',
+        'aux_cal': 'manifest.aux_cal'
     },
     'files': {
         'func': df_files,

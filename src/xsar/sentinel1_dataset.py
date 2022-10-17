@@ -381,8 +381,6 @@ class Sentinel1Dataset:
             else:
                 logger.debug("Skipping variable '%s' ('%s' lut is missing)" % (var_name, lut_name))
         self._dataset = self._add_denoised(self._dataset)
-        # self.datatree[
-        #     'measurement'].ds = self._dataset  # last link to make sure all previous modifications are also in the datatree
         self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
         # self._dataset = self.datatree[
         #     'measurement'].to_dataset()  # test oct 22 to see if then I can modify variables of the dt

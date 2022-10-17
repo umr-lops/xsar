@@ -12,3 +12,4 @@ matplotlib
 packaging
 pytest
 dill
+xarray-datatree

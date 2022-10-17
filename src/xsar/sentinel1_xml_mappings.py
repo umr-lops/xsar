@@ -1,7 +1,7 @@
 """
 xpath mapping from xml file, with convertion functions
 """
-
+import xarray
 from datetime import datetime
 import numpy as np
 from scipy.interpolate import RectBivariateSpline, interp1d
@@ -88,13 +88,21 @@ xpath_mappings = {
             normpath, '/xfdu:XFDU/dataObjectSection/*[@repID="s1Level1NoiseSchema"]/byteStream/fileLocation/@href'),
         'calibration_files': (
             normpath,
-            '/xfdu:XFDU/dataObjectSection/*[@repID="s1Level1CalibrationSchema"]/byteStream/fileLocation/@href')
+            '/xfdu:XFDU/dataObjectSection/*[@repID="s1Level1CalibrationSchema"]/byteStream/fileLocation/@href'),
+        'xsd_product_file':(normpath,'/xfdu:XFDU/metadataSection/metadataObject[@ID="s1Level1ProductSchema"]/metadataReference/@href'),
+        'xsd_Noise_file':(normpath,'/xfdu:XFDU/metadataSection/metadataObject[@ID="s1Level1NoiseSchema"]/metadataReference/@href'),
+        'xsd_RFI_file':(normpath,'/xfdu:XFDU/metadataSection/metadataObject[@ID="s1Level1RfiSchema"]/metadataReference/@href'),
+        'xsd_calibration_file':(normpath,'/xfdu:XFDU/metadataSection/metadataObject[@ID="s1Level1CalibrationSchema"]/metadataReference/@href'),
+        'xsd_objecttype_file':(normpath,'/xfdu:XFDU/metadataSection/metadataObject[@ID="s1ObjectTypesSchema"]/metadataReference/@href'),
+        'xsd_measurement_file':(normpath,'/xfdu:XFDU/metadataSection/metadataObject[@ID="s1Level1MeasurementSchema"]/metadataReference/@href'),
+        'xsd_level1product_file':(normpath,'/xfdu:XFDU/metadataSection/metadataObject[@ID="s1Level1ProductPreviewSchema"]/metadataReference/@href'),
+        'xsd_overlay_file':(normpath,'/xfdu:XFDU/metadataSection/metadataObject[@ID="s1Level1MapOverlaySchema"]/metadataReference/@href'),
     },
     'calibration': {
         'polarization': (scalar, '/calibration/adsHeader/polarisation'),
         # 'number_of_vector': '//calibration/calibrationVectorList/@count',
-        'atrack': (np.array, '//calibration/calibrationVectorList/calibrationVector/line'),
-        'xtrack': (int_1Darray_from_string, '//calibration/calibrationVectorList/calibrationVector[1]/pixel'),
+        'line': (np.array, '//calibration/calibrationVectorList/calibrationVector/line'),
+        'sample': (int_1Darray_from_string, '//calibration/calibrationVectorList/calibrationVector[1]/pixel'),
         'sigma0_lut': (
             float_2Darray_from_string_list, '//calibration/calibrationVectorList/calibrationVector/sigmaNought'),
         'gamma0_lut': (float_2Darray_from_string_list, '//calibration/calibrationVectorList/calibrationVector/gamma')
@@ -102,8 +110,8 @@ xpath_mappings = {
     'noise': {
         'polarization': (scalar, '/noise/adsHeader/polarisation'),
         'range': {
-            'atrack': (int_array, or_ipf28('/noise/noiseRangeVectorList/noiseRangeVector/line')),
-            'xtrack': (lambda x: [np.fromstring(s, dtype=int, sep=' ') for s in x],
+            'line': (int_array, or_ipf28('/noise/noiseRangeVectorList/noiseRangeVector/line')),
+            'sample': (lambda x: [np.fromstring(s, dtype=int, sep=' ') for s in x],
                        or_ipf28('/noise/noiseRangeVectorList/noiseRangeVector/pixel')),
             'noiseLut': (
                 lambda x: [np.fromstring(s, dtype=float, sep=' ') for s in x],
@@ -111,12 +119,12 @@ xpath_mappings = {
         },
         'azi': {
             'swath': '/noise/noiseAzimuthVectorList/noiseAzimuthVector/swath',
-            'atrack': (lambda x: [np.fromstring(str(s), dtype=int, sep=' ') for s in x],
+            'line': (lambda x: [np.fromstring(str(s), dtype=int, sep=' ') for s in x],
                        '/noise/noiseAzimuthVectorList/noiseAzimuthVector/line'),
-            'atrack_start': (int_array, '/noise/noiseAzimuthVectorList/noiseAzimuthVector/firstAzimuthLine'),
-            'atrack_stop': (int_array, '/noise/noiseAzimuthVectorList/noiseAzimuthVector/lastAzimuthLine'),
-            'xtrack_start': (int_array, '/noise/noiseAzimuthVectorList/noiseAzimuthVector/firstRangeSample'),
-            'xtrack_stop': (int_array, '/noise/noiseAzimuthVectorList/noiseAzimuthVector/lastRangeSample'),
+            'line_start': (int_array, '/noise/noiseAzimuthVectorList/noiseAzimuthVector/firstAzimuthLine'),
+            'line_stop': (int_array, '/noise/noiseAzimuthVectorList/noiseAzimuthVector/lastAzimuthLine'),
+            'sample_start': (int_array, '/noise/noiseAzimuthVectorList/noiseAzimuthVector/firstRangeSample'),
+            'sample_stop': (int_array, '/noise/noiseAzimuthVectorList/noiseAzimuthVector/lastRangeSample'),
             'noiseLut': (
                 lambda x: [np.fromstring(str(s), dtype=float, sep=' ') for s in x],
                 '/noise/noiseAzimuthVectorList/noiseAzimuthVector/noiseAzimuthLut'),
@@ -125,24 +133,24 @@ xpath_mappings = {
     'annotation': {
         'product_type': (scalar, '/product/adsHeader/productType'),
         'swath_subswath': (scalar, '/product/adsHeader/swath'),
-        'atrack': (uniq_sorted, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/line'),
-        'xtrack': (uniq_sorted, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/pixel'),
-        'incidence': (
+        'line': (uniq_sorted, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/line'),
+        'sample': (uniq_sorted, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/pixel'),
+        'incidenceAngle': (
             float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/incidenceAngle'),
-        'elevation': (
+        'elevationAngle': (
             float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/elevationAngle'),
-        'altitude': (float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/height'),
-        'azimuth_time': (
+        'height': (float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/height'),
+        'azimuthTime': (
             datetime64_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/azimuthTime'),
-        'slant_range_time': (
+        'slantRangeTime': (
             float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/slantRangeTime'),
         'longitude': (float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/longitude'),
         'latitude': (float_array, '/product/geolocationGrid/geolocationGridPointList/geolocationGridPoint/latitude'),
         'polarization': (scalar, '/product/adsHeader/polarisation'),
-        'atrack_time_range': (
+        'line_time_range': (
             datetime64_array, '/product/imageAnnotation/imageInformation/*[contains(name(),"LineUtcTime")]'),
-        'atrack_size': (scalar, '/product/imageAnnotation/imageInformation/numberOfLines'),
-        'xtrack_size': (scalar, '/product/imageAnnotation/imageInformation/numberOfSamples'),
+        'line_size': (scalar, '/product/imageAnnotation/imageInformation/numberOfLines'),
+        'sample_size': (scalar, '/product/imageAnnotation/imageInformation/numberOfSamples'),
         'incidence_angle_mid_swath': (scalar_float, '/product/imageAnnotation/imageInformation/incidenceAngleMidSwath'),
         'azimuth_time_interval': (scalar_float, '/product/imageAnnotation/imageInformation/azimuthTimeInterval'),
         'slant_range_time_image': (scalar_float, '/product/imageAnnotation/imageInformation/slantRangeTime'),
@@ -164,8 +172,8 @@ xpath_mappings = {
         'orbit_vel_y': (float_array, '//product/generalAnnotation/orbitList/orbit/velocity/y'),
         'orbit_vel_z': (float_array, '//product/generalAnnotation/orbitList/orbit/velocity/z'),
         'number_of_bursts': (scalar_int, '/product/swathTiming/burstList/@count'),
-        'atrack_per_burst': (scalar, '/product/swathTiming/linesPerBurst'),
-        'xtrack_per_burst': (scalar, '/product/swathTiming/samplesPerBurst'),
+        'linesPerBurst': (scalar, '/product/swathTiming/linesPerBurst'),
+        'samplesPerBurst': (scalar, '/product/swathTiming/samplesPerBurst'),
         'all_bursts': (np.array, '//product/swathTiming/burstList/burst'),
         'burst_azimuthTime': (datetime64_array, '//product/swathTiming/burstList/burst/azimuthTime'),
         'burst_azimuthAnxTime': (float_array, '//product/swathTiming/burstList/burst/azimuthAnxTime'),
@@ -209,24 +217,29 @@ xpath_mappings = {
             list_of_float_1D_array_from_string,
             '//product/generalAnnotation/azimuthFmRateList/azimuthFmRate/azimuthFmRatePolynomial'),
 
-    }
+    },
+    'xsd':{'all':(str,'/xsd:schema/xsd:complexType/xsd:sequence/xsd:element/xsd:annotation/xsd:documentation'),
+           'names':(str,'/xsd:schema/xsd:complexType/xsd:sequence/xsd:element/@name'),
+           'sensingtime':(str,'/xsd:schema/xsd:complexType/xsd:sequence/xsd:element/sensingTime')
+           }
+
 }
 
 
 # compounds variables converters
 
-def signal_lut(atrack, xtrack, lut):
-    lut_f = RectBivariateSpline(atrack, xtrack, lut, kx=1, ky=1)
+def signal_lut(line, sample, lut):
+    lut_f = RectBivariateSpline(line, sample, lut, kx=1, ky=1)
     return lut_f
 
 
 class _NoiseLut:
-    """small internal class that return a lut function(atracks, xtracks) defined on all the image, from blocks in the image"""
+    """small internal class that return a lut function(lines, samples) defined on all the image, from blocks in the image"""
 
     def __init__(self, blocks):
         self.blocks = blocks
 
-    def __call__(self, atracks, xtracks):
+    def __call__(self, lines, samples):
         """ return noise[a.size,x.size], by finding the intersection with blocks and calling the corresponding block.lut_f"""
         if len(self.blocks) == 0:
             # no noise (ie no azi noise for ipf < 2.9)
@@ -234,71 +247,71 @@ class _NoiseLut:
         else:
             # the array to be returned
             noise = xr.DataArray(
-                np.ones((atracks.size, xtracks.size)) * np.nan,
-                dims=('atrack', 'xtrack'),
-                coords={'atrack': atracks, 'xtrack': xtracks}
+                np.ones((lines.size, samples.size)) * np.nan,
+                dims=('line', 'sample'),
+                coords={'line': lines, 'sample': samples}
             )
             # find blocks that intersects with asked_box
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 # the box coordinates of the returned array
-                asked_box = box(max(0, atracks[0] - 0.5), max(0, xtracks[0] - 0.5), atracks[-1] + 0.5,
-                                xtracks[-1] + 0.5)
+                asked_box = box(max(0, lines[0] - 0.5), max(0, samples[0] - 0.5), lines[-1] + 0.5,
+                                samples[-1] + 0.5)
                 # set match_blocks as the non empty intersection with asked_box
                 match_blocks = self.blocks.copy()
                 match_blocks.geometry = self.blocks.geometry.intersection(asked_box)
                 match_blocks = match_blocks[~match_blocks.is_empty]
             for i, block in match_blocks.iterrows():
                 (sub_a_min, sub_x_min, sub_a_max, sub_x_max) = map(int, block.geometry.bounds)
-                sub_a = atracks[(atracks >= sub_a_min) & (atracks <= sub_a_max)]
-                sub_x = xtracks[(xtracks >= sub_x_min) & (xtracks <= sub_x_max)]
-                noise.loc[dict(atrack=sub_a, xtrack=sub_x)] = block.lut_f(sub_a, sub_x)
+                sub_a = lines[(lines >= sub_a_min) & (lines <= sub_a_max)]
+                sub_x = samples[(samples >= sub_x_min) & (samples <= sub_x_max)]
+                noise.loc[dict(line=sub_a, sample=sub_x)] = block.lut_f(sub_a, sub_x)
 
         # values returned as np array
         return noise.values
 
 
-def noise_lut_range(atracks, xtracks, noiseLuts):
+def noise_lut_range(lines, samples, noiseLuts):
     """
 
     Parameters
     ----------
-    atracks: np.ndarray
-        1D array of atracks. lut is defined at each atrack
-    xtracks: list of np.ndarray
-        arrays of xtracks. list length is same as xtracks. each array define xtracks where lut is defined
+    lines: np.ndarray
+        1D array of lines. lut is defined at each line
+    samples: list of np.ndarray
+        arrays of samples. list length is same as samples. each array define samples where lut is defined
     noiseLuts: list of np.ndarray
-        arrays of luts. Same structure as xtracks.
+        arrays of luts. Same structure as samples.
 
     Returns
     -------
     geopandas.GeoDataframe
         noise range geometry.
         'geometry' is the polygon where 'lut_f' is defined.
-        attrs['type'] set to 'xtrack'
+        attrs['type'] set to 'sample'
 
 
     """
 
     class Lut_box_range:
         def __init__(self, a_start, a_stop, x, l):
-            self.atracks = np.arange(a_start, a_stop)
-            self.xtracks = x
+            self.lines = np.arange(a_start, a_stop)
+            self.samples = x
             self.area = box(a_start, x[0], a_stop, x[-1])
             self.lut_f = interp1d(x, l, kind='linear', fill_value=np.nan, assume_sorted=True, bounds_error=False)
 
-        def __call__(self, atracks, xtracks):
-            lut = np.tile(self.lut_f(xtracks), (atracks.size, 1))
+        def __call__(self, lines, samples):
+            lut = np.tile(self.lut_f(samples), (lines.size, 1))
             return lut
 
     blocks = []
-    # atracks is where lut is defined. compute atracks interval validity
-    atracks_start = (atracks - np.diff(atracks, prepend=0) / 2).astype(int)
-    atracks_stop = np.ceil(
-        atracks + np.diff(atracks, append=atracks[-1] + 1) / 2
+    # lines is where lut is defined. compute lines interval validity
+    lines_start = (lines - np.diff(lines, prepend=0) / 2).astype(int)
+    lines_stop = np.ceil(
+        lines + np.diff(lines, append=lines[-1] + 1) / 2
     ).astype(int)  # end is not included in the interval
-    atracks_stop[-1] = 65535  # be sure to include all image if last azimuth line, is not last azimuth image
-    for a_start, a_stop, x, l in zip(atracks_start, atracks_stop, xtracks, noiseLuts):
+    lines_stop[-1] = 65535  # be sure to include all image if last azimuth line, is not last azimuth image
+    for a_start, a_stop, x, l in zip(lines_start, lines_stop, samples, noiseLuts):
         lut_f = Lut_box_range(a_start, a_stop, x, l)
         block = pd.Series(dict([
             ('lut_f', lut_f),
@@ -312,18 +325,18 @@ def noise_lut_range(atracks, xtracks, noiseLuts):
     return _NoiseLut(blocks)
 
 
-def noise_lut_azi(atrack_azi, atrack_azi_start,
-                  atrack_azi_stop,
-                  xtrack_azi_start, xtrack_azi_stop, noise_azi_lut, swath):
+def noise_lut_azi(line_azi, line_azi_start,
+                  line_azi_stop,
+                  sample_azi_start, sample_azi_stop, noise_azi_lut, swath):
     """
 
     Parameters
     ----------
-    atrack_azi
-    atrack_azi_start
-    atrack_azi_stop
-    xtrack_azi_start
-    xtrack_azi_stop
+    line_azi
+    line_azi_start
+    line_azi_stop
+    sample_azi_start
+    sample_azi_stop
     noise_azi_lut
     swath
 
@@ -332,13 +345,13 @@ def noise_lut_azi(atrack_azi, atrack_azi_start,
     geopandas.GeoDataframe
         noise range geometry.
         'geometry' is the polygon where 'lut_f' is defined.
-        attrs['type'] set to 'atrack'
+        attrs['type'] set to 'line'
     """
 
     class Lut_box_azi:
         def __init__(self, sw, a, a_start, a_stop, x_start, x_stop, lut):
-            self.atracks = a
-            self.xtracks = np.arange(x_start, x_stop + 1)
+            self.lines = a
+            self.samples = np.arange(x_start, x_stop + 1)
             self.area = box(max(0, a_start - 0.5), max(0, x_start - 0.5), a_stop + 0.5, x_stop + 0.5)
             if len(lut) > 1:
                 self.lut_f = interp1d(a, lut, kind='linear', fill_value='extrapolate', assume_sorted=True,
@@ -348,13 +361,13 @@ def noise_lut_azi(atrack_azi, atrack_azi_start,
                 # noise will be constant on this box!
                 self.lut_f = lambda _a: lut
 
-        def __call__(self, atracks, xtracks):
-            return np.tile(self.lut_f(atracks), (xtracks.size, 1)).T
+        def __call__(self, lines, samples):
+            return np.tile(self.lut_f(lines), (samples.size, 1)).T
 
     blocks = []
-    for sw, a, a_start, a_stop, x_start, x_stop, lut in zip(swath, atrack_azi, atrack_azi_start, atrack_azi_stop,
-                                                            xtrack_azi_start,
-                                                            xtrack_azi_stop, noise_azi_lut):
+    for sw, a, a_start, a_stop, x_start, x_stop, lut in zip(swath, line_azi, line_azi_start, line_azi_stop,
+                                                            sample_azi_start,
+                                                            sample_azi_stop, noise_azi_lut):
         lut_f = Lut_box_azi(sw, a, a_start, a_stop, x_start, x_stop, lut)
         block = pd.Series(dict([
             ('lut_f', lut_f),
@@ -364,8 +377,8 @@ def noise_lut_azi(atrack_azi, atrack_azi_start,
     if len(blocks) == 0:
         # no azi noise (ipf < 2.9) or WV
         blocks.append(pd.Series(dict([
-            ('atracks', np.array([])),
-            ('xtracks', np.array([])),
+            ('lines', np.array([])),
+            ('samples', np.array([])),
             ('lut_f', lambda a, x: 1),
             ('geometry', box(0, 0, 65535, 65535))])))  # arbitrary large box (bigger than whole image)
 
@@ -376,9 +389,9 @@ def noise_lut_azi(atrack_azi, atrack_azi_start,
     return _NoiseLut(blocks)
 
 
-def annotation_angle(atrack, xtrack, angle):
-    lut = angle.reshape(atrack.size, xtrack.size)
-    lut_f = RectBivariateSpline(atrack, xtrack, lut, kx=1, ky=1)
+def annotation_angle(line, sample, angle):
+    lut = angle.reshape(line.size, sample.size)
+    lut_f = RectBivariateSpline(line, sample, lut, kx=1, ky=1)
     return lut_f
 
 
@@ -411,15 +424,29 @@ def df_files(annotation_files, measurement_files, noise_files, calibration_files
             'annotation': annotation_files,
             'measurement': measurement_files,
             'noise': noise_files,
-            'calibration': calibration_files
+            'calibration': calibration_files,
         },
         index=num
     )
     return df
 
-
-def orbit(time, frame, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z, orbit_pass, platform_heading):
+def xsd_files_func(xsd_product_file):
     """
+    return a xarray Dataset with path of the different xsd files
+    :param xsd_product:
+    :return:
+    """
+    ds = xr.Dataset()
+
+    ds['xsd_product'] = xarray.DataArray(xsd_product_file)
+    return ds
+
+
+def orbit(time, frame, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z, orbit_pass, platform_heading,return_xarray=True):
+    """
+    Parameters
+    ----------
+    return_xarray: bool, True-> return a xarray.Dataset, False-> returns a GeoDataFrame
     Returns
     -------
     geopandas.GeoDataFrame
@@ -428,24 +455,30 @@ def orbit(time, frame, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z, orbit_pass, pla
 
     if (frame[0] != 'Earth Fixed') or (np.unique(frame).size != 1):
         raise NotImplementedError('All orbit frames must be of type "Earth Fixed"')
+    if return_xarray is False:
+        crs = pyproj.crs.CRS(proj='geocent', ellps='WGS84', datum='WGS84')
 
-    crs = pyproj.crs.CRS(proj='geocent', ellps='WGS84', datum='WGS84')
-
-    gdf = gpd.GeoDataFrame(
-        {
-            'velocity': list(map(Point, zip(vel_x, vel_y, vel_z)))
-        },
-        geometry=list(map(Point, zip(pos_x, pos_y, pos_z))),
-        crs=crs,
-        index=time
-    )
-
-    gdf.attrs = {
+        res = gpd.GeoDataFrame(
+            {
+                'velocity': list(map(Point, zip(vel_x, vel_y, vel_z)))
+            },
+            geometry=list(map(Point, zip(pos_x, pos_y, pos_z))),
+            crs=crs,
+            index=time
+        )
+    else:
+        res = xr.Dataset()
+        res['velocity_x'] = xr.DataArray(vel_x,dims=['time'],coords={'time':time})
+        res['velocity_y'] = xr.DataArray(vel_y, dims = ['time'], coords = {'time': time})
+        res['velocity_z'] = xr.DataArray(vel_z, dims = ['time'], coords = {'time': time})
+        res['position_x'] = xr.DataArray(pos_x,dims=['time'],coords={'time':time})
+        res['position_y'] = xr.DataArray(pos_y, dims=['time'], coords={'time': time})
+        res['position_z'] = xr.DataArray(pos_z, dims=['time'], coords={'time': time})
+    res.attrs = {
         'orbit_pass': orbit_pass,
         'platform_heading': platform_heading
     }
-
-    return gdf
+    return res
 
 
 def azimuth_fmrate(azimuthtime, t0, c0, c1, c2, polynomial):
@@ -469,42 +502,69 @@ def azimuth_fmrate(azimuthtime, t0, c0, c1, c2, polynomial):
         # old IPF annotation
         polynomial = np.stack([c0, c1, c2], axis=1)
     res = xr.Dataset()
-    res['t0'] = xr.DataArray(t0, dims=['azimuth_time'], coords={'azimuth_time': azimuthtime})
-    res['polynomial'] = xr.DataArray([Polynomial(p) for p in polynomial],
-                                     dims=['azimuth_time'],
-                                     coords={'azimuth_time': azimuthtime})
+    res['t0'] = xr.DataArray(t0, dims=['azimuthTime'], coords={'azimuthTime': azimuthtime},
+                             attrs={'source':xpath_mappings['annotation']['fmrate_t0'][1]})
+    res['azimuthFmRatePolynomial'] = xr.DataArray([Polynomial(p) for p in polynomial],
+                                     dims=['azimuthTime'],
+                                     coords={'azimuthTime': azimuthtime},
+                                    attrs={'source':xpath_mappings['annotation']['fmrate_azimuthFmRatePolynomial'][1]})
     return res
 
 
-def image(product_type, atrack_time_range, atrack_size, xtrack_size, incidence_angle_mid_swath, azimuth_time_interval,
+def image(product_type, line_time_range, line_size, sample_size, incidence_angle_mid_swath, azimuth_time_interval,
           slant_range_time_image, azimuthPixelSpacing, rangePixelSpacing, swath_subswath, radar_frequency,
           range_sampling_rate, azimuth_steering_rate):
+    """
+    Decode attribute describing the SAR image
+    Parameters
+    ----------
+    product_type: str
+    line_time_range: int
+    line_size: int
+    sample_size: int
+    incidence_angle_mid_swath: float
+    azimuth_time_interval: float [ in seconds]
+    slant_range_time_image: float [ in seconds]
+    azimuthPixelSpacing: int [m]
+    rangePixelSpacing: int [m]
+    swath_subswath: str
+    radar_frequency: float [second-1]
+    range_sampling_rate: float
+    azimuth_steering_rate: float
+    Returns
+    -------
+    xarray.Dataset
+    """
     if product_type == 'SLC':
-        pixel_xtrack_m = rangePixelSpacing / np.sin(np.radians(incidence_angle_mid_swath))
+        pixel_sample_m = rangePixelSpacing / np.sin(np.radians(incidence_angle_mid_swath))
     else:
-        pixel_xtrack_m = rangePixelSpacing
-    return {
-        'atrack_time_range': atrack_time_range,
-        'shape': (atrack_size, xtrack_size),
-        'slant_pixel_spacing': (azimuthPixelSpacing, rangePixelSpacing),
-        'pixel_xtrack_m': pixel_xtrack_m,
-        'pixel_atrack_m': azimuthPixelSpacing,
-        'ground_pixel_spacing': (azimuthPixelSpacing, pixel_xtrack_m),
-        'incidence_angle_mid_swath': incidence_angle_mid_swath,
-        'azimuth_time_interval': azimuth_time_interval,
-        'slant_range_time_image': slant_range_time_image,
-        'swath_subswath': swath_subswath,
-        'radar_frequency': radar_frequency,
-        'range_sampling_rate': range_sampling_rate,
-        'azimuth_steering_rate': azimuth_steering_rate,
+        pixel_sample_m = rangePixelSpacing
+    tmp = {
+        'LineUtcTime': (line_time_range,'line_time_range'),
+        'numberOfLines':(line_size,'line_size'),
+        'numberOfSamples':(sample_size,'sample_size'),
+        'azimuthPixelSpacing': (azimuthPixelSpacing,'azimuthPixelSpacing'),
+        'slantRangePixelSpacing':(rangePixelSpacing,'rangePixelSpacing'),
+        'groundRangePixelSpacing': (pixel_sample_m,'rangePixelSpacing'),
+        'incidenceAngleMidSwath': (incidence_angle_mid_swath,'incidence_angle_mid_swath'),
+        'azimuthTimeInterval': (azimuth_time_interval,'azimuth_time_interval'),
+        'slantRangeTime': (slant_range_time_image,'slant_range_time_image'),
+        'swath_subswath': (swath_subswath,'swath_subswath'),
+        'radarFrequency': (radar_frequency,'radar_frequency'),
+        'rangeSamplingRate': (range_sampling_rate,'range_sampling_rate'),
+        'azimuthSteeringRate': (azimuth_steering_rate,'azimuth_steering_rate'),
     }
+    ds = xr.Dataset()
+    for ke in tmp:
+        ds[ke] = xr.DataArray(tmp[ke][0],attrs={'source':xpath_mappings['annotation'][tmp[ke][1]][1]})
+    return ds
 
 
-def bursts(atrack_per_burst, xtrack_per_burst, burst_azimuthTime, burst_azimuthAnxTime, burst_sensingTime,
+def bursts(line_per_burst, sample_per_burst, burst_azimuthTime, burst_azimuthAnxTime, burst_sensingTime,
            burst_byteOffset, burst_firstValidSample, burst_lastValidSample):
     """return burst as an xarray dataset"""
     da = xr.Dataset()
-    if (atrack_per_burst == 0) and (xtrack_per_burst == 0):
+    if (line_per_burst == 0) and (sample_per_burst == 0):
         pass
     else:
 
@@ -514,39 +574,46 @@ def bursts(atrack_per_burst, xtrack_per_burst, burst_azimuthTime, burst_azimuthA
         burst_firstValidSample[burst_firstValidSample == -1] = np.nan
         burst_lastValidSample[burst_lastValidSample == -1] = np.nan
         nbursts = len(burst_azimuthTime)
-        valid_locations = np.empty((nbursts, 4), dtype='int32')
-        for ibur in range(nbursts):
-            fvs = burst_firstValidSample[ibur, :]
-            lvs = burst_lastValidSample[ibur, :]
-            # valind = np.where((fvs != -1) | (lvs != -1))[0]
-            valind = np.where(np.isfinite(fvs) | np.isfinite(lvs))[0]
-            valloc = [ibur * atrack_per_burst + valind.min(), fvs[valind].min(),
-                      ibur * atrack_per_burst + valind.max(), lvs[valind].max()]
-            valid_locations[ibur, :] = valloc
+        # valid_locations = np.empty((nbursts, 4), dtype='int32')
+        # for ibur in range(nbursts):
+        #     fvs = burst_firstValidSample[ibur, :]
+        #     lvs = burst_lastValidSample[ibur, :]
+        #     # valind = np.where((fvs != -1) | (lvs != -1))[0]
+        #     valind = np.where(np.isfinite(fvs) | np.isfinite(lvs))[0]
+        #     valloc = [ibur * line_per_burst + valind.min(), fvs[valind].min(),
+        #               ibur * line_per_burst + valind.max(), lvs[valind].max()]
+        #     valid_locations[ibur, :] = valloc
         da = xr.Dataset(
             {
                 'azimuthTime': ('burst', burst_azimuthTime),
                 'azimuthAnxTime': ('burst', burst_azimuthAnxTime),
                 'sensingTime': ('burst', burst_sensingTime),
                 'byteOffset': ('burst', burst_byteOffset),
-                'firstValidSample': (['burst', 'xtrack'], burst_firstValidSample),
-                'lastValidSample': (['burst', 'xtrack'], burst_lastValidSample),
-                'valid_location': xr.DataArray(dims=['burst', 'limits'], data=valid_locations,
-                                               attrs={
-                                                   'description': 'start atrack index, start xtrack index, stop atrack index, stop xtrack index'}),
+                'firstValidSample': (['burst', 'line'], burst_firstValidSample),
+                'lastValidSample': (['burst', 'line'], burst_lastValidSample),
+                # 'valid_location': xr.DataArray(dims=['burst', 'limits'], data=valid_locations,
+                #                                attrs={
+                #                                    'description': 'start line index, start sample index, stop line index, stop sample index'}),
             }
         )
-    da.attrs['atrack_per_burst'] = atrack_per_burst
-    da.attrs['xtrack_per_burst'] = xtrack_per_burst
+        da['azimuthTime'].attrs = {'source': xpath_mappings['annotation']['burst_azimuthTime'][1]}
+        da['azimuthAnxTime'].attrs = {'source': xpath_mappings['annotation']['burst_azimuthAnxTime'][1]}
+        da['sensingTime'].attrs = {'source': xpath_mappings['annotation']['burst_sensingTime'][1]}
+        da['byteOffset'].attrs = {'source': xpath_mappings['annotation']['burst_byteOffset'][1]}
+        da['firstValidSample'].attrs = {'source': xpath_mappings['annotation']['burst_firstValidSample'][1]}
+        da['lastValidSample'].attrs = {'source': xpath_mappings['annotation']['burst_lastValidSample'][1]}
+        #da['valid_location'].attrs = {'source': xpath_mappings['annotation']['burst_firstValidSample'][1]+'\n'+xpath_mappings['annotation']['burst_lastValidSample'][1]}
+    da['linesPerBurst'] = xr.DataArray(line_per_burst,attrs={'source':xpath_mappings['annotation']['linesPerBurst'][1]})
+    da['samplesPerBurst'] = xr.DataArray(sample_per_burst,attrs={'source':xpath_mappings['annotation']['samplesPerBurst'][1]})
     return da
 
 
-def bursts_grd(atrack_per_burst, xtrack_per_burst):
+def bursts_grd(line_per_burst, sample_per_burst):
     """return burst as an xarray dataset"""
     da = xr.Dataset({'azimuthTime': ('burst', [])})
 
-    da.attrs['atrack_per_burst'] = atrack_per_burst
-    da.attrs['xtrack_per_burst'] = xtrack_per_burst
+    da['linesPerBurst'] = xr.DataArray(line_per_burst)
+    da['samplesPerBurst'] = xr.DataArray(sample_per_burst)
     return da
 
 
@@ -578,38 +645,42 @@ def doppler_centroid_estimates(nb_dcestimate,
 
     """
     ds = xr.Dataset()
-    ds['t0'] = xr.DataArray(dc_t0.astype(float), dims=['n_estimates'])
-    ds['geo_polynom'] = xr.DataArray([Polynomial(p) for p in dc_geoDcPoly], dims=['n_estimates'])
-    ds['data_polynom'] = xr.DataArray([Polynomial(p) for p in dc_dataDcPoly], dims=['n_estimates'])
+    ds['t0'] = xr.DataArray(dc_t0.astype(float), dims=['azimuthTime'],attrs={'source': xpath_mappings['annotation']['dc_t0'][1]},coords={'azimuthTime':dc_azimuth_time})
+    ds['geometryDcPolynomial'] = xr.DataArray([Polynomial(p) for p in dc_geoDcPoly], dims=['azimuthTime'],attrs={'source':xpath_mappings['annotation']['dc_geoDcPoly'][1]})
+    ds['dataDcPolynomial'] = xr.DataArray([Polynomial(p) for p in dc_dataDcPoly], dims=['azimuthTime'],attrs={'source':xpath_mappings['annotation']['dc_dataDcPoly'][1]})
     dims = (nb_dcestimate, nb_fineDce)
-    ds['azimuth_time'] = xr.DataArray(dc_azimuth_time, dims=['n_estimates'])
-    ds['azimuth_time_start'] = xr.DataArray(dc_azstarttime, dims=['n_estimates'])
-    ds['azimuth_time_stop'] = xr.DataArray(dc_azstoptime, dims=['n_estimates'])
-    ds['data_rms'] = xr.DataArray(dc_rmserr.astype(float), dims=['n_estimates'])
-    ds['slant_range_time'] = xr.DataArray(dc_slantRangeTime.reshape(dims), dims=['n_estimates', 'nb_fine_dce'])
-    ds['frequency'] = xr.DataArray(dc_frequency.reshape(dims), dims=['n_estimates', 'nb_fine_dce'])
-    ds['data_rms_threshold'] = xr.DataArray(dc_rmserrAboveThres, dims=['n_estimates'])
+    #ds['azimuthTime'] = xr.DataArray(dc_azimuth_time, dims=['azimuthTime'],attrs={'source':xpath_mappings['annotation']['dc_azimuth_time'][1]})
+    ds['azimuthTime'].attrs={'source': xpath_mappings['annotation']['dc_azimuth_time'][1]}
+    ds['fineDceAzimuthStartTime'] = xr.DataArray(dc_azstarttime, dims=['azimuthTime'],attrs={'source':xpath_mappings['annotation']['dc_azstarttime'][1]})
+    ds['fineDceAzimuthStopTime'] = xr.DataArray(dc_azstoptime, dims=['azimuthTime'],attrs={'source':xpath_mappings['annotation']['dc_azstoptime'][1]})
+    ds['dataDcRmsError'] = xr.DataArray(dc_rmserr.astype(float), dims=['azimuthTime'],attrs={'source':xpath_mappings['annotation']['dc_rmserr'][1]})
+    ds['slantRangeTime'] = xr.DataArray(dc_slantRangeTime.reshape(dims), dims=['azimuthTime', 'nb_fine_dce'],
+                                        attrs={'source': xpath_mappings['annotation']['dc_slantRangeTime'][1]})
+    ds['frequency'] = xr.DataArray(dc_frequency.reshape(dims), dims=['azimuthTime', 'nb_fine_dce'],
+                                   attrs={'source': xpath_mappings['annotation']['dc_frequency'][1]})
+    ds['dataDcRmsErrorAboveThreshold'] = xr.DataArray(dc_rmserrAboveThres, dims=['azimuthTime'],
+                                                      attrs={'source':xpath_mappings['annotation']['dc_rmserrAboveThres'][1]})
     return ds
 
 
-def geolocation_grid(atrack, xtrack, values):
+def geolocation_grid(line, sample, values):
     """
 
     Parameters
     ----------
-    atrack: np.ndarray
-        1D array of atrack dimension
-    xtrack: np.ndarray
+    line: np.ndarray
+        1D array of line dimension
+    sample: np.ndarray
 
     Returns
     -------
     xarray.DataArray
-        with atrack and xtrack coordinates, and values as 2D
+        with line and sample coordinates, and values as 2D
 
     """
-    shape = (atrack.size, xtrack.size)
+    shape = (line.size, sample.size)
     values = np.reshape(values, shape)
-    return xr.DataArray(values, dims=['atrack', 'xtrack'], coords={'atrack': atrack, 'xtrack': xtrack})
+    return xr.DataArray(values, dims=['line', 'sample'], coords={'line': line, 'sample': sample})
 
 
 # dict of compounds variables.
@@ -635,64 +706,71 @@ compounds_vars = {
             'manifest.annotation_files', 'manifest.measurement_files', 'manifest.noise_files',
             'manifest.calibration_files')
     },
+    'xsd_files': {
+        'func': xsd_files_func,
+        'args': (
+            'manifest.xsd_product_file',
+        )
+    },
+
     'sigma0_lut': {
         'func': signal_lut,
-        'args': ('calibration.atrack', 'calibration.xtrack', 'calibration.sigma0_lut')
+        'args': ('calibration.line', 'calibration.sample', 'calibration.sigma0_lut')
     },
     'gamma0_lut': {
         'func': signal_lut,
-        'args': ('calibration.atrack', 'calibration.xtrack', 'calibration.gamma0_lut')
+        'args': ('calibration.line', 'calibration.sample', 'calibration.gamma0_lut')
     },
     'noise_lut_range': {
         'func': noise_lut_range,
-        'args': ('noise.range.atrack', 'noise.range.xtrack', 'noise.range.noiseLut')
+        'args': ('noise.range.line', 'noise.range.sample', 'noise.range.noiseLut')
     },
     'noise_lut_azi': {
         'func': noise_lut_azi,
         'args': (
-            'noise.azi.atrack', 'noise.azi.atrack_start', 'noise.azi.atrack_stop',
-            'noise.azi.xtrack_start',
-            'noise.azi.xtrack_stop', 'noise.azi.noiseLut',
+            'noise.azi.line', 'noise.azi.line_start', 'noise.azi.line_stop',
+            'noise.azi.sample_start',
+            'noise.azi.sample_stop', 'noise.azi.noiseLut',
             'noise.azi.swath')
     },
     'denoised': ('annotation.pol', 'annotation.denoised'),
-    'incidence': {
+    'incidenceAngle': {
         'func': geolocation_grid,
-        'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.incidence')
+        'args': ('annotation.line', 'annotation.sample', 'annotation.incidenceAngle')
     },
-    'elevation': {
+    'elevationAngle': {
         'func': geolocation_grid,
-        'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.elevation')
+        'args': ('annotation.line', 'annotation.sample', 'annotation.elevationAngle')
     },
     'longitude': {
         'func': geolocation_grid,
-        'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.longitude')
+        'args': ('annotation.line', 'annotation.sample', 'annotation.longitude')
     },
     'latitude': {
         'func': geolocation_grid,
-        'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.latitude')
+        'args': ('annotation.line', 'annotation.sample', 'annotation.latitude')
     },
-    'altitude': {
+    'height': {
         'func': geolocation_grid,
-        'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.altitude')
+        'args': ('annotation.line', 'annotation.sample', 'annotation.height')
     },
-    'azimuth_time': {
+    'azimuthTime': {
         'func': geolocation_grid,
-        'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.azimuth_time')
+        'args': ('annotation.line', 'annotation.sample', 'annotation.azimuthTime')
     },
-    'slant_range_time': {
+    'slantRangeTime': {
         'func': geolocation_grid,
-        'args': ('annotation.atrack', 'annotation.xtrack', 'annotation.slant_range_time')
+        'args': ('annotation.line', 'annotation.sample', 'annotation.slantRangeTime')
     },
     'bursts': {
         'func': bursts,
-        'args': ('annotation.atrack_per_burst', 'annotation. xtrack_per_burst', 'annotation. burst_azimuthTime',
+        'args': ('annotation.linesPerBurst', 'annotation.samplesPerBurst', 'annotation. burst_azimuthTime',
                  'annotation. burst_azimuthAnxTime', 'annotation. burst_sensingTime', 'annotation.burst_byteOffset',
                  'annotation. burst_firstValidSample', 'annotation.burst_lastValidSample')
     },
     'bursts_grd': {
         'func': bursts_grd,
-        'args': ('annotation.atrack_per_burst', 'annotation. xtrack_per_burst',)
+        'args': ('annotation.linesPerBurst', 'annotation. samplesPerBurst',)
     },
 
     'orbit': {
@@ -704,7 +782,7 @@ compounds_vars = {
     },
     'image': {
         'func': image,
-        'args': ('annotation.product_type','annotation.atrack_time_range', 'annotation.atrack_size', 'annotation.xtrack_size',
+        'args': ('annotation.product_type','annotation.line_time_range', 'annotation.line_size', 'annotation.sample_size',
                  'annotation.incidence_angle_mid_swath', 'annotation.azimuth_time_interval',
                  'annotation.slant_range_time_image', 'annotation.azimuthPixelSpacing', 'annotation.rangePixelSpacing',
                  'annotation.swath_subswath', 'annotation.radar_frequency', 'annotation.range_sampling_rate',

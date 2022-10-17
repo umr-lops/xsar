@@ -25,9 +25,9 @@ meta = xsar.Sentinel1Meta(
 
 def test_open_dataset():
     try:
-        ds = xsar.open_dataset(meta, resolution={'atrack': 100, 'xtrack': 100}, resampling=rasterio.enums.Resampling.average)
+        ds = xsar.open_dataset(meta, resolution={'sample': 100, 'line': 100}, resampling=rasterio.enums.Resampling.average)
         ds.compute()
-        ds = xsar.open_dataset(meta).isel(pol=0, atrack=slice(0, 100), xtrack=slice(0, 100))
+        ds = xsar.open_dataset(meta).isel(pol=0, sample=slice(0, 100), line=slice(0, 100))
         ds.compute()
         assert True
     except:

@@ -260,111 +260,114 @@ class Sentinel1Dataset:
 
             activate or not variable pathching ( currently noise lut correction for IPF2.9X)
         """
-        # miscellaneous attributes that are not know from xml files
-        attrs_dict = {
-            'pol': {
-                'comment': 'ordered polarizations (copol, crosspol)'
-            },
-            'line': {
-                'units': '1',
-                'comment': 'azimuth direction, in pixels from full resolution tiff'
-            },
-            'sample': {
-                'units': '1',
-                'comment': 'cross track direction, in pixels from full resolution tiff'
-            },
-            'sigma0_raw': {
-                'units': 'linear'
-            },
-            'gamma0_raw': {
-                'units': 'linear'
-            },
-            'nesz': {
-                'units': 'linear',
-                'comment': 'sigma0 noise'
-            },
-            'negz': {
-                'units': 'linear',
-                'comment': 'beta0 noise'
-            },
-        }
-        # dict mapping for variables names to create by applying specified lut on digital_number
-        self._map_var_lut = {
-            'sigma0_raw': 'sigma0_lut',
-            'gamma0_raw': 'gamma0_lut',
-        }
+        if 'longitude' in self.dataset:
+            logging.info('the high resolution variable such as : longitude, latitude, incidence,.. are already visible in the dataset')
+        else:
+            # miscellaneous attributes that are not know from xml files
+            attrs_dict = {
+                'pol': {
+                    'comment': 'ordered polarizations (copol, crosspol)'
+                },
+                'line': {
+                    'units': '1',
+                    'comment': 'azimuth direction, in pixels from full resolution tiff'
+                },
+                'sample': {
+                    'units': '1',
+                    'comment': 'cross track direction, in pixels from full resolution tiff'
+                },
+                'sigma0_raw': {
+                    'units': 'linear'
+                },
+                'gamma0_raw': {
+                    'units': 'linear'
+                },
+                'nesz': {
+                    'units': 'linear',
+                    'comment': 'sigma0 noise'
+                },
+                'negz': {
+                    'units': 'linear',
+                    'comment': 'beta0 noise'
+                },
+            }
+            # dict mapping for variables names to create by applying specified lut on digital_number
+            self._map_var_lut = {
+                'sigma0_raw': 'sigma0_lut',
+                'gamma0_raw': 'gamma0_lut',
+            }
 
-        # dict mapping for lut names to file type (from self.files columns)
-        self._map_lut_files = {
-            'sigma0_lut': 'calibration',
-            'gamma0_lut': 'calibration',
-            'noise_lut_range': 'noise',
-            'noise_lut_azi': 'noise',
-        }
+            # dict mapping for lut names to file type (from self.files columns)
+            self._map_lut_files = {
+                'sigma0_lut': 'calibration',
+                'gamma0_lut': 'calibration',
+                'noise_lut_range': 'noise',
+                'noise_lut_azi': 'noise',
+            }
 
-        # dict mapping specifying if the variable has 'pol' dimension
-        self._vars_with_pol = {
-            'sigma0_lut': True,
-            'gamma0_lut': True,
-            'noise_lut_range': True,
-            'noise_lut_azi': True,
-            'incidence': False,
-            'elevation': False,
-            'altitude': False,
-            'azimuth_time': False,
-            'slant_range_time': False,
-            'longitude': False,
-            'latitude': False
-        }
+            # dict mapping specifying if the variable has 'pol' dimension
+            self._vars_with_pol = {
+                'sigma0_lut': True,
+                'gamma0_lut': True,
+                'noise_lut_range': True,
+                'noise_lut_azi': True,
+                'incidence': False,
+                'elevation': False,
+                'altitude': False,
+                'azimuth_time': False,
+                'slant_range_time': False,
+                'longitude': False,
+                'latitude': False
+            }
 
-        # variables not returned to the user (unless luts=True)
-        self._hidden_vars = ['sigma0_lut', 'gamma0_lut', 'noise_lut', 'noise_lut_range', 'noise_lut_azi']
-        # attribute to activate correction on variables, if available
-        self._patch_variable = patch_variable
+            # variables not returned to the user (unless luts=True)
+            self._hidden_vars = ['sigma0_lut', 'gamma0_lut', 'noise_lut', 'noise_lut_range', 'noise_lut_azi']
+            # attribute to activate correction on variables, if available
+            self._patch_variable = patch_variable
 
-        self._luts = self._lazy_load_luts(self._map_lut_files.keys())
+            self._luts = self._lazy_load_luts(self._map_lut_files.keys())
 
-        # noise_lut is noise_lut_range * noise_lut_azi
-        if 'noise_lut_range' in self._luts.keys() and 'noise_lut_azi' in self._luts.keys():
-            self._luts = self._luts.assign(noise_lut=self._luts.noise_lut_range * self._luts.noise_lut_azi)
-            self._luts.noise_lut.attrs['history'] = merge_yaml(
-                [self._luts.noise_lut_range.attrs['history'] + self._luts.noise_lut_azi.attrs['history']],
-                section='noise_lut'
-            )
+            # noise_lut is noise_lut_range * noise_lut_azi
+            if 'noise_lut_range' in self._luts.keys() and 'noise_lut_azi' in self._luts.keys():
+                self._luts = self._luts.assign(noise_lut=self._luts.noise_lut_range * self._luts.noise_lut_azi)
+                self._luts.noise_lut.attrs['history'] = merge_yaml(
+                    [self._luts.noise_lut_range.attrs['history'] + self._luts.noise_lut_azi.attrs['history']],
+                    section='noise_lut'
+                )
 
-        ds_merge_list = [self._dataset, self._load_ground_heading(),  # lon_lat
-                         self._luts.drop_vars(self._hidden_vars, errors='ignore')]
+            ds_merge_list = [self._dataset, self._load_ground_heading(),  # lon_lat
+                             self._luts.drop_vars(self._hidden_vars, errors='ignore')]
 
-        self._rasterized_masks = self._load_rasterized_masks()
-        ds_merge_list.append(self._rasterized_masks)
+            self._rasterized_masks = self._load_rasterized_masks()
+            ds_merge_list.append(self._rasterized_masks)
 
 
-        if luts:
-            ds_merge_list.append(self._luts[self._hidden_vars])
-        attrs = self._dataset.attrs
-        self._dataset = xr.merge(ds_merge_list)
-        self._dataset.attrs = attrs
-        self._dataset = self._dataset.merge(self._load_from_geoloc(['altitude', 'azimuth_time', 'slant_range_time',
-                                                                    'incidence', 'elevation', 'longitude', 'latitude']))
+            if luts:
+                ds_merge_list.append(self._luts[self._hidden_vars])
+            attrs = self._dataset.attrs
+            self._dataset = xr.merge(ds_merge_list)
+            self._dataset.attrs = attrs
+            self._dataset = self._dataset.merge(self._load_from_geoloc(['altitude', 'azimuth_time', 'slant_range_time',
+                                                                        'incidence', 'elevation', 'longitude', 'latitude']))
 
-        rasters = self._load_rasters_vars()
-        if rasters is not None:
-            self._dataset = xr.merge([self._dataset, rasters])
+            rasters = self._load_rasters_vars()
+            if rasters is not None:
+                self._dataset = xr.merge([self._dataset, rasters])
 
-        self._dataset = self._dataset.merge(self._get_sensor_velocity())
-        self._dataset = self._dataset.merge(self._range_ground_spacing())
+            self._dataset = self._dataset.merge(self._get_sensor_velocity())
+            self._dataset = self._dataset.merge(self._range_ground_spacing())
 
-        self.recompute_attrs()
+            self.recompute_attrs()
 
-        # set miscellaneous attrs
-        for var, attrs in attrs_dict.items():
-            try:
-                self._dataset[var].attrs.update(attrs)
-            except KeyError:
-                pass
-        # self.datatree[
-        #     'measurement'].ds = self._dataset  # last link to make sure all previous modifications are also in the datatree
-        self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
+            # set miscellaneous attrs
+            for var, attrs in attrs_dict.items():
+                try:
+                    self._dataset[var].attrs.update(attrs)
+                except KeyError:
+                    pass
+            # self.datatree[
+            #     'measurement'].ds = self._dataset  # last link to make sure all previous modifications are also in the datatree
+            self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
         return
 
     def apply_calibration_and_denoising(self):

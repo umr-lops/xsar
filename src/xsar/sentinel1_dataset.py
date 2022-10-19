@@ -3,6 +3,7 @@ import pdb
 
 import logging
 import warnings
+import resource
 import numpy as np
 import xarray
 from scipy.interpolate import RectBivariateSpline
@@ -340,6 +341,7 @@ class Sentinel1Dataset:
 
             self._rasterized_masks = self._load_rasterized_masks()
             ds_merge_list.append(self._rasterized_masks)
+            #self.add_rasterized_masks() #this method update the datatree while in this part of the code, the dataset is updated
 
 
             if luts:
@@ -1012,8 +1014,114 @@ class Sentinel1Dataset:
         return xr.merge(da_list)
 
     def add_rasterized_masks(self):
+        """
+        add rasterized masks only (included in add_high_resolution_variables() )
+        :return:
+        """
         self._rasterized_masks = self._load_rasterized_masks()
-        self.datatree['measurement'].ds = xr.merge([self.datatree['measurement'].ds,self._rasterized_masks])
+        #self.datatree['measurement'].ds = xr.merge([self.datatree['measurement'].ds,self._rasterized_masks])
+        self.datatree['measurement'] = self.datatree['measurement'].assign(
+            xr.merge([self.datatree['measurement'].ds, self._rasterized_masks])
+        )
+
+    def land_mask_slc_per_bursts(self):
+        """
+
+        :return:
+        """
+        #TODO: add a prior step to compute the intersection between the slef.dataset (could be a subset) and the different bursts
+        def _rasterize_mask_by_chunks(line, sample, mask='land'):
+            """
+            copy/pasted from _load_rasterized_masks()
+            :param line:
+            :param sample:
+            :param mask:
+            :return:
+            """
+            chunk_coords = bbox_coords(line, sample, pad=None)
+            # chunk footprint polygon, in dataset coordinates (with buffer, to enlarge a little the footprint)
+            chunk_footprint_coords = Polygon(chunk_coords).buffer(10)
+            # chunk footprint polygon, in lon/lat
+            chunk_footprint_ll = self.s1meta.coords2ll(chunk_footprint_coords)
+
+            # get vector mask over chunk, in lon/lat
+            vector_mask_ll = self.s1meta.get_mask(mask).intersection(chunk_footprint_ll)
+
+            if vector_mask_ll.is_empty:
+                # no intersection with mask, return zeros
+                return np.zeros((line.size, sample.size))
+
+            # vector mask, in line/sample coordinates
+            vector_mask_coords = self.s1meta.ll2coords(vector_mask_ll)
+
+            # shape of the returned chunk
+            out_shape = (line.size, sample.size)
+
+            # transform * (x, y) -> (line, sample)
+            # (where (x, y) are index in out_shape)
+            # Affine.permutation() is used because (line, sample) is transposed from geographic
+
+            transform = Affine.translation(*chunk_coords[0]) * Affine.scale(
+                *[np.unique(np.diff(c))[0] for c in [line, sample]]) * Affine.permutation()
+
+            raster_mask = rasterio.features.rasterize(
+                [vector_mask_coords],
+                out_shape=out_shape,
+                all_touched=False,
+                transform=transform
+            )
+            return raster_mask
+
+        #all_bursts = self.datatree['bursts']
+        all_bursts = self.get_bursts_polygons(only_valid_location=False)
+        logger.debug('all_bursts = %s',all_bursts)
+        da_dict = {} # dictionnary to store the DataArray of each mask and each burst
+        for burst_id in range(len(all_bursts['geometry_image'])):
+            a_burst_bbox = all_bursts['geometry_image'].iloc[burst_id]
+            line_index = np.array([int(jj) for jj in a_burst_bbox.exterior.xy[0]])
+            sample_index = np.array([int(jj) for jj in a_burst_bbox.exterior.xy[1]])
+            a_burst_subset = self.dataset.isel({'line':slice(line_index.min(),line_index.max()),'sample':slice(sample_index.min(),sample_index.max()),'pol':0})
+            # logging.debug('a a_burst_subset : %s',a_burst_subset)
+            mem = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1000.
+            logging.debug('memory at burst #%s = %1.2f Mo',burst_id,mem)
+            da_tmpl = xr.DataArray(
+                dask.array.empty_like(
+                    np.empty((len(a_burst_subset.digital_number.line), len(a_burst_subset.digital_number.sample))),
+                    dtype=np.int8, name="empty_var_tmpl-%s" % dask.base.tokenize(self.s1meta.name)),
+                dims=('line', 'sample'),
+                coords={
+                    'line': a_burst_subset.digital_number.line,
+                    'sample': a_burst_subset.digital_number.sample,
+                    #'line_time': line_time.astype(float),
+                },)
+
+            for mask in self.s1meta.mask_names:
+                logging.debug('mask: %s',mask)
+                da_mask = map_blocks_coords(
+                    da_tmpl,
+                    _rasterize_mask_by_chunks,
+                    func_kwargs={'mask': mask}
+                )
+                name = '%s_mask2' % mask # 2 for dev to compare with previous
+                da_mask.attrs['history'] = yaml.safe_dump({name: self.s1meta.get_mask(mask, describe=True)})
+                #da_list.append(da_mask.to_dataset(name=name))
+                if mask not in da_dict:
+                    da_dict[mask] = [da_mask.to_dataset(name=name)]
+                else:
+                    da_dict[mask].append(da_mask.to_dataset(name=name))
+            logger.debug('da_dict[mask] = %s %s',mask,da_dict[mask])
+        #merge with existing dataset
+        all_masks = []
+        for kk in da_dict:
+            logging.debug('kk : %s',kk)
+            #complet_mask = xr.merge(da_dict[kk])
+            complet_mask = xr.combine_by_coords(da_dict[kk])
+            logging.debug('merged %s = %s',kk,complet_mask)
+            #complet_mask =
+            all_masks.append(complet_mask)
+        tmpds = self.datatree['measurement'].to_dataset()
+        tmpmerged = xr.merge([tmpds]+all_masks)
+        self.datatree['measurement'] = self.datatree['measurement'].assign(tmpmerged)
 
     @timing
     def map_raster(self, raster_ds):

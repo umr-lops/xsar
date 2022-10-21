@@ -13,6 +13,7 @@ import rasterio
 import rasterio.features
 from rasterio.control import GroundControlPoint
 import rioxarray
+import time
 from scipy.interpolate import interp1d
 from shapely.geometry import Polygon, box
 import shapely
@@ -26,7 +27,7 @@ import yaml
 import datatree
 import pandas as pd
 import geopandas as gpd
-
+from scipy.spatial import KDTree
 logger = logging.getLogger('xsar.sentinel1_dataset')
 logger.addHandler(logging.NullHandler())
 
@@ -115,7 +116,7 @@ class Sentinel1Dataset:
         # as asarray is imported from numpy, it's a numpy array.
         # but if later we decide to import asarray from cupy, il will be a cupy.array (gpu)
         self._default_meta = asarray([], dtype='f8')
-
+        self.geoloc_tree = None
         self.s1meta = None
         """`xsar.Sentinel1Meta` object"""
 
@@ -1024,12 +1025,50 @@ class Sentinel1Dataset:
             xr.merge([self.datatree['measurement'].ds, self._rasterized_masks])
         )
 
+
+    def ll2coords_SLC(self,*args):
+        """
+        for SLC product with irregular projected pixel spacing in range Affine transformation are not relevant
+        :return:
+        """
+        stride_dataset_line = 10 # stride !=1 to save computation time, hard coded here to avoid issues of between KDtree serialized and possible different stride usage
+        stride_dataset_sample = 30
+        # stride_dataset_line = 1 # stride !=1 to save computation time, hard coded here to avoid issues of between KDtree serialized and possible different stride usage
+        # stride_dataset_sample = 1
+        lon, lat = args
+        subset_lon = self.dataset['longitude'].isel(
+            {'line': slice(None, None, stride_dataset_line), 'sample': slice(None, None, stride_dataset_sample)})
+        subset_lat = self.dataset['latitude'].isel(
+            {'line': slice(None, None, stride_dataset_line), 'sample': slice(None, None, stride_dataset_sample)})
+        if self.geoloc_tree is None:
+            t0 = time.time()
+            lontmp = subset_lon.values.ravel()
+            lattmp = subset_lat.values.ravel()
+            self.geoloc_tree = KDTree(np.c_[lontmp, lattmp])
+            logger.debug('tree ready in %1.2f sec'%(time.time()-t0))
+        ll = np.vstack([lon,lat]).T
+        dd, ii = self.geoloc_tree.query(ll, k=1)
+        line,sample = np.unravel_index(ii,subset_lat.shape)
+        return line*stride_dataset_line,sample*stride_dataset_sample
+
+    def coords2ll_SLC(self,*args):
+        """
+            for SLC product with irregular projected pixel spacing in range Affine transformation are not relevant
+        :return:
+        """
+        lines, samples = args
+        da_line = xr.DataArray(lines,dims='points')
+        da_sample = xr.DataArray(samples,dims='points')
+        lon = self.dataset['longitude'].sel(line=da_line,sample=da_sample)
+        lat = self.dataset['latitude'].sel(line=da_line, sample=da_sample)
+        return lon,lat
+
     def land_mask_slc_per_bursts(self):
         """
 
         :return:
         """
-        #TODO: add a prior step to compute the intersection between the slef.dataset (could be a subset) and the different bursts
+        #TODO: add a prior step to compute the intersection between the self.dataset (could be a subset) and the different bursts
         def _rasterize_mask_by_chunks(line, sample, mask='land'):
             """
             copy/pasted from _load_rasterized_masks()
@@ -1040,19 +1079,35 @@ class Sentinel1Dataset:
             """
             chunk_coords = bbox_coords(line, sample, pad=None)
             # chunk footprint polygon, in dataset coordinates (with buffer, to enlarge a little the footprint)
-            chunk_footprint_coords = Polygon(chunk_coords).buffer(10)
-            # chunk footprint polygon, in lon/lat
-            chunk_footprint_ll = self.s1meta.coords2ll(chunk_footprint_coords)
-
+            chunk_footprint_coords = Polygon(chunk_coords).buffer(1)
+            lines,samples = chunk_footprint_coords.exterior.xy
+            lines = np.array([hh for hh in lines]).astype(int)
+            lines = np.clip(lines,a_min=0,a_max=self.dataset['line'].max().values)
+            samples = np.array([hh for hh in samples]).astype(int)
+            samples = np.clip(samples,a_min=0,a_max=self.dataset['sample'].max().values)
+            chunk_footprint_lon,chunk_footprint_lat = self.coords2ll_SLC(lines,samples)
+            chunk_footprint_ll = Polygon(np.vstack([chunk_footprint_lon,chunk_footprint_lat]).T)
             # get vector mask over chunk, in lon/lat
             vector_mask_ll = self.s1meta.get_mask(mask).intersection(chunk_footprint_ll)
-
             if vector_mask_ll.is_empty:
                 # no intersection with mask, return zeros
                 return np.zeros((line.size, sample.size))
 
             # vector mask, in line/sample coordinates
-            vector_mask_coords = self.s1meta.ll2coords(vector_mask_ll)
+            if isinstance(vector_mask_ll,shapely.geometry.Polygon):
+                lons_ma,lats_ma = vector_mask_ll.exterior.xy
+                lons = np.array([hh for hh in lons_ma])
+                lats = np.array([hh for hh in lats_ma])
+                vector_mask_coords_lines,vector_mask_coords_samples = self.ll2coords_SLC(lons,lats)
+                vector_mask_coords = [Polygon(np.vstack([vector_mask_coords_lines,vector_mask_coords_samples]).T)]
+            else:  # multipolygon
+                vector_mask_coords = []  # to store polygons in image coordinates
+                for iio,onepoly in enumerate(vector_mask_ll.geoms):
+                    lons_ma, lats_ma = onepoly.exterior.xy
+                    lons = np.array([hh for hh in lons_ma])
+                    lats = np.array([hh for hh in lats_ma])
+                    vector_mask_coords_lines, vector_mask_coords_samples = self.ll2coords_SLC(lons, lats)
+                    vector_mask_coords.append(Polygon(np.vstack([vector_mask_coords_lines, vector_mask_coords_samples]).T))
 
             # shape of the returned chunk
             out_shape = (line.size, sample.size)
@@ -1060,12 +1115,12 @@ class Sentinel1Dataset:
             # transform * (x, y) -> (line, sample)
             # (where (x, y) are index in out_shape)
             # Affine.permutation() is used because (line, sample) is transposed from geographic
-
+            # this transform Affine seems to be sufficient approx for SLC -> curvilinear could be even better?
             transform = Affine.translation(*chunk_coords[0]) * Affine.scale(
                 *[np.unique(np.diff(c))[0] for c in [line, sample]]) * Affine.permutation()
 
             raster_mask = rasterio.features.rasterize(
-                [vector_mask_coords],
+                vector_mask_coords,
                 out_shape=out_shape,
                 all_touched=False,
                 transform=transform
@@ -1080,7 +1135,8 @@ class Sentinel1Dataset:
             a_burst_bbox = all_bursts['geometry_image'].iloc[burst_id]
             line_index = np.array([int(jj) for jj in a_burst_bbox.exterior.xy[0]])
             sample_index = np.array([int(jj) for jj in a_burst_bbox.exterior.xy[1]])
-            a_burst_subset = self.dataset.isel({'line':slice(line_index.min(),line_index.max()),'sample':slice(sample_index.min(),sample_index.max()),'pol':0})
+            a_burst_subset = self.dataset.isel({'line':slice(line_index.min(),line_index.max()),
+                                                'sample':slice(sample_index.min(),sample_index.max()),'pol':0})
             # logging.debug('a a_burst_subset : %s',a_burst_subset)
             mem = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1000.
             logging.debug('memory at burst #%s = %1.2f Mo',burst_id,mem)

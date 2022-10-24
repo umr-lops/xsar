@@ -1583,7 +1583,8 @@ class Sentinel1Dataset:
         line_decimated = self.dataset.line.values[::int(self.dataset.line.size / 20)+1]
         sample_decimated = self.dataset.sample.values[::int(self.dataset.sample.size / 20)+1]
         XX,YY = np.meshgrid(line_decimated,sample_decimated)
-        # if self.s1meta.product == 'SLC':
+        if self.s1meta.product == 'SLC':
+            logger.warning('GCPs computed from affine transformations on SLC products can be strongly shifted in position, we advise against ds.rio.reproject()')
         #     lon_s,lat_s = self.coords2ll_SLC(XX.ravel(order='F'),YY.ravel(order='F'))
         #     lon_s = lon_s.values
         #     lat_s = lat_s.values

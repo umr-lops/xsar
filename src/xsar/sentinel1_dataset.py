@@ -264,7 +264,7 @@ class Sentinel1Dataset:
             activate or not variable pathching ( currently noise lut correction for IPF2.9X)
         """
         if 'longitude' in self.dataset:
-            logging.info('the high resolution variable such as : longitude, latitude, incidence,.. are already visible in the dataset')
+            logger.debug('the high resolution variable such as : longitude, latitude, incidence,.. are already visible in the dataset')
         else:
             # miscellaneous attributes that are not know from xml files
             attrs_dict = {
@@ -371,8 +371,14 @@ class Sentinel1Dataset:
                     pass
             # self.datatree[
             #     'measurement'].ds = self._dataset  # last link to make sure all previous modifications are also in the datatree
-            self.recompute_attrs()  # need high res rasteried longitude and latitude , needed for .rio accessor
+            self.recompute_attrs()  # need high resolution rasterised longitude and latitude , needed for .rio accessor
             self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
+            assert 'land_mask' in self.datatree['measurement']
+            if self.s1meta.product == 'SLC' and 'WV' not in self.s1meta.swath: # TOPS cases
+                logger.debug('a TOPS product')
+                self.land_mask_slc_per_bursts() # replace "GRD" like (Affine transform) land_mask by a burst-by-burst rasterised land mask
+            else:
+                logger.debug('not a TOPS product')
         return
 
     def apply_calibration_and_denoising(self):
@@ -1079,6 +1085,8 @@ class Sentinel1Dataset:
         #TODO: add a prior step to compute the intersection between the self.dataset (could be a subset) and the different bursts
         # if 'land_mask' in self.dataset:
         #     self.datatree['measurement'] = self.datatree['measurement'].assign(self.datatree['measurement'].to_dataset().drop('land_mask'))
+        logger.debug('start land_mask_slc_per_bursts()')
+
         def _rasterize_mask_by_chunks(line, sample, mask='land'):
             """
             copy/pasted from _load_rasterized_masks()
@@ -1171,6 +1179,7 @@ class Sentinel1Dataset:
                 )
                 name = '%s_maskv2' % mask
                 da_mask.attrs['history'] = yaml.safe_dump({name: self.s1meta.get_mask(mask, describe=True)})
+                logger.debug('%s -> %s',mask,da_mask.attrs['history'] )
                 #da_list.append(da_mask.to_dataset(name=name))
                 if mask not in da_dict:
                     da_dict[mask] = [da_mask.to_dataset(name=name)]
@@ -1183,10 +1192,15 @@ class Sentinel1Dataset:
             complet_mask = xr.combine_by_coords(da_dict[kk])
             all_masks.append(complet_mask)
         tmpds = self.datatree['measurement'].to_dataset()
+        tmpds.attrs = self.dataset.attrs
         tmpmerged = xr.merge([tmpds]+all_masks)
         tmpmerged = tmpmerged.drop('land_mask')
+        logger.debug('rename land_maskv2 -> land_mask')
         tmpmerged = tmpmerged.rename({'land_maskv2':'land_mask'})
+        tmpmerged.attrs['land_mask_computed_by_burst'] = True
+        self.dataset = tmpmerged
         self.datatree['measurement'] = self.datatree['measurement'].assign(tmpmerged)
+        self.datatree['measurement'].attrs = tmpmerged.attrs
 
     @timing
     def map_raster(self, raster_ds):

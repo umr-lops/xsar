@@ -3,6 +3,7 @@ import pdb
 
 import logging
 import warnings
+import resource
 import numpy as np
 import xarray
 from scipy.interpolate import RectBivariateSpline
@@ -12,8 +13,10 @@ import rasterio
 import rasterio.features
 from rasterio.control import GroundControlPoint
 import rioxarray
+import time
 from scipy.interpolate import interp1d
 from shapely.geometry import Polygon, box
+from shapely.validation import make_valid
 import shapely
 from .utils import timing, haversine, map_blocks_coords, bbox_coords, BlockingActorProxy, merge_yaml, get_glob, \
     to_lon180
@@ -25,7 +28,7 @@ import yaml
 import datatree
 import pandas as pd
 import geopandas as gpd
-
+from scipy.spatial import KDTree
 logger = logging.getLogger('xsar.sentinel1_dataset')
 logger.addHandler(logging.NullHandler())
 
@@ -114,7 +117,7 @@ class Sentinel1Dataset:
         # as asarray is imported from numpy, it's a numpy array.
         # but if later we decide to import asarray from cupy, il will be a cupy.array (gpu)
         self._default_meta = asarray([], dtype='f8')
-
+        self.geoloc_tree = None
         self.s1meta = None
         """`xsar.Sentinel1Meta` object"""
 
@@ -261,7 +264,7 @@ class Sentinel1Dataset:
             activate or not variable pathching ( currently noise lut correction for IPF2.9X)
         """
         if 'longitude' in self.dataset:
-            logging.info('the high resolution variable such as : longitude, latitude, incidence,.. are already visible in the dataset')
+            logger.debug('the high resolution variable such as : longitude, latitude, incidence,.. are already visible in the dataset')
         else:
             # miscellaneous attributes that are not know from xml files
             attrs_dict = {
@@ -340,6 +343,7 @@ class Sentinel1Dataset:
 
             self._rasterized_masks = self._load_rasterized_masks()
             ds_merge_list.append(self._rasterized_masks)
+            #self.add_rasterized_masks() #this method update the datatree while in this part of the code, the dataset is updated
 
 
             if luts:
@@ -357,7 +361,7 @@ class Sentinel1Dataset:
             self._dataset = self._dataset.merge(self._get_sensor_velocity())
             self._dataset = self._dataset.merge(self._range_ground_spacing())
 
-            self.recompute_attrs()
+
 
             # set miscellaneous attrs
             for var, attrs in attrs_dict.items():
@@ -367,7 +371,14 @@ class Sentinel1Dataset:
                     pass
             # self.datatree[
             #     'measurement'].ds = self._dataset  # last link to make sure all previous modifications are also in the datatree
+            self.recompute_attrs()  # need high resolution rasterised longitude and latitude , needed for .rio accessor
             self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
+            assert 'land_mask' in self.datatree['measurement']
+            if self.s1meta.product == 'SLC' and 'WV' not in self.s1meta.swath: # TOPS cases
+                logger.debug('a TOPS product')
+                self.land_mask_slc_per_bursts() # replace "GRD" like (Affine transform) land_mask by a burst-by-burst rasterised land mask
+            else:
+                logger.debug('not a TOPS product')
         return
 
     def apply_calibration_and_denoising(self):
@@ -1012,8 +1023,184 @@ class Sentinel1Dataset:
         return xr.merge(da_list)
 
     def add_rasterized_masks(self):
+        """
+        add rasterized masks only (included in add_high_resolution_variables() )
+        :return:
+        """
         self._rasterized_masks = self._load_rasterized_masks()
-        self.datatree['measurement'].ds = xr.merge([self.datatree['measurement'].ds,self._rasterized_masks])
+        #self.datatree['measurement'].ds = xr.merge([self.datatree['measurement'].ds,self._rasterized_masks])
+        self.datatree['measurement'] = self.datatree['measurement'].assign(
+            xr.merge([self.datatree['measurement'].ds, self._rasterized_masks])
+        )
+
+
+    def ll2coords_SLC(self,*args):
+        """
+        for SLC product with irregular projected pixel spacing in range Affine transformation are not relevant
+        :return:
+        """
+        stride_dataset_line = 10 # stride !=1 to save computation time, hard coded here to avoid issues of between KDtree serialized and possible different stride usage
+        stride_dataset_sample = 30
+        # stride_dataset_line = 1 # stride !=1 to save computation time, hard coded here to avoid issues of between KDtree serialized and possible different stride usage
+        # stride_dataset_sample = 1
+        lon, lat = args
+        subset_lon = self.dataset['longitude'].isel(
+            {'line': slice(None, None, stride_dataset_line), 'sample': slice(None, None, stride_dataset_sample)})
+        subset_lat = self.dataset['latitude'].isel(
+            {'line': slice(None, None, stride_dataset_line), 'sample': slice(None, None, stride_dataset_sample)})
+        if self.geoloc_tree is None:
+            t0 = time.time()
+            lontmp = subset_lon.values.ravel()
+            lattmp = subset_lat.values.ravel()
+            self.geoloc_tree = KDTree(np.c_[lontmp, lattmp])
+            logger.debug('tree ready in %1.2f sec'%(time.time()-t0))
+        ll = np.vstack([lon,lat]).T
+        dd, ii = self.geoloc_tree.query(ll, k=1)
+        line,sample = np.unravel_index(ii,subset_lat.shape)
+        return line*stride_dataset_line,sample*stride_dataset_sample
+
+    def coords2ll_SLC(self,*args):
+        """
+            for SLC product with irregular projected pixel spacing in range Affine transformation are not relevant
+        :return:
+        """
+        lines, samples = args
+        if isinstance(lines,list) or isinstance(lines,np.ndarray):
+            pass
+        else: #in case of a single point,
+            lines = [lines] # to avoid error when declaring the da_line and da_sample below
+            samples = [samples]
+        da_line = xr.DataArray(lines,dims='points')
+        da_sample = xr.DataArray(samples,dims='points')
+        lon = self.dataset['longitude'].sel(line=da_line,sample=da_sample)
+        lat = self.dataset['latitude'].sel(line=da_line, sample=da_sample)
+        return lon,lat
+
+    def land_mask_slc_per_bursts(self):
+        """
+        1) loop on burst polygons to get rasterized landmask
+        2) merge the landmask pieces into a single Dataset to replace existing 'land_mask' is any
+        :return:
+        """
+        #TODO: add a prior step to compute the intersection between the self.dataset (could be a subset) and the different bursts
+        # if 'land_mask' in self.dataset:
+        #     self.datatree['measurement'] = self.datatree['measurement'].assign(self.datatree['measurement'].to_dataset().drop('land_mask'))
+        logger.debug('start land_mask_slc_per_bursts()')
+
+        def _rasterize_mask_by_chunks(line, sample, mask='land'):
+            """
+            copy/pasted from _load_rasterized_masks()
+            :param line:
+            :param sample:
+            :param mask:
+            :return:
+            """
+            chunk_coords = bbox_coords(line, sample, pad=None)
+            # chunk footprint polygon, in dataset coordinates (with buffer, to enlarge a little the footprint)
+            chunk_footprint_coords = Polygon(chunk_coords)#.buffer(1) #no buffer-> corruption of the polygon
+            assert chunk_footprint_coords.is_valid
+            lines,samples = chunk_footprint_coords.exterior.xy
+            lines = np.array([hh for hh in lines]).astype(int)
+            lines = np.clip(lines,a_min=0,a_max=self.dataset['line'].max().values)
+            samples = np.array([hh for hh in samples]).astype(int)
+            samples = np.clip(samples,a_min=0,a_max=self.dataset['sample'].max().values)
+            chunk_footprint_lon,chunk_footprint_lat = self.coords2ll_SLC(lines,samples)
+            chunk_footprint_ll = Polygon(np.vstack([chunk_footprint_lon,chunk_footprint_lat]).T)
+            if chunk_footprint_ll.is_valid is False:
+                chunk_footprint_ll = make_valid(chunk_footprint_ll)
+            # get vector mask over chunk, in lon/lat
+            vector_mask_ll = self.s1meta.get_mask(mask).intersection(chunk_footprint_ll)
+            if vector_mask_ll.is_empty:
+                # no intersection with mask, return zeros
+                return np.zeros((line.size, sample.size))
+
+            # vector mask, in line/sample coordinates
+            if isinstance(vector_mask_ll,shapely.geometry.Polygon):
+                lons_ma,lats_ma = vector_mask_ll.exterior.xy
+                lons = np.array([hh for hh in lons_ma])
+                lats = np.array([hh for hh in lats_ma])
+                vector_mask_coords_lines,vector_mask_coords_samples = self.ll2coords_SLC(lons,lats)
+                vector_mask_coords = [Polygon(np.vstack([vector_mask_coords_lines,vector_mask_coords_samples]).T)]
+            else:  # multipolygon
+                vector_mask_coords = []  # to store polygons in image coordinates
+                for iio,onepoly in enumerate(vector_mask_ll.geoms):
+                    lons_ma, lats_ma = onepoly.exterior.xy
+                    lons = np.array([hh for hh in lons_ma])
+                    lats = np.array([hh for hh in lats_ma])
+                    vector_mask_coords_lines, vector_mask_coords_samples = self.ll2coords_SLC(lons, lats)
+                    vector_mask_coords.append(Polygon(np.vstack([vector_mask_coords_lines, vector_mask_coords_samples]).T))
+
+            # shape of the returned chunk
+            out_shape = (line.size, sample.size)
+
+            # transform * (x, y) -> (line, sample)
+            # (where (x, y) are index in out_shape)
+            # Affine.permutation() is used because (line, sample) is transposed from geographic
+            # this transform Affine seems to be sufficient approx for SLC -> curvilinear could be even better?
+            transform = Affine.translation(*chunk_coords[0]) * Affine.scale(
+                *[np.unique(np.diff(c))[0] for c in [line, sample]]) * Affine.permutation()
+
+            raster_mask = rasterio.features.rasterize(
+                vector_mask_coords,
+                out_shape=out_shape,
+                all_touched=False,
+                transform=transform
+            )
+            return raster_mask
+
+        #all_bursts = self.datatree['bursts']
+        all_bursts = self.get_bursts_polygons(only_valid_location=False)
+        da_dict = {} # dictionnary to store the DataArray of each mask and each burst
+        for burst_id in range(len(all_bursts['geometry_image'])):
+            a_burst_bbox = all_bursts['geometry_image'].iloc[burst_id]
+            line_index = np.array([int(jj) for jj in a_burst_bbox.exterior.xy[0]])
+            sample_index = np.array([int(jj) for jj in a_burst_bbox.exterior.xy[1]])
+            a_burst_subset = self.dataset.isel({'line':slice(line_index.min(),line_index.max()),
+                                                'sample':slice(sample_index.min(),sample_index.max()),'pol':0})
+            mem = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1000.
+            logger.debug('memory at burst #%s = %1.2f Mo',burst_id,mem)
+            da_tmpl = xr.DataArray(
+                dask.array.empty_like(
+                    np.empty((len(a_burst_subset.digital_number.line), len(a_burst_subset.digital_number.sample))),
+                    dtype=np.int8, name="empty_var_tmpl-%s" % dask.base.tokenize(self.s1meta.name)),
+                dims=('line', 'sample'),
+                coords={
+                    'line': a_burst_subset.digital_number.line,
+                    'sample': a_burst_subset.digital_number.sample,
+                    #'line_time': line_time.astype(float),
+                },)
+
+            for mask in self.s1meta.mask_names:
+                logger.debug('mask: %s',mask)
+                da_mask = map_blocks_coords(
+                    da_tmpl,
+                    _rasterize_mask_by_chunks,
+                    func_kwargs={'mask': mask}
+                )
+                name = '%s_maskv2' % mask
+                da_mask.attrs['history'] = yaml.safe_dump({name: self.s1meta.get_mask(mask, describe=True)})
+                logger.debug('%s -> %s',mask,da_mask.attrs['history'] )
+                #da_list.append(da_mask.to_dataset(name=name))
+                if mask not in da_dict:
+                    da_dict[mask] = [da_mask.to_dataset(name=name)]
+                else:
+                    da_dict[mask].append(da_mask.to_dataset(name=name))
+            logger.debug('da_dict[mask] = %s %s',mask,da_dict[mask])
+        # merge with existing dataset
+        all_masks = []
+        for kk in da_dict:
+            complet_mask = xr.combine_by_coords(da_dict[kk])
+            all_masks.append(complet_mask)
+        tmpds = self.datatree['measurement'].to_dataset()
+        tmpds.attrs = self.dataset.attrs
+        tmpmerged = xr.merge([tmpds]+all_masks)
+        tmpmerged = tmpmerged.drop('land_mask')
+        logger.debug('rename land_maskv2 -> land_mask')
+        tmpmerged = tmpmerged.rename({'land_maskv2':'land_mask'})
+        tmpmerged.attrs['land_mask_computed_by_burst'] = True
+        self.dataset = tmpmerged
+        self.datatree['measurement'] = self.datatree['measurement'].assign(tmpmerged)
+        self.datatree['measurement'].attrs = tmpmerged.attrs
 
     @timing
     def map_raster(self, raster_ds):
@@ -1407,10 +1594,28 @@ class Sentinel1Dataset:
     def _local_gcps(self):
         # get local gcps, for rioxarray.reproject (row and col are *index*, not coordinates)
         local_gcps = []
-        for line in self.dataset.line.values[::int(self.dataset.line.size / 20)+1]:
-            for sample in self.dataset.sample.values[::int(self.dataset.sample.size / 20)+1]:
+        line_decimated = self.dataset.line.values[::int(self.dataset.line.size / 20)+1]
+        sample_decimated = self.dataset.sample.values[::int(self.dataset.sample.size / 20)+1]
+        XX,YY = np.meshgrid(line_decimated,sample_decimated)
+        if self.s1meta.product == 'SLC':
+            logger.warning('GCPs computed from affine transformations on SLC products can be strongly shifted in position, we advise against ds.rio.reproject()')
+        #     lon_s,lat_s = self.coords2ll_SLC(XX.ravel(order='F'),YY.ravel(order='F'))
+        #     lon_s = lon_s.values
+        #     lat_s = lat_s.values
+        cpt = 0
+        for line in line_decimated:
+            for sample in sample_decimated:
                 irow = np.argmin(np.abs(self.dataset.line.values - line))
                 icol = np.argmin(np.abs(self.dataset.sample.values - sample))
+                # if self.s1meta.product == 'SLC':
+                #     #lon, lat = self.coords2ll_SLC(line,sample)
+                #     lon = lon_s[cpt]
+                #     lat = lat_s[cpt]
+                #     if sample%0==0:
+                #         print('#########')
+                #         print('lon',lon)
+                #         print('lat',lat)
+                # else:
                 lon, lat = self.s1meta.coords2ll(line, sample)
                 gcp = GroundControlPoint(
                     x=lon,
@@ -1420,6 +1625,7 @@ class Sentinel1Dataset:
                     row=irow
                 )
                 local_gcps.append(gcp)
+                cpt += 1
         return local_gcps
 
     def __repr__(self):

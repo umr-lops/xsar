@@ -16,6 +16,7 @@ import rioxarray
 import time
 from scipy.interpolate import interp1d
 from shapely.geometry import Polygon, box
+from shapely.validation import make_valid
 import shapely
 from .utils import timing, haversine, map_blocks_coords, bbox_coords, BlockingActorProxy, merge_yaml, get_glob, \
     to_lon180
@@ -360,7 +361,7 @@ class Sentinel1Dataset:
             self._dataset = self._dataset.merge(self._get_sensor_velocity())
             self._dataset = self._dataset.merge(self._range_ground_spacing())
 
-            self.recompute_attrs()
+
 
             # set miscellaneous attrs
             for var, attrs in attrs_dict.items():
@@ -370,6 +371,7 @@ class Sentinel1Dataset:
                     pass
             # self.datatree[
             #     'measurement'].ds = self._dataset  # last link to make sure all previous modifications are also in the datatree
+            self.recompute_attrs()  # need high res rasteried longitude and latitude , needed for .rio accessor
             self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
         return
 
@@ -1057,6 +1059,11 @@ class Sentinel1Dataset:
         :return:
         """
         lines, samples = args
+        if isinstance(lines,list) or isinstance(lines,np.ndarray):
+            pass
+        else: #in case of a single point,
+            lines = [lines] # to avoid error when declaring the da_line and da_sample below
+            samples = [samples]
         da_line = xr.DataArray(lines,dims='points')
         da_sample = xr.DataArray(samples,dims='points')
         lon = self.dataset['longitude'].sel(line=da_line,sample=da_sample)
@@ -1065,10 +1072,13 @@ class Sentinel1Dataset:
 
     def land_mask_slc_per_bursts(self):
         """
-
+        1) loop on burst polygons to get rasterized landmask
+        2) merge the landmask pieces into a single Dataset to replace existing 'land_mask' is any
         :return:
         """
         #TODO: add a prior step to compute the intersection between the self.dataset (could be a subset) and the different bursts
+        # if 'land_mask' in self.dataset:
+        #     self.datatree['measurement'] = self.datatree['measurement'].assign(self.datatree['measurement'].to_dataset().drop('land_mask'))
         def _rasterize_mask_by_chunks(line, sample, mask='land'):
             """
             copy/pasted from _load_rasterized_masks()
@@ -1079,7 +1089,8 @@ class Sentinel1Dataset:
             """
             chunk_coords = bbox_coords(line, sample, pad=None)
             # chunk footprint polygon, in dataset coordinates (with buffer, to enlarge a little the footprint)
-            chunk_footprint_coords = Polygon(chunk_coords).buffer(1)
+            chunk_footprint_coords = Polygon(chunk_coords)#.buffer(1) #no buffer-> corruption of the polygon
+            assert chunk_footprint_coords.is_valid
             lines,samples = chunk_footprint_coords.exterior.xy
             lines = np.array([hh for hh in lines]).astype(int)
             lines = np.clip(lines,a_min=0,a_max=self.dataset['line'].max().values)
@@ -1087,6 +1098,8 @@ class Sentinel1Dataset:
             samples = np.clip(samples,a_min=0,a_max=self.dataset['sample'].max().values)
             chunk_footprint_lon,chunk_footprint_lat = self.coords2ll_SLC(lines,samples)
             chunk_footprint_ll = Polygon(np.vstack([chunk_footprint_lon,chunk_footprint_lat]).T)
+            if chunk_footprint_ll.is_valid is False:
+                chunk_footprint_ll = make_valid(chunk_footprint_ll)
             # get vector mask over chunk, in lon/lat
             vector_mask_ll = self.s1meta.get_mask(mask).intersection(chunk_footprint_ll)
             if vector_mask_ll.is_empty:
@@ -1129,7 +1142,6 @@ class Sentinel1Dataset:
 
         #all_bursts = self.datatree['bursts']
         all_bursts = self.get_bursts_polygons(only_valid_location=False)
-        logger.debug('all_bursts = %s',all_bursts)
         da_dict = {} # dictionnary to store the DataArray of each mask and each burst
         for burst_id in range(len(all_bursts['geometry_image'])):
             a_burst_bbox = all_bursts['geometry_image'].iloc[burst_id]
@@ -1137,9 +1149,8 @@ class Sentinel1Dataset:
             sample_index = np.array([int(jj) for jj in a_burst_bbox.exterior.xy[1]])
             a_burst_subset = self.dataset.isel({'line':slice(line_index.min(),line_index.max()),
                                                 'sample':slice(sample_index.min(),sample_index.max()),'pol':0})
-            # logging.debug('a a_burst_subset : %s',a_burst_subset)
             mem = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1000.
-            logging.debug('memory at burst #%s = %1.2f Mo',burst_id,mem)
+            logger.debug('memory at burst #%s = %1.2f Mo',burst_id,mem)
             da_tmpl = xr.DataArray(
                 dask.array.empty_like(
                     np.empty((len(a_burst_subset.digital_number.line), len(a_burst_subset.digital_number.sample))),
@@ -1152,13 +1163,13 @@ class Sentinel1Dataset:
                 },)
 
             for mask in self.s1meta.mask_names:
-                logging.debug('mask: %s',mask)
+                logger.debug('mask: %s',mask)
                 da_mask = map_blocks_coords(
                     da_tmpl,
                     _rasterize_mask_by_chunks,
                     func_kwargs={'mask': mask}
                 )
-                name = '%s_mask2' % mask # 2 for dev to compare with previous
+                name = '%s_maskv2' % mask
                 da_mask.attrs['history'] = yaml.safe_dump({name: self.s1meta.get_mask(mask, describe=True)})
                 #da_list.append(da_mask.to_dataset(name=name))
                 if mask not in da_dict:
@@ -1166,17 +1177,15 @@ class Sentinel1Dataset:
                 else:
                     da_dict[mask].append(da_mask.to_dataset(name=name))
             logger.debug('da_dict[mask] = %s %s',mask,da_dict[mask])
-        #merge with existing dataset
+        # merge with existing dataset
         all_masks = []
         for kk in da_dict:
-            logging.debug('kk : %s',kk)
-            #complet_mask = xr.merge(da_dict[kk])
             complet_mask = xr.combine_by_coords(da_dict[kk])
-            logging.debug('merged %s = %s',kk,complet_mask)
-            #complet_mask =
             all_masks.append(complet_mask)
         tmpds = self.datatree['measurement'].to_dataset()
         tmpmerged = xr.merge([tmpds]+all_masks)
+        tmpmerged = tmpmerged.drop('land_mask')
+        tmpmerged = tmpmerged.rename({'land_maskv2':'land_mask'})
         self.datatree['measurement'] = self.datatree['measurement'].assign(tmpmerged)
 
     @timing
@@ -1571,10 +1580,27 @@ class Sentinel1Dataset:
     def _local_gcps(self):
         # get local gcps, for rioxarray.reproject (row and col are *index*, not coordinates)
         local_gcps = []
-        for line in self.dataset.line.values[::int(self.dataset.line.size / 20)+1]:
-            for sample in self.dataset.sample.values[::int(self.dataset.sample.size / 20)+1]:
+        line_decimated = self.dataset.line.values[::int(self.dataset.line.size / 20)+1]
+        sample_decimated = self.dataset.sample.values[::int(self.dataset.sample.size / 20)+1]
+        XX,YY = np.meshgrid(line_decimated,sample_decimated)
+        # if self.s1meta.product == 'SLC':
+        #     lon_s,lat_s = self.coords2ll_SLC(XX.ravel(order='F'),YY.ravel(order='F'))
+        #     lon_s = lon_s.values
+        #     lat_s = lat_s.values
+        cpt = 0
+        for line in line_decimated:
+            for sample in sample_decimated:
                 irow = np.argmin(np.abs(self.dataset.line.values - line))
                 icol = np.argmin(np.abs(self.dataset.sample.values - sample))
+                # if self.s1meta.product == 'SLC':
+                #     #lon, lat = self.coords2ll_SLC(line,sample)
+                #     lon = lon_s[cpt]
+                #     lat = lat_s[cpt]
+                #     if sample%0==0:
+                #         print('#########')
+                #         print('lon',lon)
+                #         print('lat',lat)
+                # else:
                 lon, lat = self.s1meta.coords2ll(line, sample)
                 gcp = GroundControlPoint(
                     x=lon,
@@ -1584,6 +1610,7 @@ class Sentinel1Dataset:
                     row=irow
                 )
                 local_gcps.append(gcp)
+                cpt += 1
         return local_gcps
 
     def __repr__(self):

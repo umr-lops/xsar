@@ -16,7 +16,7 @@ setup(
         'dask[distributed]',
         'xarray',
         'affine',
-        'rasterio<=1.3.0.post1',
+        'rasterio==1.3.3',
         'cartopy',
         'fiona',
         'pyproj',

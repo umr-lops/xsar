@@ -2,7 +2,8 @@ import cartopy.feature
 # from .raster_readers import available_rasters
 from .utils import to_lon180, haversine, timing, class_or_instancemethod
 from . import raster_readers
-from xradarsat2 import rs2_reader, radarSat2_xarray_reader.radarSat2_xarray_reader.xpath_get()
+from xradarsat2 import rs2_reader
+from xradarsat2.radarSat2_xarray_reader import xpath_get
 import os
 import geopandas as gpd
 

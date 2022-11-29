@@ -1,9 +1,0 @@
-Metadata-Version: 2.1
-Name: xsar
-Version: 0.1.dev500+ga2873d3.d20221128
-Summary: xarray/dask distributed L1 sar file reader
-Home-page: https://github.com/umr-lops/xsar
-Author: Olivier Archer, Alexandre Levieux
-Author-email: Olivier.Archer@ifremer.fr, Alexandre.Levieux@gmail.com
-License: MIT
-License-File: LICENSE

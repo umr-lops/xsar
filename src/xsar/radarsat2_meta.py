@@ -6,6 +6,7 @@ from xradarsat2 import rs2_reader
 from xradarsat2.radarSat2_xarray_reader import xpath_get
 import os
 import geopandas as gpd
+import xmltodict
 
 
 class RadarSat2Meta:
@@ -81,10 +82,13 @@ class RadarSat2Meta:
         """Subdatasets as GeodataFrame (empty if single dataset)"""
 
     def create_manifest_attrs(self):
+        dic_product_xml = xmltodict.parse(os.path.join(self.path, 'product.xml'))
         dic = dict()
         dic["swath_type"] = os.path.basename(self.path).split('_')[4]
         dic["polarizations"] = self.dt["radarParameters"]["pole"].values
         dic["product_type"] = self.product
+
+    
 
 
 """if __name__ == "__main__":

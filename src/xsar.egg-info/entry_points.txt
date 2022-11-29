@@ -1,0 +1,2 @@
+[xarray.backends]
+xsar = xsar.xarray_backends:XsarXarrayBackend

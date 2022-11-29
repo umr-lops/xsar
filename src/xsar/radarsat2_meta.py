@@ -7,6 +7,7 @@ from xradarsat2.radarSat2_xarray_reader import xpath_get
 import os
 import geopandas as gpd
 import xmltodict
+import numpy as np
 
 
 class RadarSat2Meta:
@@ -90,6 +91,23 @@ class RadarSat2Meta:
         dic['start_date'] = self.dt.attrs['rawDataStartTime']
         return dic
 
+    @property
+    def cross_antemeridian(self):
+        """True if footprint cross antemeridian"""
+        return ((np.max(self.rs2.dt['geolocationGrid']['longitude']) - np.min(self.rs2.dt['geolocationGrid']['longitude'])) > 180).item()
+
+    @property
+    def _bursts(self):
+        if self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.number_of_bursts') > 0:
+            bursts = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts')
+            bursts.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts',
+                                                                       describe=True)
+            return bursts
+        else:
+            bursts = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts_grd')
+            bursts.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts_grd',
+                                                                       describe=True)
+            return bursts
 
 
 

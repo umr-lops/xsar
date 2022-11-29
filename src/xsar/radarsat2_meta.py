@@ -74,21 +74,23 @@ class RadarSat2Meta:
             f"product:{self.product} \n")
 
         # self.manifest = os.path.join(self.path, 'manifest.safe')
-        # self.manifest_attrs = self.xml_parser.get_compound_var(self.manifest, 'safe_attributes')
-        # self._safe_files = None
+        self.manifest_attrs = self._create_manifest_attrs()
+        self._safe_files = None
         self.multidataset = False
         """True if multi dataset"""
         self.subdatasets = gpd.GeoDataFrame(geometry=[], index=[])
         """Subdatasets as GeodataFrame (empty if single dataset)"""
 
-    def create_manifest_attrs(self):
-        dic_product_xml = xmltodict.parse(os.path.join(self.path, 'product.xml'))
+    def _create_manifest_attrs(self):
         dic = dict()
         dic["swath_type"] = os.path.basename(self.path).split('_')[4]
         dic["polarizations"] = self.dt["radarParameters"]["pole"].values
         dic["product_type"] = self.product
+        dic['satellite'] = self.dt.attrs['satellite']
+        dic['start_date'] = self.dt.attrs['rawDataStartTime']
+        return dic
 
-    
+
 
 
 """if __name__ == "__main__":

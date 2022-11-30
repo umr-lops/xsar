@@ -65,7 +65,7 @@ class RadarSat2Dataset:
             # SLC TOPS, tune the high res grid because of bursts overlapping
             self._da_tmpl = xr.DataArray(
                 dask.array.empty_like(
-                    np.empty((len(self._dataset.line))),
+                    np.empty((len(self._dataset.line), len(self._dataset.sample))),        ################# NOT SURE   ##################
                     dtype=np.int8, name="empty_var_tmpl-%s" % dask.base.tokenize(self.rs2meta.name)),
                 dims=('line', 'sample'),
                 coords={

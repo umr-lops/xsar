@@ -1,3 +1,5 @@
+import copy
+
 import cartopy.feature
 # from .raster_readers import available_rasters
 from .utils import to_lon180, haversine, timing, class_or_instancemethod
@@ -96,7 +98,7 @@ class RadarSat2Meta:
         """True if footprint cross antemeridian"""
         return ((np.max(self.rs2.dt['geolocationGrid']['longitude']) - np.min(self.rs2.dt['geolocationGrid']['longitude'])) > 180).item()
 
-    @property
+    """@property
     def _bursts(self):
         if self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.number_of_bursts') > 0:
             bursts = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts')
@@ -107,8 +109,19 @@ class RadarSat2Meta:
             bursts = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts_grd')
             bursts.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts_grd',
                                                                        describe=True)
-            return bursts
+            return bursts"""
 
+    @classmethod
+    def from_dict(cls, minidict):
+        # like copy constructor, but take a dict from Sentinel1Meta.dict
+        # https://github.com/umr-lops/xsar/issues/23
+        for name in minidict['_mask_features_raw'].keys():
+            assert minidict['_mask_geometry'][name] is None
+            assert minidict['_mask_features'][name] is None
+        minidict = copy.copy(minidict)
+        new = cls(minidict['name'])
+        new.__dict__.update(minidict)
+        return new
 
 
 """if __name__ == "__main__":

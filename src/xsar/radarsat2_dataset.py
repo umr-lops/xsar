@@ -192,10 +192,10 @@ class RadarSat2Dataset:
                     logger.debug('translate longitudes between 0 and 360')
                     z_values = z_values % 360
             else:
-                z_values = self.rs2meta.geoloc[varname]
+                z_values = self.rs2meta.geoloc[varname_in_geoloc]  # TODO : made changes here for height
 
             rbs = RectBivariateSpline(
-                self.rs2meta.geoloc.line[:, 0],
+                self.rs2meta.geoloc.line,
                 self.rs2meta.geoloc.pixel,
                 z_values,
                 kx=1, ky=1,
@@ -204,7 +204,7 @@ class RadarSat2Dataset:
 
             # the following take much cpu and memory, so we want to use dask
             # interp_func(self._dataset.atrack, self.dataset.xtrack)
-            typee = self.rs2meta.geoloc[varname].dtype
+            typee = self.rs2meta.geoloc[varname_in_geoloc].dtype # TODO : idem
             datemplate = self._da_tmpl.astype(typee).copy()
             # replace the atrack coordinates by atrack_time coordinates
             # datemplate = datemplate.assign_coords({'atrack': datemplate.coords['atrack_time']})

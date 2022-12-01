@@ -118,7 +118,7 @@ class RadarSat2Meta:
     @property
     def cross_antemeridian(self):
         """True if footprint cross antemeridian"""
-        return ((np.max(self.rs2.dt['geolocationGrid']['longitude']) - np.min(
+        return ((np.max(self.geoloc['longitude']) - np.min(
             self.geoloc['longitude'])) > 180).item()
 
     """@property

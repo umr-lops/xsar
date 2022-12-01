@@ -123,6 +123,28 @@ class RadarSat2Meta:
         new.__dict__.update(minidict)
         return new
 
+    def to_dict(self, keys='minimal'):
+
+        info_keys = {
+            'minimal': ['ipf', 'platform', 'swath', 'product', 'pols']
+        }
+        info_keys['all'] = info_keys['minimal'] + ['name', 'start_date', #'stop_date',
+                                                   'footprint', 'coverage',
+                                                   'pixel_atrack_m', 'pixel_xtrack_m', 'orbit_pass', 'platform_heading']
+
+        if isinstance(keys, str):
+            keys = info_keys[keys]
+
+        res_dict = {}
+        for k in keys:
+            if hasattr(self, k):
+                res_dict[k] = getattr(self, k)
+            elif k in self.manifest_attrs.keys():
+                res_dict[k] = self.manifest_attrs[k]
+            else:
+                raise KeyError('Unable to find key/attr "%s" in RadarSat2Meta' % k)
+        return res_dict
+
 
 """if __name__ == "__main__":
     RadarSat2Meta("/home/datawork-cersat-public/cache/project/sarwing/data/RS2/L1/VV_VH/2020/234/"

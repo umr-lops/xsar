@@ -201,3 +201,5 @@ class RadarSat2Dataset:
             da_list.append(da_var)
 
         return xr.merge(da_list)
+
+    # TODO : add to_dict()

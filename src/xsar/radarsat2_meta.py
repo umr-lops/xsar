@@ -1,6 +1,9 @@
 import copy
 
 import cartopy.feature
+from shapely.geometry import Polygon
+from shapely.ops import unary_union
+
 # from .raster_readers import available_rasters
 from .utils import to_lon180, haversine, timing, class_or_instancemethod
 from . import raster_readers
@@ -77,12 +80,21 @@ class RadarSat2Meta:
             f"product:{self.product} \n")
 
         # self.manifest = os.path.join(self.path, 'manifest.safe')
-        self.manifest_attrs = self._create_manifest_attrs()
+
         self._safe_files = None
         self.multidataset = False
         """True if multi dataset"""
         self.subdatasets = gpd.GeoDataFrame(geometry=[], index=[])
         """Subdatasets as GeodataFrame (empty if single dataset)"""
+        self.geoloc = self.dt['geolocationGrid'].ds
+
+        self.orbit_and_attitude = self.dt['orbitAndAttitude'].ds
+        self.doppler_centroid = self.dt['imageGenerationParameters']['doppler']['dopplerCentroid'].ds
+        self.doppler_rate_values = self.dt['imageGenerationParameters']['doppler']['dopplerRateValues'].ds
+        self.chirp = self.dt['imageGenerationParameters']['chirp'].ds
+        self.radar_parameters = self.dt['radarParameters'].ds
+        self.lut = self.dt['lut'].ds
+        self.manifest_attrs = self._create_manifest_attrs()
 
     def _create_manifest_attrs(self):
         dic = dict()
@@ -91,12 +103,23 @@ class RadarSat2Meta:
         dic["product_type"] = self.product
         dic['satellite'] = self.dt.attrs['satellite']
         dic['start_date'] = self.dt.attrs['rawDataStartTime']
+        # compute attributes (footprint, coverage, pixel_size)
+        footprint_dict = {}
+        for ll in ['longitude', 'latitude']:
+            footprint_dict[ll] = [
+                self.geoloc[ll].isel(line=a, pixel=x).values for a, x in [(0, 0), (0, -1), (-1, -1), (-1, 0)]
+            ]
+        corners = list(zip(footprint_dict['longitude'], footprint_dict['latitude']))
+        p = Polygon(corners)
+        self.geoloc.attrs['footprint'] = p
+        dic["footprints"] = p
         return dic
 
     @property
     def cross_antemeridian(self):
         """True if footprint cross antemeridian"""
-        return ((np.max(self.rs2.dt['geolocationGrid']['longitude']) - np.min(self.rs2.dt['geolocationGrid']['longitude'])) > 180).item()
+        return ((np.max(self.rs2.dt['geolocationGrid']['longitude']) - np.min(
+            self.geoloc['longitude'])) > 180).item()
 
     """@property
     def _bursts(self):
@@ -126,11 +149,17 @@ class RadarSat2Meta:
     def to_dict(self, keys='minimal'):
 
         info_keys = {
-            'minimal': ['ipf', 'platform', 'swath', 'product', 'pols']
+            'minimal': [
+                #'platform',
+                'swath', 'product', 'pols']
         }
-        info_keys['all'] = info_keys['minimal'] + ['name', 'start_date', #'stop_date',
-                                                   'footprint', 'coverage',
-                                                   'pixel_atrack_m', 'pixel_xtrack_m', 'orbit_pass', 'platform_heading']
+        info_keys['all'] = info_keys['minimal'] + ['name', 'start_date',  # 'stop_date',
+                                                   'footprint',
+                                                   #'coverage',
+                                                   'pixel_line_m', 'pixel_sample_m',
+                                                   #'orbit_pass',
+                                                   #'platform_heading'
+                                                   ]
 
         if isinstance(keys, str):
             keys = info_keys[keys]
@@ -144,6 +173,41 @@ class RadarSat2Meta:
             else:
                 raise KeyError('Unable to find key/attr "%s" in RadarSat2Meta' % k)
         return res_dict
+
+    @property
+    def swath(self):
+        """string like 'EW', 'IW', 'WV', etc ..."""
+        return self.manifest_attrs['swath_type']
+
+    @property
+    def pols(self):
+        """polarisations strings, separated by spaces """
+        return " ".join(self.manifest_attrs['polarizations'])
+
+    @property
+    def footprint(self):
+        """footprint, as a shapely polygon or multi polygon"""
+        if self.multidataset:
+            return unary_union(self._footprints)
+        return self.geoloc.attrs['footprint']
+
+    @property
+    def pixel_line_m(self):
+        """pixel line spacing, in meters (at sensor level)"""
+        if self.multidataset:
+            res = None  # not defined for multidataset
+        else:
+            res = self.geoloc.line.attrs['rasterAttributes_sampledLineSpacing_value']
+        return res
+
+    @property
+    def pixel_sample_m(self):
+        """pixel sample spacing, in meters (at sensor level)"""
+        if self.multidataset:
+            res = None  # not defined for multidataset
+        else:
+            res = self.geoloc.pixel.attrs['rasterAttributes_sampledPixelSpacing_value']
+        return res
 
 
 """if __name__ == "__main__":

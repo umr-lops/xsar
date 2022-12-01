@@ -1,7 +1,10 @@
 """
 TODO: this docstring is the main xsar module documentation shown to the user. It's should be updated with some examples.
 """
+import pdb
+
 import warnings
+import xarray
 
 try:
     from importlib import metadata
@@ -19,7 +22,7 @@ from . import sentinel1_xml_mappings
 from .xml_parser import XmlParser
 import pandas as pd
 import geopandas as gpd
-
+import xarray as xr
 
 
 from .sentinel1_meta import Sentinel1Meta
@@ -64,8 +67,40 @@ def open_dataset(*args, **kwargs):
         sar_obj = Sentinel1Dataset(*args, **kwargs)
     else:
         raise TypeError("Unknown dataset type from %s" % str(dataset_id))
+    ds = sar_obj.dataset
+    return ds
 
-    return sar_obj.dataset
+def open_datatree(*args, **kwargs):
+    """
+    Parameters
+    ----------
+    *args:
+        Passed to `xsar.SentinelDataset`
+    **kwargs:
+        Passed to `xsar.SentinelDataset`
+
+    Returns
+    -------
+    xarray.Dataset
+
+    Notes
+    -----
+    xsar.open_dataset` is a simple wrapper to `xsar.SentinelDataset` that directly returns the `xarray.Dataset` object.
+
+    >>> xsar.Sentinel1Dataset(*args, **kwargs).dataset
+
+    See Also
+    --------
+    xsar.Sentinel1Dataset
+    """
+    dataset_id = args[0]
+    # TODO: check product type (S1, RS2), and call specific reader
+    if isinstance(dataset_id, Sentinel1Meta) or isinstance(dataset_id, str) and ".SAFE" in dataset_id:
+        sar_obj = Sentinel1Dataset(*args, **kwargs)
+    else:
+        raise TypeError("Unknown dataset type from %s" % str(dataset_id))
+    dt = sar_obj.datatree
+    return dt
 
 
 def product_info(path, columns='minimal', include_multi=False, _xml_parser=None):

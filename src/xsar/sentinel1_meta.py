@@ -178,7 +178,7 @@ class Sentinel1Meta:
             'minimal': ['ipf', 'platform', 'swath', 'product', 'pols']
         }
         info_keys['all'] = info_keys['minimal'] + ['name', 'start_date', 'stop_date', 'footprint', 'coverage',
-                                                   'pixel_line_m', 'pixel_sample_m', 'orbit_pass', 'platform_heading']
+                                                   'orbit_pass', 'platform_heading'] #  'pixel_line_m', 'pixel_sample_m',
 
         if isinstance(keys, str):
             keys = info_keys[keys]
@@ -541,12 +541,12 @@ class Sentinel1Meta:
     @property
     def start_date(self):
         """start date, as datetime.datetime"""
-        return self.time_range.left
+        return '%s'%self.time_range.left
 
     @property
     def stop_date(self):
         """stort date, as datetime.datetime"""
-        return self.time_range.right
+        return '%s'%self.time_range.right
 
     @property
     def denoised(self):

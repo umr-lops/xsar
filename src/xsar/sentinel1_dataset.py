@@ -82,12 +82,15 @@ class Sentinel1Dataset:
 
         activate or not variable pathching ( currently noise lut correction for IPF2.9X)
 
+    lazyloading: bool, optional
+        activate or not the lazy loading of the high resolution fields
+
     """
 
     def __init__(self, dataset_id, resolution=None,
                  resampling=rasterio.enums.Resampling.rms,
                  luts=False, chunks={'line': 5000, 'sample': 5000},
-                 dtypes=None, patch_variable=True):
+                 dtypes=None, patch_variable=True,lazyloading=True):
 
         # default dtypes
         self._dtypes = {
@@ -238,7 +241,7 @@ class Sentinel1Dataset:
         self._dataset.attrs.update(self.s1meta.to_dict("all"))
         self.datatree.attrs.update(self.s1meta.to_dict("all"))
         if 'GRD' in str(self.datatree.attrs['product']):  # load land_mask by default for GRD products
-            self.add_high_resolution_variables(patch_variable=patch_variable,luts=luts)
+            self.add_high_resolution_variables(patch_variable=patch_variable,luts=luts,lazy_loading=lazyloading)
             self.apply_calibration_and_denoising()
 
         self.sliced = False
@@ -251,7 +254,7 @@ class Sentinel1Dataset:
         self._bbox_coords_ori = self._bbox_coords
 
 
-    def add_high_resolution_variables(self,luts=False,patch_variable=True,skip_variables=None):
+    def add_high_resolution_variables(self,luts=False,patch_variable=True,skip_variables=None,load_luts=True,lazy_loading=True):
         """
         :parameter
         luts: bool, optional
@@ -264,6 +267,13 @@ class Sentinel1Dataset:
 
         skip_variables: list, optional
             list of strings eg ['land_mask','longitude'] to skip at rasterisation step
+
+        load_luts: bool
+            True -> load hiddens luts sigma0 beta0 gamma0, False -> no luts reading
+
+        lazy_loading : bool
+            True -> use map_blocks_coords() to have delayed rasterization on variables such as longitude, latitude, incidence,..., False -> directly compute RectBivariateSpline with memory usage
+            (Currently the lazy_loading generate a memory leak)
         """
         if 'longitude' in self.dataset:
             logger.debug('the high resolution variable such as : longitude, latitude, incidence,.. are already visible in the dataset')
@@ -330,19 +340,21 @@ class Sentinel1Dataset:
             self._hidden_vars = ['sigma0_lut', 'gamma0_lut', 'noise_lut', 'noise_lut_range', 'noise_lut_azi']
             # attribute to activate correction on variables, if available
             self._patch_variable = patch_variable
+            if load_luts:
+                self._luts = self._lazy_load_luts(self._map_lut_files.keys())
 
-            self._luts = self._lazy_load_luts(self._map_lut_files.keys())
+                # noise_lut is noise_lut_range * noise_lut_azi
+                if 'noise_lut_range' in self._luts.keys() and 'noise_lut_azi' in self._luts.keys():
+                    self._luts = self._luts.assign(noise_lut=self._luts.noise_lut_range * self._luts.noise_lut_azi)
+                    self._luts.noise_lut.attrs['history'] = merge_yaml(
+                        [self._luts.noise_lut_range.attrs['history'] + self._luts.noise_lut_azi.attrs['history']],
+                        section='noise_lut'
+                    )
 
-            # noise_lut is noise_lut_range * noise_lut_azi
-            if 'noise_lut_range' in self._luts.keys() and 'noise_lut_azi' in self._luts.keys():
-                self._luts = self._luts.assign(noise_lut=self._luts.noise_lut_range * self._luts.noise_lut_azi)
-                self._luts.noise_lut.attrs['history'] = merge_yaml(
-                    [self._luts.noise_lut_range.attrs['history'] + self._luts.noise_lut_azi.attrs['history']],
-                    section='noise_lut'
-                )
-
-            ds_merge_list = [self._dataset,# self._load_ground_heading(),  # lon_lat
-                             self._luts.drop_vars(self._hidden_vars, errors='ignore')]
+                ds_merge_list = [self._dataset,# self._load_ground_heading(),  # lon_lat
+                                 self._luts.drop_vars(self._hidden_vars, errors='ignore')]
+            else:
+                ds_merge_list = [self._dataset]
 
 
             if 'ground_heading' not in skip_variables:
@@ -364,7 +376,7 @@ class Sentinel1Dataset:
                 if vv in geoloc_vars:
                     geoloc_vars.remove(vv)
 
-            self._dataset = self._dataset.merge(self._load_from_geoloc(geoloc_vars))
+            self._dataset = self._dataset.merge(self._load_from_geoloc(geoloc_vars,lazy_loading=lazy_loading))
 
             rasters = self._load_rasters_vars()
             if rasters is not None:
@@ -866,7 +878,7 @@ class Sentinel1Dataset:
         return ds
 
     @timing
-    def _load_from_geoloc(self, varnames):
+    def _load_from_geoloc(self, varnames,lazy_loading=True):
         """
         Interpolate (with RectBiVariateSpline) variables from `self.s1meta.geoloc` to `self._dataset`
 
@@ -946,18 +958,27 @@ class Sentinel1Dataset:
                 datemplate = self._da_tmpl.astype(typee).copy()
                 # replace the line coordinates by line_time coordinates
                 datemplate = datemplate.assign_coords({'line': datemplate.coords['line_time']})
-                da_var = map_blocks_coords(
-                    datemplate,
-                    interp_func,
-                    func_kwargs={"rbs": rbs}
-                )
-                # put back the real line coordinates
-                da_var = da_var.assign_coords({'line': self._dataset.digital_number.line})
+                if lazy_loading:
+                    da_var = map_blocks_coords(
+                        datemplate,
+                        interp_func,
+                        func_kwargs={"rbs": rbs}
+                    )
+                    # put back the real line coordinates
+                    da_var = da_var.assign_coords({'line': self._dataset.digital_number.line})
+                else:
+                    line_time = self.get_burst_azitime
+                    XX,YY = np.meshgrid(line_time.astype(float),self._dataset.digital_number.sample)
+                    da_var = rbs(XX,YY,grid=False)
+                    da_var = xr.DataArray(da_var.T,coords={'line':self._dataset.digital_number.line,"sample":self._dataset.digital_number.sample},dims=['line','sample'])
             else:
-                da_var = map_blocks_coords(
-                    self._da_tmpl.astype(typee),
-                    interp_func
-                )
+                if lazy_loading:
+                    da_var = map_blocks_coords(
+                        self._da_tmpl.astype(typee),
+                        interp_func
+                    )
+                else:
+                    da_var = interp_func(self._dataset.digital_number.line,self._dataset.digital_number.sample)
             if varname == 'longitude':
                 if self.s1meta.cross_antemeridian:
                     da_var.data = da_var.data.map_blocks(to_lon180)
@@ -1621,7 +1642,7 @@ class Sentinel1Dataset:
         sample_decimated = self.dataset.sample.values[::int(self.dataset.sample.size / 20)+1]
         XX,YY = np.meshgrid(line_decimated,sample_decimated)
         if self.s1meta.product == 'SLC':
-            logger.warning('GCPs computed from affine transformations on SLC products can be strongly shifted in position, we advise against ds.rio.reproject()')
+            logger.debug('GCPs computed from affine transformations on SLC products can be strongly shifted in position, we advise against ds.rio.reproject()')
         #     lon_s,lat_s = self.coords2ll_SLC(XX.ravel(order='F'),YY.ravel(order='F'))
         #     lon_s = lon_s.values
         #     lat_s = lat_s.values
@@ -1712,7 +1733,6 @@ class Sentinel1Dataset:
         else:
             factor_range = 1
             factor_azimuth = 1
-        print('factor_range',factor_range,factor_azimuth)
         # compute resolution factor if any
         if self.s1meta.multidataset:
             blocks_list = []

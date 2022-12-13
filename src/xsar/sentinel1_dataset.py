@@ -267,13 +267,13 @@ class Sentinel1Dataset:
     def add_high_resolution_variables(self, luts=False, patch_variable=True, skip_variables=None, load_luts=True,
                                       lazy_loading=True):
         """
-        :parameter
-        luts: bool, optional
+        Parameters
+        ----------
 
+        luts: bool, optional
             if `True` return also luts as variables (ie `sigma0_lut`, `gamma0_lut`, etc...). False by default.
 
         patch_variable: bool, optional
-
             activate or not variable pathching ( currently noise lut correction for IPF2.9X)
 
         skip_variables: list, optional
@@ -422,7 +422,10 @@ class Sentinel1Dataset:
     def apply_calibration_and_denoising(self):
         """
         apply calibration and denoising functions to get high resolution sigma0 , beta0 and gamma0 + variables *_raw
-        :return:
+
+        Returns:
+        --------
+
         """
         for var_name, lut_name in self._map_var_lut.items():
             if lut_name in self._luts:
@@ -1142,7 +1145,9 @@ class Sentinel1Dataset:
     def coords2ll_SLC(self, *args):
         """
             for SLC product with irregular projected pixel spacing in range Affine transformation are not relevant
-        :return:
+
+        Returns
+        -------
         """
         lines, samples = args
         if isinstance(lines, list) or isinstance(lines, np.ndarray):
@@ -1160,7 +1165,15 @@ class Sentinel1Dataset:
         """
         1) loop on burst polygons to get rasterized landmask
         2) merge the landmask pieces into a single Dataset to replace existing 'land_mask' is any
-        :return:
+
+        Parameters
+        ----------
+
+        lazy_loading bool
+
+        Returns
+        -------
+
         """
         # TODO: add a prior step to compute the intersection between the self.dataset (could be a subset) and the different bursts
         # if 'land_mask' in self.dataset:
@@ -1740,7 +1753,10 @@ class Sentinel1Dataset:
     def get_burst_valid_location(self):
         """
         add a field 'valid_location' in the bursts sub-group of the datatree
-        :return:
+
+        Returns:
+        --------
+
         """
         nbursts = len(self.datatree['bursts'].ds['burst'])
         burst_firstValidSample = self.datatree['bursts'].ds['firstValidSample'].values

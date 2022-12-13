@@ -38,6 +38,13 @@ warnings.filterwarnings("ignore", category=rasterio.errors.NotGeoreferencedWarni
 # some dask warnings are still non filtered: https://github.com/dask/dask/issues/3245
 np.errstate(invalid='ignore')
 
+mapping_dataset_geoloc = {'latitude': 'latitude',
+                          'longitude': 'longitude',
+                          'incidence': 'incidenceAngle',
+                          'elevation': 'elevationAngle',
+                          'altitude': 'height',
+                          'azimuth_time': 'azimuthTime',
+                          'slant_range_time': 'slantRangeTime'}
 
 # noinspection PyTypeChecker
 class Sentinel1Dataset:
@@ -121,6 +128,7 @@ class Sentinel1Dataset:
         self._default_meta = asarray([], dtype='f8')
         self.geoloc_tree = None
         self.s1meta = None
+        self.interpolation_func_slc = None
         """`xsar.Sentinel1Meta` object"""
 
         if not isinstance(dataset_id, Sentinel1Meta):
@@ -138,7 +146,10 @@ class Sentinel1Dataset:
             raise IndexError(
                 """Can't open an multi-dataset. Use `xsar.Sentinel1Meta('%s').subdatasets` to show availables ones""" % self.s1meta.path
             )
-
+        # security to prevent using resolution argument with SLC
+        if self.s1meta.product == 'SLC' and 'WV' not in self.s1meta.swath:  # TOPS cases
+            resolution = None
+            logger.warning('xsar is not handling resolution change for SLC TOPS products. resolution set to `None`')
         # build datatree
         DN_tmp = self._load_digital_number(resolution=resolution, resampling=resampling, chunks=chunks)
         ### geoloc
@@ -405,7 +416,7 @@ class Sentinel1Dataset:
                 assert 'land_mask' in self.datatree['measurement']
                 if self.s1meta.product == 'SLC' and 'WV' not in self.s1meta.swath: # TOPS cases
                     logger.debug('a TOPS product')
-                    self.land_mask_slc_per_bursts() # replace "GRD" like (Affine transform) land_mask by a burst-by-burst rasterised land mask
+                    self.land_mask_slc_per_bursts(lazy_loading=lazy_loading) # replace "GRD" like (Affine transform) land_mask by a burst-by-burst rasterised land mask
                 else:
                     logger.debug('not a TOPS product -> land_mask already available.')
         return
@@ -893,13 +904,7 @@ class Sentinel1Dataset:
             With interpolated vaiables
 
         """
-        mapping_dataset_geoloc = {'latitude': 'latitude',
-            'longitude': 'longitude',
-            'incidence': 'incidenceAngle',
-            'elevation': 'elevationAngle',
-            'altitude': 'height',
-            'azimuth_time': 'azimuthTime',
-            'slant_range_time': 'slantRangeTime'}
+
         da_list = []
 
         def interp_func_slc(vect1dazti, vect1dxtrac, **kwargs):
@@ -994,6 +999,42 @@ class Sentinel1Dataset:
             da_list.append(da_var)
 
         return xr.merge(da_list)
+
+
+    def get_ll_from_SLC_geoloc(self,line,sample,varname):
+        """
+
+        Parameters
+        ----------
+            line (np.ndarray) : azimuth times at high resolution
+            sample (np.ndarray): range coords
+            varname (str): e.g. longitude , latitude , incidence (any variable that is given in geolocation grid annotations
+        Returns
+        -------
+            z_interp_value (np.ndarray):
+        """
+        varname_in_geoloc = mapping_dataset_geoloc[varname]
+        if varname in ['azimuth_time']:
+            z_values = self.s1meta.geoloc[varname_in_geoloc].astype(float)
+        elif varname == 'longitude':
+            z_values = self.s1meta.geoloc[varname_in_geoloc]
+            # if self.s1meta.cross_antemeridian:
+            #     logger.debug('translate longitudes between 0 and 360')
+            #     z_values = z_values % 360
+        else:
+            z_values = self.s1meta.geoloc[varname_in_geoloc]
+        if self.interpolation_func_slc is None:
+            rbs = RectBivariateSpline(
+                self.s1meta.geoloc.azimuthTime[:, 0].astype(float),
+                self.s1meta.geoloc.sample,
+                z_values,
+                kx=1, ky=1,
+            )
+            self.interpolation_func_slc = rbs
+        line_time = self.get_burst_azitime
+        line_az_times_values = line_time.values[line]
+        z_interp_value = self.interpolation_func_slc(line_az_times_values, sample, grid=False)
+        return z_interp_value
 
     @timing
     def _load_ground_heading(self):
@@ -1117,7 +1158,7 @@ class Sentinel1Dataset:
         lat = self.dataset['latitude'].sel(line=da_line, sample=da_sample)
         return lon,lat
 
-    def land_mask_slc_per_bursts(self):
+    def land_mask_slc_per_bursts(self,lazy_loading=True):
         """
         1) loop on burst polygons to get rasterized landmask
         2) merge the landmask pieces into a single Dataset to replace existing 'land_mask' is any
@@ -1187,6 +1228,7 @@ class Sentinel1Dataset:
                 all_touched=False,
                 transform=transform
             )
+
             return raster_mask
 
         #all_bursts = self.datatree['bursts']
@@ -1215,13 +1257,24 @@ class Sentinel1Dataset:
 
             for mask in self.s1meta.mask_names:
                 logger.debug('mask: %s',mask)
-                da_mask = map_blocks_coords(
-                    da_tmpl,
-                    _rasterize_mask_by_chunks,
-                    func_kwargs={'mask': mask}
-                )
+                if lazy_loading:
+                    da_mask = map_blocks_coords(
+                        da_tmpl,
+                        _rasterize_mask_by_chunks,
+                        func_kwargs={'mask': mask}
+                    )
+                else:
+                    tmpmask_val = _rasterize_mask_by_chunks(a_burst_subset.digital_number.line,
+                                                            a_burst_subset.digital_number.sample, mask=mask)
+                    da_mask = xr.DataArray(tmpmask_val,dims=('line', 'sample'),
+                        coords={
+                            'line': a_burst_subset.digital_number.line,
+                            'sample': a_burst_subset.digital_number.sample,})
                 name = '%s_maskv2' % mask
                 da_mask.attrs['history'] = yaml.safe_dump({name: self.s1meta.get_mask(mask, describe=True)})
+                da_mask.attrs['meaning'] = '0: ocean , 1: land'
+                da_mask = da_mask.fillna(0) # zero -> ocean
+                da_mask = da_mask.astype(np.int8)
                 logger.debug('%s -> %s',mask,da_mask.attrs['history'] )
                 #da_list.append(da_mask.to_dataset(name=name))
                 if mask not in da_dict:

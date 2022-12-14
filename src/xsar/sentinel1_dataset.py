@@ -250,6 +250,7 @@ class Sentinel1Dataset:
         # return
 
         self._dataset.attrs.update(self.s1meta.to_dict("all"))
+        self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
         self.datatree.attrs.update(self.s1meta.to_dict("all"))
         if 'GRD' in str(self.datatree.attrs['product']):  # load land_mask by default for GRD products
             self.add_high_resolution_variables(patch_variable=patch_variable, luts=luts, lazy_loading=lazyloading)

@@ -130,7 +130,7 @@ class Sentinel1Dataset:
         self._default_meta = asarray([], dtype='f8')
         self.geoloc_tree = None
         self.s1meta = None
-        self.interpolation_func_slc = None
+        self.interpolation_func_slc = {}
         """`xsar.Sentinel1Meta` object"""
 
         if not isinstance(dataset_id, Sentinel1Meta):
@@ -1025,17 +1025,17 @@ class Sentinel1Dataset:
             #     z_values = z_values % 360
         else:
             z_values = self.s1meta.geoloc[varname_in_geoloc]
-        if self.interpolation_func_slc is None:
+        if varname not in self.interpolation_func_slc:
             rbs = RectBivariateSpline(
                 self.s1meta.geoloc.azimuthTime[:, 0].astype(float),
                 self.s1meta.geoloc.sample,
                 z_values,
                 kx=1, ky=1,
             )
-            self.interpolation_func_slc = rbs
+            self.interpolation_func_slc[varname] = rbs
         line_time = self.get_burst_azitime
         line_az_times_values = line_time.values[line]
-        z_interp_value = self.interpolation_func_slc(line_az_times_values, sample, grid=False)
+        z_interp_value = self.interpolation_func_slc[varname](line_az_times_values, sample, grid=False)
         return z_interp_value
 
     @timing

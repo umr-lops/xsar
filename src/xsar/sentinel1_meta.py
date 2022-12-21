@@ -350,7 +350,7 @@ class Sentinel1Meta:
             self._geoloc.attrs['approx_transform'] = rasterio.transform.from_gcps(gcps)
             for vv in self._geoloc:
                 if vv in self.xsd_definitions:
-                    self._geoloc[vv].attrs['definition'] = self.xsd_definitions[vv]
+                    self._geoloc[vv].attrs['definition'] = str(self.xsd_definitions[vv])
 
 
         return self._geoloc

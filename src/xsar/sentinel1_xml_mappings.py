@@ -476,7 +476,8 @@ def orbit(time, frame, pos_x, pos_y, pos_z, vel_x, vel_y, vel_z, orbit_pass, pla
         res['position_z'] = xr.DataArray(pos_z, dims=['time'], coords={'time': time})
     res.attrs = {
         'orbit_pass': orbit_pass,
-        'platform_heading': platform_heading
+        'platform_heading': platform_heading,
+        'frame': frame[0]
     }
     return res
 

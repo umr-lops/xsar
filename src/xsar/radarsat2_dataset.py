@@ -8,7 +8,7 @@ import numpy as np
 import rasterio
 import rasterio.features
 from numpy import asarray
-from xradarsat2 import load_digital_number, rs2_reader
+from xradarsat2 import load_digital_number
 import xarray as xr
 from scipy.interpolate import RectBivariateSpline
 import dask
@@ -56,6 +56,7 @@ class RadarSat2Dataset:
                 """Can't open an multi-dataset. Use `xsar.RadarSat2Meta('%s').subdatasets` to show availables ones""" % self.rs2.path
             )
 
+        self.DN_without_res = load_digital_number(self.rs2meta.dt, resampling=resampling, chunks=chunks)['digital_numbers'].ds
         # build datatree
         DN_tmp = load_digital_number(self.rs2meta.dt, resolution=resolution,
                                      resampling=resampling, chunks=chunks)['digital_numbers'].ds
@@ -91,6 +92,15 @@ class RadarSat2Dataset:
                                                      })
 
         self._dataset = self.datatree['measurement'].to_dataset()
+
+        # dict mapping for variable names to create by applying specified lut on digital numbers
+
+        self._map_var_lut = {
+            'sigma0_raw': 'lutSigma',
+            'gamma0_raw': 'lutGamma',
+            'beta0_raw': 'lutBeta',
+        }
+
         for att in ['name', 'short_name', 'product', 'safe', 'swath', 'multidataset']:
             if att not in self.datatree.attrs:
                 #tmp = xr.DataArray(self.s1meta.__getattr__(att),attrs={'source':'filename decoding'})
@@ -99,6 +109,7 @@ class RadarSat2Dataset:
 
         value_res_line = self.rs2meta.geoloc.line.attrs['rasterAttributes_sampledLineSpacing_value']
         value_res_sample = self.rs2meta.geoloc.pixel.attrs['rasterAttributes_sampledPixelSpacing_value']
+        self._load_incidence_from_lut()
         refe_spacing = 'slant'
         if resolution is not None:
             refe_spacing = 'ground' # if the data sampling changed it means that the quantities are projected on ground
@@ -136,7 +147,9 @@ class RadarSat2Dataset:
         self.datatree.attrs.update(self.rs2meta.to_dict("all"))
 
 
-        self._luts = self.rs2meta.dt['lut'].ds
+        self._luts = self.rs2meta.dt['lut'].ds.rename({'pixels': 'sample'})
+        self._dataset = xr.merge([self._load_from_geoloc(['latitude', 'longitude', 'altitude', 'incidence', 'elevation']
+                                                         ), self._dataset])
 
         """# noise_lut is noise_lut_range * noise_lut_azi
         if 'noise_lut_range' in self._luts.keys() and 'noise_lut_azi' in self._luts.keys():
@@ -165,15 +178,15 @@ class RadarSat2Dataset:
         """
         mapping_dataset_geoloc = {'latitude': 'latitude',
                                   'longitude': 'longitude',
-                                  # 'incidence': 'incidenceAngle',
-                                  # 'elevation': 'elevationAngle',
+                                  'incidence': 'incidenceAngle',
+                                  'elevation': 'elevationAngle',
                                   'altitude': 'height',
                                   # 'azimuth_time': 'azimuthTime',
                                   # 'slant_range_time': 'slantRangeTime'
                                   }
         da_list = []
 
-        def interp_func_sgf(vect1line, vect1pixel, **kwargs):
+        def interp_func_agnostic_satellite(vect1line, vect1pixel, **kwargs):
 
             # exterieur de boucle
             rbs = kwargs['rbs']
@@ -191,20 +204,46 @@ class RadarSat2Dataset:
                 if self.rs2meta.cross_antemeridian:
                     logger.debug('translate longitudes between 0 and 360')
                     z_values = z_values % 360
+                rbs = RectBivariateSpline(
+                    self.rs2meta.geoloc.line,
+                    self.rs2meta.geoloc.pixel,
+                    z_values,
+                    kx=1, ky=1,
+                )
+            elif varname == 'incidence':
+                z_values = self._load_incidence_from_lut()
+                rbs = RectBivariateSpline(
+                    self._dataset.line,
+                    self._dataset.sample,
+                    z_values,
+                    kx=1, ky=1,
+                )
+            elif varname == 'elevation':
+                z_values = self._load_elevation_from_lut()
+                rbs = RectBivariateSpline(
+                    self._dataset.line,
+                    self._dataset.sample,
+                    z_values,
+                    kx=1, ky=1,
+                )
             else:
                 z_values = self.rs2meta.geoloc[varname_in_geoloc]  # TODO : made changes here for height
-
-            rbs = RectBivariateSpline(
-                self.rs2meta.geoloc.line,
-                self.rs2meta.geoloc.pixel,
-                z_values,
-                kx=1, ky=1,
-            )
-            interp_func = interp_func_sgf
+                rbs = RectBivariateSpline(
+                    self.rs2meta.geoloc.line,
+                    self.rs2meta.geoloc.pixel,
+                    z_values,
+                    kx=1, ky=1,
+                )
+            interp_func = interp_func_agnostic_satellite
 
             # the following take much cpu and memory, so we want to use dask
             # interp_func(self._dataset.atrack, self.dataset.xtrack)
-            typee = self.rs2meta.geoloc[varname_in_geoloc].dtype # TODO : idem
+            if varname == 'incidence':
+                typee = self._load_incidence_from_lut().dtype
+            elif varname == 'elevation':
+                typee = self._load_elevation_from_lut().dtype
+            else:
+                typee = self.rs2meta.geoloc[varname_in_geoloc].dtype # TODO : idem
             datemplate = self._da_tmpl.astype(typee).copy()
             # replace the atrack coordinates by atrack_time coordinates
             # datemplate = datemplate.assign_coords({'atrack': datemplate.coords['atrack_time']})
@@ -231,4 +270,71 @@ class RadarSat2Dataset:
 
         return xr.merge(da_list)
 
-    # TODO : add to_dict()
+    @timing
+    def _load_incidence_from_lut(self):
+        beta = self.rs2meta.lut.lutBeta.values
+        sigma = self.rs2meta.lut.lutSigma.values
+        incidence_pre = beta / sigma
+        i_angle = np.degrees(np.arcsin(incidence_pre))
+        i_angleHD = np.zeros(self.DN_without_res.digital_number.shape[1:3])
+        for i in range(len(i_angle)):
+            i_angleHD[:, i] = i_angle[i]
+
+        return xr.DataArray(data=i_angleHD, dims=['line', 'sample'], coords={
+                                                                 'line': self._dataset.line,
+                                                                 'sample': self._dataset.sample})
+
+    @timing
+    def _load_elevation_from_lut(self):
+        satellite_height = 7.93322e+05
+        satellite_height = self.rs2meta.dt.attrs['satelliteHeight']
+        earth_radius = 6.371e6
+        incidence = self._load_incidence_from_lut()
+        angle_rad = np.sin(np.radians(incidence))
+        inside = angle_rad * earth_radius / (earth_radius + satellite_height)
+        return np.degrees(np.arcsin(inside))
+
+    def _get_lut(self, var_name):
+        """
+        Get lut for var_name
+
+        Parameters
+        ----------
+        var_name: str
+
+        Returns
+        -------
+        xarray.DataArray
+            lut for `var_name`
+        """
+        try:
+            lut_name = self._map_var_lut[var_name]
+        except KeyError:
+            raise ValueError("can't find lut name for var '%s'" % var_name)
+        try:
+            lut = self._luts[lut_name]
+        except KeyError:
+            raise ValueError("can't find lut from name '%s' for variable '%s'" % (lut_name, var_name))
+        return lut
+
+    def _apply_calibration_lut(self, var_name):
+        """
+            Apply calibration lut to `digital_number` to compute `var_name`.
+
+            Parameters
+            ----------
+            var_name: str
+                Variable name to compute by applying lut. Must exist in `self._map_var_lut`` to be able to get the corresponding lut.
+
+            Returns
+            -------
+            xarray.Dataset
+                with one variable named by `var_name`
+        """
+        lut = self._get_lut(var_name)
+        offset = lut.attrs['offset']
+        res = ((self._dataset.digital_number ** 2.) + offset) / lut
+        res = res.where(res > 0)
+        res.attrs.update(lut.attrs)
+        return res.to_dataset(name=var_name)
+

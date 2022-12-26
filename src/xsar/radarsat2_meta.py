@@ -86,7 +86,7 @@ class RadarSat2Meta:
         """True if multi dataset"""
         self.subdatasets = gpd.GeoDataFrame(geometry=[], index=[])
         """Subdatasets as GeodataFrame (empty if single dataset)"""
-        self.geoloc = self.dt['geolocationGrid'].ds
+        self.geoloc = self.dt['geolocationGrid'].to_dataset()
 
         self.orbit_and_attitude = self.dt['orbitAndAttitude'].ds
         self.doppler_centroid = self.dt['imageGenerationParameters']['doppler']['dopplerCentroid'].ds
@@ -209,7 +209,3 @@ class RadarSat2Meta:
             res = self.geoloc.pixel.attrs['rasterAttributes_sampledPixelSpacing_value']
         return res
 
-
-"""if __name__ == "__main__":
-    RadarSat2Meta("/home/datawork-cersat-public/cache/project/sarwing/data/RS2/L1/VV_VH/2020/234/"
-                  "RS2_OK123649_PK1086794_DK1033082_SCWA_20200821_133300_VV_VH_SGF")"""

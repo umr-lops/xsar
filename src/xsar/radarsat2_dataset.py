@@ -146,10 +146,11 @@ class RadarSat2Dataset:
         self._dataset.attrs.update(self.rs2meta.to_dict("all"))
         self.datatree.attrs.update(self.rs2meta.to_dict("all"))
 
-
         self._luts = self.rs2meta.dt['lut'].ds.rename({'pixels': 'sample'})
         self._dataset = xr.merge([self._load_from_geoloc(['latitude', 'longitude', 'altitude', 'incidence', 'elevation']
                                                          ), self._dataset])
+
+        self.apply_calibration_and_denoising()
 
         """# noise_lut is noise_lut_range * noise_lut_azi
         if 'noise_lut_range' in self._luts.keys() and 'noise_lut_azi' in self._luts.keys():
@@ -262,7 +263,7 @@ class RadarSat2Dataset:
 
             # copy history
             try:
-                da_var.attrs['history'] = self.rs2meta.geoloc[varname].attrs['xpath']
+                da_var.attrs['history'] = self.rs2meta.geoloc[varname_in_geoloc].attrs['xpath']
             except KeyError:
                 pass
 
@@ -337,4 +338,15 @@ class RadarSat2Dataset:
         res = res.where(res > 0)
         res.attrs.update(lut.attrs)
         return res.to_dataset(name=var_name)
+
+    def apply_calibration_and_denoising(self):
+        """
+        apply calibration and denoising functions to get high resolution sigma0 , beta0 and gamma0 + variables *_raw
+        :return:
+        """
+        for var_name, lut_name in self._map_var_lut.items():
+            if lut_name in self._luts:
+                # merge var_name into dataset (not denoised)
+                self._dataset = xr.merge([self._apply_calibration_lut(var_name), self._dataset])
+                # merge noise equivalent for var_name (named 'ne%sz' % var_name[0)
 

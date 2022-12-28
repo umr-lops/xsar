@@ -72,12 +72,8 @@ class RadarSat2Meta:
         try:
             self.product = os.path.basename(self.path).split('_')[9]
         except:
-            print("path: %s" % self.path)
             self.product = "XXX"
         """Product type, like 'GRDH', 'SLC', etc .."""
-        print(
-            f"safe:{self.safe} \n name:{self.name} \n name_parts:{name_parts} \n path:{self.path} \n short name:{self.short_name} \n"
-            f"product:{self.product} \n")
 
         # self.manifest = os.path.join(self.path, 'manifest.safe')
 

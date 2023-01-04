@@ -109,7 +109,7 @@ class RadarSat2Dataset:
 
         value_res_line = self.rs2meta.geoloc.line.attrs['rasterAttributes_sampledLineSpacing_value']
         value_res_sample = self.rs2meta.geoloc.pixel.attrs['rasterAttributes_sampledPixelSpacing_value']
-        self._load_incidence_from_lut()
+        #self._load_incidence_from_lut()
         refe_spacing = 'slant'
         if resolution is not None:
             refe_spacing = 'ground' # if the data sampling changed it means that the quantities are projected on ground
@@ -147,7 +147,9 @@ class RadarSat2Dataset:
         self.datatree.attrs.update(self.rs2meta.to_dict("all"))
 
         self._luts = self.rs2meta.dt['lut'].ds.rename({'pixels': 'sample'})
-        self._dataset = xr.merge([self._load_from_geoloc(['latitude', 'longitude', 'altitude', 'incidence', 'elevation']
+        self._dataset = xr.merge([self._load_from_geoloc(['latitude', 'longitude', 'altitude',
+                                                          'incidence', 'elevation'
+                                                          ]
                                                          ), self._dataset])
 
         self.apply_calibration_and_denoising()
@@ -200,94 +202,64 @@ class RadarSat2Dataset:
 
         for varname in varnames:
             varname_in_geoloc = mapping_dataset_geoloc[varname]
-            if varname == 'longitude':
-                z_values = self.rs2meta.geoloc[varname]
-                if self.rs2meta.cross_antemeridian:
-                    logger.debug('translate longitudes between 0 and 360')
-                    z_values = z_values % 360
-                rbs = RectBivariateSpline(
-                    self.rs2meta.geoloc.line,
-                    self.rs2meta.geoloc.pixel,
-                    z_values,
-                    kx=1, ky=1,
-                )
-            elif varname == 'incidence':
-                z_values = self._load_incidence_from_lut()
-                rbs = RectBivariateSpline(
-                    self._dataset.line,
-                    self._dataset.sample,
-                    z_values,
-                    kx=1, ky=1,
-                )
-            elif varname == 'elevation':
-                z_values = self._load_elevation_from_lut()
-                rbs = RectBivariateSpline(
-                    self._dataset.line,
-                    self._dataset.sample,
-                    z_values,
-                    kx=1, ky=1,
-                )
-            else:
-                z_values = self.rs2meta.geoloc[varname_in_geoloc]  # TODO : made changes here for height
-                rbs = RectBivariateSpline(
-                    self.rs2meta.geoloc.line,
-                    self.rs2meta.geoloc.pixel,
-                    z_values,
-                    kx=1, ky=1,
-                )
-            interp_func = interp_func_agnostic_satellite
-
-            # the following take much cpu and memory, so we want to use dask
-            # interp_func(self._dataset.atrack, self.dataset.xtrack)
             if varname == 'incidence':
-                typee = self._load_incidence_from_lut().dtype
+                da = self._load_incidence_from_lut()
+                da.name = varname
+                da_list.append(da)
             elif varname == 'elevation':
-                typee = self._load_elevation_from_lut().dtype
+                da = self._load_elevation_from_lut()
+                da.name = varname
+                da_list.append(da)
             else:
-                typee = self.rs2meta.geoloc[varname_in_geoloc].dtype # TODO : idem
-            datemplate = self._da_tmpl.astype(typee).copy()
-            # replace the atrack coordinates by atrack_time coordinates
-            # datemplate = datemplate.assign_coords({'atrack': datemplate.coords['atrack_time']})
-            da_var = map_blocks_coords(
-                datemplate,
-                interp_func,
-                func_kwargs={"rbs": rbs}
-            )
-            # put back the real line coordinates
-            da_var = da_var.assign_coords({'line': self._dataset.digital_number.line})
-            if varname == 'longitude':
-                if self.rs2meta.cross_antemeridian:
-                    da_var.data = da_var.data.map_blocks(to_lon180)
+                if varname == 'longitude':
+                    z_values = self.rs2meta.geoloc[varname]
+                    if self.rs2meta.cross_antemeridian:
+                        logger.debug('translate longitudes between 0 and 360')
+                        z_values = z_values % 360
+                else:
+                    z_values = self.rs2meta.geoloc[varname_in_geoloc]
+                # interp_func = interp_func_agnostic_satellite
+                rbs = None
+                interp_func = RectBivariateSpline(
+                    self.rs2meta.geoloc.line,
+                    self.rs2meta.geoloc.pixel,
+                    z_values,
+                    kx=1, ky=1
+                    )
 
-            da_var.name = varname
+                da_val = interp_func(self._dataset.digital_number.line, self._dataset.digital_number.sample)
+                da_var = xr.DataArray(data=da_val, dims=['line', 'sample'],
+                                      coords={'line': self._dataset.digital_number.line,
+                                              'sample': self._dataset.digital_number.sample})
+                if varname == 'longitude':
+                    if self.rs2meta.cross_antemeridian:
+                        da_var.data = da_var.data.map_blocks(to_lon180)
 
-            # copy history
-            try:
-                da_var.attrs['history'] = self.rs2meta.geoloc[varname_in_geoloc].attrs['xpath']
-            except KeyError:
-                pass
+                da_var.name = varname
 
-            da_list.append(da_var)
+                # copy history
+                try:
+                    da_var.attrs['history'] = self.rs2meta.geoloc[varname_in_geoloc].attrs['xpath']
+                except KeyError:
+                    pass
+
+                da_list.append(da_var)
 
         return xr.merge(da_list)
 
     @timing
     def _load_incidence_from_lut(self):
         beta = self.rs2meta.lut.lutBeta.values
-        sigma = self.rs2meta.lut.lutSigma.values
-        incidence_pre = beta / sigma
-        i_angle = np.degrees(np.arcsin(incidence_pre))
-        i_angleHD = np.zeros(self.DN_without_res.digital_number.shape[1:3])
-        for i in range(len(i_angle)):
-            i_angleHD[:, i] = i_angle[i]
-
-        return xr.DataArray(data=i_angleHD, dims=['line', 'sample'], coords={
-                                                                 'line': self._dataset.line,
-                                                                 'sample': self._dataset.sample})
+        gamma = self.rs2meta.lut.lutGamma.values
+        incidence_pre = gamma / beta
+        i_angle = np.degrees(np.arctan(incidence_pre))
+        i_angle_hd = np.tile(i_angle, (len(self.DN_without_res.line), 1))
+        return xr.DataArray(data=i_angle_hd, dims=['line', 'sample'], coords={
+                                                'line': self.DN_without_res.line,
+                                                'sample': self.DN_without_res.sample})
 
     @timing
     def _load_elevation_from_lut(self):
-        satellite_height = 7.93322e+05
         satellite_height = self.rs2meta.dt.attrs['satelliteHeight']
         earth_radius = 6.371e6
         incidence = self._load_incidence_from_lut()

@@ -13,6 +13,7 @@ import xarray as xr
 from scipy.interpolate import RectBivariateSpline
 import dask
 import datatree
+import numpy_groupies as npg
 
 logger = logging.getLogger('xsar.sentinel1_dataset')
 logger.addHandler(logging.NullHandler())
@@ -38,6 +39,7 @@ class RadarSat2Dataset:
         self._default_meta = asarray([], dtype='f8')
         self.geoloc_tree = None
         self.rs2meta = None
+        self.resolution = resolution
         """`xsar.RadarSat2Meta` object"""
 
         if not isinstance(dataset_id, RadarSat2Meta):
@@ -145,14 +147,14 @@ class RadarSat2Dataset:
             )
         self._dataset.attrs.update(self.rs2meta.to_dict("all"))
         self.datatree.attrs.update(self.rs2meta.to_dict("all"))
-
         self._luts = self.rs2meta.dt['lut'].ds.rename({'pixels': 'sample'})
+        self.apply_calibration_and_denoising()
         self._dataset = xr.merge([self._load_from_geoloc(['latitude', 'longitude', 'altitude',
                                                           'incidence', 'elevation'
                                                           ]
                                                          ), self._dataset])
 
-        self.apply_calibration_and_denoising()
+
 
         """# noise_lut is noise_lut_range * noise_lut_azi
         if 'noise_lut_range' in self._luts.keys() and 'noise_lut_azi' in self._luts.keys():
@@ -249,14 +251,32 @@ class RadarSat2Dataset:
 
     @timing
     def _load_incidence_from_lut(self):
-        beta = self.rs2meta.lut.lutBeta.values
-        gamma = self.rs2meta.lut.lutGamma.values
+        beta = self._dataset.beta0_raw[0]
+        gamma = self._dataset.gamma0_raw[0]
         incidence_pre = gamma / beta
         i_angle = np.degrees(np.arctan(incidence_pre))
-        i_angle_hd = np.tile(i_angle, (len(self.DN_without_res.line), 1))
-        return xr.DataArray(data=i_angle_hd, dims=['line', 'sample'], coords={
-                                                'line': self.DN_without_res.line,
-                                                'sample': self.DN_without_res.sample})
+        # i_angle_hd = np.tile(i_angle, (len(self._dataset.digital_number.line), 1))
+        return xr.DataArray(data=i_angle, dims=['line', 'sample'], coords={
+                                                'line': self._dataset.digital_number.line,
+                                                'sample': self._dataset.digital_number.sample})
+
+    @timing
+    def _resample_lut_values(self, lut):
+        resolution = self.resolution
+        sample_spacing = self.rs2meta.dt["geolocationGrid"]["pixel"].attrs[
+            "rasterAttributes_sampledPixelSpacing_value"]
+        if isinstance(resolution, str) and resolution.endswith('m'):
+            resolution = float(self.resolution[:-1])
+            out_sample_resolution = resolution / sample_spacing
+        elif isinstance(resolution, dict):
+            out_sample_resolution = resolution['sample']
+        else:
+            raise ValueError("There is a problem with the resolution format")
+        data = lut.values
+        group_idx = (np.arange(data.shape[0]) / out_sample_resolution).astype(int)
+        resampled_lut_values = npg.aggregate(group_idx, data, func='mean')
+        return xr.DataArray(data=resampled_lut_values, dims=['sample'],
+                            coords={'sample': self._dataset.digital_number.sample})
 
     @timing
     def _load_elevation_from_lut(self):
@@ -306,6 +326,8 @@ class RadarSat2Dataset:
         """
         lut = self._get_lut(var_name)
         offset = lut.attrs['offset']
+        if self.resolution is not None:
+            lut = self._resample_lut_values(lut)
         res = ((self._dataset.digital_number ** 2.) + offset) / lut
         res = res.where(res > 0)
         res.attrs.update(lut.attrs)

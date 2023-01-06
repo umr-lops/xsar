@@ -273,7 +273,12 @@ class RadarSat2Dataset:
         else:
             raise ValueError("There is a problem with the resolution format")
         data = lut.values
-        group_idx = (np.arange(data.shape[0]) / out_sample_resolution).astype(int)
+
+        # remove last samples which can't be averaged
+        new_size = int(int(data.shape[0]/out_sample_resolution) * out_sample_resolution)
+        data = data[:new_size]
+
+        group_idx = np.floor(np.arange(new_size) / out_sample_resolution).astype(int)
         resampled_lut_values = npg.aggregate(group_idx, data, func='mean')
         return xr.DataArray(data=resampled_lut_values, dims=['sample'],
                             coords={'sample': self._dataset.digital_number.sample})

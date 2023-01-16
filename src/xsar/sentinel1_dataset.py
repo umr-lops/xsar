@@ -961,6 +961,7 @@ class Sentinel1Dataset:
             # the following take much cpu and memory, so we want to use dask
             # interp_func(self._dataset.line, self.dataset.sample)
             typee = self.s1meta.geoloc[varname_in_geoloc].dtype
+
             if self.s1meta._bursts['burst'].size != 0:
                 datemplate = self._da_tmpl.astype(typee).copy()
                 # replace the line coordinates by line_time coordinates
@@ -1912,7 +1913,7 @@ class Sentinel1Dataset:
             geoloc_line = self.s1meta.geoloc['line'].values
             finterp = interp1d(geoloc_line, geoloc_azitime.astype(float))
             azitime = finterp(line)
-            azitime = azitime.astype('<m8[ns]')
+            azitime = azitime.astype('<M8[ns]')
         azitime = xr.DataArray(azitime, coords={'line': line}, dims=['line'],
                                attrs={
                                    'description': 'azimuth times interpolated along line dimension at the middle of range dimension'})

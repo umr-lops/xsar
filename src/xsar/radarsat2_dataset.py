@@ -13,7 +13,8 @@ import xarray as xr
 from scipy.interpolate import RectBivariateSpline
 import dask
 import datatree
-import numpy_groupies as npg
+# import numpy_groupies as npg
+from scipy import ndimage
 
 logger = logging.getLogger('xsar.sentinel1_dataset')
 logger.addHandler(logging.NullHandler())
@@ -273,15 +274,27 @@ class RadarSat2Dataset:
         else:
             raise ValueError("There is a problem with the resolution format")
         data = lut.values
-
-        # remove last samples which can't be averaged
+        # filter the signal with a gaussian kernel 10 m
+        sig = 0.5 * out_sample_resolution
+        trunc = 4
+        res = ndimage.gaussian_filter1d(data, sigma=sig, mode='mirror', truncate=trunc)
+        res_da = xr.DataArray(res, coords={'sample': np.arange(lut.sample.shape[0])}, dims=['sample'])
+        bb_da = xr.DataArray(data, coords={'sample': np.arange(lut.sample.shape[0])}, dims=['sample'])
+        nperseg = {'sample': int(out_sample_resolution)}
+        # define the posting of the resampled coordinates using https://github.com/umr-lops/xsar_slc
+        # posting = xtiling(bb_da, nperseg, noverlap=0, centering=False, side='left', prefix='')
+        posting = self._dataset.digital_number.sample.values
+        #resampled_signal = res_da.isel(sample=posting['sample'].sample)
+        resampled_signal = res_da.isel(sample=posting.astype(int))
+        """# remove last samples which can't be averaged
         new_size = int(int(data.shape[0]/out_sample_resolution) * out_sample_resolution)
         data = data[:new_size]
 
         group_idx = np.floor(np.arange(new_size) / out_sample_resolution).astype(int)
         resampled_lut_values = npg.aggregate(group_idx, data, func='mean')
         return xr.DataArray(data=resampled_lut_values, dims=['sample'],
-                            coords={'sample': self._dataset.digital_number.sample})
+                            coords={'sample': self._dataset.digital_number.sample})"""
+        return resampled_signal.assign_coords({"sample": self._dataset.digital_number.sample})
 
     @timing
     def _load_elevation_from_lut(self):

@@ -100,6 +100,12 @@ class RadarSat2Dataset:
 
         # dict mapping for variable names to create by applying specified lut on digital numbers
 
+        self._map_var_lut_noise = {
+            'sigma0_raw': 'noiseLevelValues_SigmaNought',
+            'gamma0_raw': 'noiseLevelValues_Gamma',
+            'beta0_raw': 'noiseLevelValues_BetaNought',
+        }
+
         self._map_var_lut = {
             'sigma0_raw': 'lutSigma',
             'gamma0_raw': 'lutGamma',
@@ -281,10 +287,10 @@ class RadarSat2Dataset:
         trunc = 4
         res = ndimage.gaussian_filter1d(data, sigma=sig, mode='mirror', truncate=trunc)
         res_da = xr.DataArray(res, coords={'sample': np.arange(lut.sample.shape[0])}, dims=['sample'])
-        bb_da = xr.DataArray(data, coords={'sample': np.arange(lut.sample.shape[0])}, dims=['sample'])
-        nperseg = {'sample': int(out_sample_resolution)}
+        #bb_da = xr.DataArray(data, coords={'sample': np.arange(lut.sample.shape[0])}, dims=['sample'])
+        #nperseg = {'sample': int(out_sample_resolution)}
         # define the posting of the resampled coordinates using https://github.com/umr-lops/xsar_slc
-        # posting = xtiling(bb_da, nperseg, noverlap=0, centering=False, side='left', prefix='')
+        #posting = xtiling(bb_da, nperseg, noverlap=0, centering=False, side='left', prefix='')
         posting = self._dataset.digital_number.sample.values
         #resampled_signal = res_da.isel(sample=posting['sample'].sample)
         resampled_signal = res_da.isel(sample=posting.astype(int))
@@ -315,6 +321,7 @@ class RadarSat2Dataset:
         inside = angle_rad * earth_radius / (earth_radius + satellite_height)
         return np.degrees(np.arcsin(inside))
 
+    @timing
     def _get_lut(self, var_name):
         """
         Get lut for var_name
@@ -338,6 +345,47 @@ class RadarSat2Dataset:
             raise ValueError("can't find lut from name '%s' for variable '%s'" % (lut_name, var_name))
         return lut
 
+    @timing
+    def _get_lut_noise(self, var_name):
+        """
+        Get noise lut for var_name
+
+        Parameters
+        ----------
+        var_name: str
+
+        Returns
+        -------
+        xarray.DataArray
+            noise lut for `var_name`
+        """
+        try:
+            lut_name = self._map_var_lut_noise[var_name]
+        except KeyError:
+            raise ValueError("can't find noise lut name for var '%s'" % var_name)
+        try:
+            lut = self.rs2meta.dt['radarParameters'][lut_name]
+        except KeyError:
+            raise ValueError("can't find noise lut from name '%s' for variable '%s'" % (lut_name, var_name))
+        return lut
+
+    @timing
+    def _interpolate_for_noise_lut(self, var_name):
+        initial_lut = self._get_lut_noise(var_name)
+        first_pix = initial_lut.attrs['pixelFirstNoiseValue']
+        step = initial_lut.attrs['stepSize']
+        noise_values = initial_lut.values
+        lines = np.arange(self.rs2meta.geoloc.line.values[-1] + 1)
+        noise_values_2d = np.tile(noise_values, (lines.shape[0], 1))
+        indexes = [first_pix + step * i for i in range(0, noise_values.shape[0])]
+        inter_func = RectBivariateSpline(x=lines, y=indexes, z=noise_values_2d, kx=1, ky=1)
+        var = inter_func(self._dataset.digital_number.line, self._dataset.digital_number.sample)
+        da_var = xr.DataArray(data=var, dims=['line', 'sample'],
+                              coords={'line': self._dataset.digital_number.line,
+                                      'sample': self._dataset.digital_number.sample})
+        return da_var
+
+    @timing
     def _apply_calibration_lut(self, var_name):
         """
             Apply calibration lut to `digital_number` to compute `var_name`.
@@ -361,6 +409,7 @@ class RadarSat2Dataset:
         res.attrs.update(lut.compute().attrs)
         return res.to_dataset(name=var_name)
 
+    @timing
     def apply_calibration_and_denoising(self):
         """
         apply calibration and denoising functions to get high resolution sigma0 , beta0 and gamma0 + variables *_raw

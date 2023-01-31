@@ -8,10 +8,8 @@ from shapely.ops import unary_union
 from .utils import to_lon180, haversine, timing, class_or_instancemethod
 from . import raster_readers
 from xradarsat2 import rs2_reader
-from xradarsat2.radarSat2_xarray_reader import xpath_get
 import os
 import geopandas as gpd
-import xmltodict
 import numpy as np
 
 
@@ -98,7 +96,7 @@ class RadarSat2Meta:
         dic["polarizations"] = self.dt["radarParameters"]["pole"].values
         dic["product_type"] = self.product
         dic['satellite'] = self.dt.attrs['satellite']
-        dic['start_date'] = self.dt.attrs['rawDataStartTime']
+        dic['start_d_create'] = self.dt.attrs['rawDataStartTime']
         # compute attributes (footprint, coverage, pixel_size)
         footprint_dict = {}
         for ll in ['longitude', 'latitude']:
@@ -149,7 +147,7 @@ class RadarSat2Meta:
                 #'platform',
                 'swath', 'product', 'pols']
         }
-        info_keys['all'] = info_keys['minimal'] + ['name', 'start_date',  # 'stop_date',
+        info_keys['all'] = info_keys['minimal'] + ['name',  # 'start_date',  'stop_date',
                                                    'footprint',
                                                    #'coverage',
                                                    'pixel_line_m', 'pixel_sample_m',

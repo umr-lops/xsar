@@ -15,6 +15,8 @@ import dask
 import datatree
 # import numpy_groupies as npg
 from scipy import ndimage
+from .sentinel1_xml_mappings import signal_lut
+
 
 logger = logging.getLogger('xsar.sentinel1_dataset')
 logger.addHandler(logging.NullHandler())
@@ -296,6 +298,14 @@ class RadarSat2Dataset:
                             coords={'sample': self._dataset.digital_number.sample})"""
         return resampled_signal.assign_coords({"sample": self._dataset.digital_number.sample})
 
+    """@timing
+    def _resample_lut_values(self, lut):
+        hr_line_nb = self.rs2meta.dt['geolocationGrid'].ds.line[-1].values + 1
+        lut_2d = xr.DataArray(data=np.tile(lut, (hr_line_nb, 1)),
+                              coords={'line': np.arange(hr_line_nb), 'sample': lut.sample},
+                              dims=['line', 'sample'])
+        signal_lut_2d = signal_lut(lut_2d.line, lut_2d.sample, lut)"""
+
     @timing
     def _load_elevation_from_lut(self):
         satellite_height = self.rs2meta.dt.attrs['satelliteHeight']
@@ -345,10 +355,10 @@ class RadarSat2Dataset:
         lut = self._get_lut(var_name)
         offset = lut.attrs['offset']
         if self.resolution is not None:
-            lut = self._resample_lut_values(lut)
-        res = ((self._dataset.digital_number ** 2.) + offset) / lut
-        res = res.where(res > 0)
-        res.attrs.update(lut.attrs)
+            lut = dask.delayed(self._resample_lut_values)(lut)
+        res = ((self._dataset.digital_number ** 2.) + offset) / lut.compute()
+        res = res.where(res > 0).compute()
+        res.attrs.update(lut.compute().attrs)
         return res.to_dataset(name=var_name)
 
     def apply_calibration_and_denoising(self):

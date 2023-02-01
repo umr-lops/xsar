@@ -17,7 +17,6 @@ import datatree
 from scipy import ndimage
 from .sentinel1_xml_mappings import signal_lut
 
-
 logger = logging.getLogger('xsar.sentinel1_dataset')
 logger.addHandler(logging.NullHandler())
 
@@ -61,7 +60,8 @@ class RadarSat2Dataset:
                 """Can't open an multi-dataset. Use `xsar.RadarSat2Meta('%s').subdatasets` to show availables ones""" % self.rs2.path
             )
 
-        self.DN_without_res = load_digital_number(self.rs2meta.dt, resampling=resampling, chunks=chunks)['digital_numbers'].ds
+        self.DN_without_res = load_digital_number(self.rs2meta.dt, resampling=resampling, chunks=chunks)[
+            'digital_numbers'].ds
         # build datatree
         DN_tmp = load_digital_number(self.rs2meta.dt, resolution=resolution,
                                      resampling=resampling, chunks=chunks)['digital_numbers'].ds
@@ -101,41 +101,42 @@ class RadarSat2Dataset:
         # dict mapping for variable names to create by applying specified lut on digital numbers
 
         self._map_var_lut_noise = {
-            'sigma0_raw': 'noiseLevelValues_SigmaNought',
-            'gamma0_raw': 'noiseLevelValues_Gamma',
-            'beta0_raw': 'noiseLevelValues_BetaNought',
+            'sigma0': 'noiseLevelValues_SigmaNought',
+            'gamma0': 'noiseLevelValues_Gamma',
+            'beta0': 'noiseLevelValues_BetaNought',
         }
 
         self._map_var_lut = {
-            'sigma0_raw': 'lutSigma',
-            'gamma0_raw': 'lutGamma',
-            'beta0_raw': 'lutBeta',
+            'sigma0': 'lutSigma',
+            'gamma0': 'lutGamma',
+            'beta0': 'lutBeta',
         }
 
         for att in ['name', 'short_name', 'product', 'safe', 'swath', 'multidataset']:
             if att not in self.datatree.attrs:
-                #tmp = xr.DataArray(self.s1meta.__getattr__(att),attrs={'source':'filename decoding'})
+                # tmp = xr.DataArray(self.s1meta.__getattr__(att),attrs={'source':'filename decoding'})
                 self.datatree.attrs[att] = self.rs2meta.__getattr__(att)
                 self._dataset.attrs[att] = self.rs2meta.__getattr__(att)
 
         value_res_line = self.rs2meta.geoloc.line.attrs['rasterAttributes_sampledLineSpacing_value']
         value_res_sample = self.rs2meta.geoloc.pixel.attrs['rasterAttributes_sampledPixelSpacing_value']
-        #self._load_incidence_from_lut()
+        # self._load_incidence_from_lut()
         refe_spacing = 'slant'
         if resolution is not None:
-            refe_spacing = 'ground' # if the data sampling changed it means that the quantities are projected on ground
+            refe_spacing = 'ground'  # if the data sampling changed it means that the quantities are projected on ground
             if isinstance(resolution, str):
-                value_res_sample = float(resolution.replace('m',''))
+                value_res_sample = float(resolution.replace('m', ''))
                 value_res_line = value_res_sample
             elif isinstance(resolution, dict):
-                value_res_sample = self.rs2meta.geoloc.pixel.attrs['rasterAttributes_sampledPixelSpacing_value']\
-                                   *resolution['sample']
-                value_res_line = self.rs2meta.geoloc.line.attrs['rasterAttributes_sampledLineSpacing_value']\
-                                 *resolution['line']
+                value_res_sample = self.rs2meta.geoloc.pixel.attrs['rasterAttributes_sampledPixelSpacing_value'] \
+                                   * resolution['sample']
+                value_res_line = self.rs2meta.geoloc.line.attrs['rasterAttributes_sampledLineSpacing_value'] \
+                                 * resolution['line']
             else:
                 logger.warning('resolution type not handle (%s) should be str or dict -> sampleSpacing'
                                ' and lineSpacing are not correct', type(resolution))
-        self._dataset['sampleSpacing'] = xr.DataArray(value_res_sample, attrs={'units': 'm', 'referential': refe_spacing})
+        self._dataset['sampleSpacing'] = xr.DataArray(value_res_sample,
+                                                      attrs={'units': 'm', 'referential': refe_spacing})
         self._dataset['lineSpacing'] = xr.DataArray(value_res_line, attrs={'units': 'm'})
 
         # dataset no-pol template for function evaluation on coordinates (*no* values used)
@@ -162,8 +163,6 @@ class RadarSat2Dataset:
                                                           'incidence', 'elevation'
                                                           ]
                                                          ), self._dataset])
-
-
 
         """# noise_lut is noise_lut_range * noise_lut_azi
         if 'noise_lut_range' in self._luts.keys() and 'noise_lut_azi' in self._luts.keys():
@@ -195,8 +194,6 @@ class RadarSat2Dataset:
                                   'incidence': 'incidenceAngle',
                                   'elevation': 'elevationAngle',
                                   'altitude': 'height',
-                                  # 'azimuth_time': 'azimuthTime',
-                                  # 'slant_range_time': 'slantRangeTime'
                                   }
         da_list = []
 
@@ -236,7 +233,7 @@ class RadarSat2Dataset:
                     self.rs2meta.geoloc.pixel,
                     z_values,
                     kx=1, ky=1
-                    )
+                )
 
                 da_val = interp_func(self._dataset.digital_number.line, self._dataset.digital_number.sample)
                 da_var = xr.DataArray(data=da_val, dims=['line', 'sample'],
@@ -266,8 +263,8 @@ class RadarSat2Dataset:
         i_angle = np.degrees(np.arctan(incidence_pre))
         # i_angle_hd = np.tile(i_angle, (len(self._dataset.digital_number.line), 1))
         return xr.DataArray(data=i_angle, dims=['line', 'sample'], coords={
-                                                'line': self._dataset.digital_number.line,
-                                                'sample': self._dataset.digital_number.sample})
+            'line': self._dataset.digital_number.line,
+            'sample': self._dataset.digital_number.sample})
 
     @timing
     def _resample_lut_values(self, lut):
@@ -287,12 +284,12 @@ class RadarSat2Dataset:
         trunc = 4
         res = ndimage.gaussian_filter1d(data, sigma=sig, mode='mirror', truncate=trunc)
         res_da = xr.DataArray(res, coords={'sample': np.arange(lut.sample.shape[0])}, dims=['sample'])
-        #bb_da = xr.DataArray(data, coords={'sample': np.arange(lut.sample.shape[0])}, dims=['sample'])
-        #nperseg = {'sample': int(out_sample_resolution)}
+        # bb_da = xr.DataArray(data, coords={'sample': np.arange(lut.sample.shape[0])}, dims=['sample'])
+        # nperseg = {'sample': int(out_sample_resolution)}
         # define the posting of the resampled coordinates using https://github.com/umr-lops/xsar_slc
-        #posting = xtiling(bb_da, nperseg, noverlap=0, centering=False, side='left', prefix='')
+        # posting = xtiling(bb_da, nperseg, noverlap=0, centering=False, side='left', prefix='')
         posting = self._dataset.digital_number.sample.values
-        #resampled_signal = res_da.isel(sample=posting['sample'].sample)
+        # resampled_signal = res_da.isel(sample=posting['sample'].sample)
         resampled_signal = res_da.isel(sample=posting.astype(int))
         """# remove last samples which can't be averaged
         new_size = int(int(data.shape[0]/out_sample_resolution) * out_sample_resolution)
@@ -348,7 +345,7 @@ class RadarSat2Dataset:
     @timing
     def _get_lut_noise(self, var_name):
         """
-        Get noise lut for var_name
+        Get noise lut in the reader for var_name
 
         Parameters
         ----------
@@ -371,6 +368,19 @@ class RadarSat2Dataset:
 
     @timing
     def _interpolate_for_noise_lut(self, var_name):
+        """
+        Interpolate the noise level values (from the reader) and resample it to create a noise lut
+
+        Parameters
+        ----------
+        var_name : str
+            Variable name to compute by applying lut. Must exist in `self._map_var_lut_noise` to be able to get the corresponding lut.
+
+        Returns
+        -------
+        xarray.DataArray
+            Noise level values interpolated and resampled
+        """
         initial_lut = self._get_lut_noise(var_name)
         first_pix = initial_lut.attrs['pixelFirstNoiseValue']
         step = initial_lut.attrs['stepSize']
@@ -386,6 +396,62 @@ class RadarSat2Dataset:
         return da_var
 
     @timing
+    def _get_noise(self, var_name):
+        """
+            Get noise equivalent for  `var_name`.
+
+            Parameters
+            ----------
+            var_name: str Variable name to compute. Must exist in `self._map_var_lut` and
+            `self._map_var_lut_noise` to be able to get the corresponding lut.
+
+            Returns
+            -------
+            xarray.Dataset
+                with one variable named by `'ne%sz' % var_name[0]` (ie 'nesz' for 'sigma0', 'nebz' for 'beta0', etc...)
+        """
+        offset = self._get_lut(var_name).attrs['offset']
+        lut_noise = dask.delayed(self._interpolate_for_noise_lut(var_name))
+        name = 'ne%sz' % var_name[0]
+        res = ((self._dataset.digital_number ** 2) + offset) / lut_noise.compute()
+        return res.to_dataset(name=name)
+
+    def _add_denoised(self, ds, clip=False, vars=None):
+        """add denoised vars to dataset
+
+        Parameters
+        ----------
+        ds : xarray.DataSet
+            dataset with non denoised vars, named `%s_raw`.
+        clip : bool, optional
+            If True, negative signal will be clipped to 0. (default to False )
+        vars : list, optional
+            variables names to add, by default `['sigma0' , 'beta0' , 'gamma0']`
+
+        Returns
+        -------
+        xarray.DataSet
+            dataset with denoised vars
+        """
+        if vars is None:
+            vars = ['sigma0', 'beta0', 'gamma0']
+        for varname in vars:
+            varname_raw = varname + '_raw'
+            noise = 'ne%sz' % varname[0]
+            if varname_raw not in ds:
+                continue
+            else:
+                denoised = ds[varname_raw] - ds[noise]
+
+                if clip:
+                    denoised = denoised.clip(min=0)
+                    denoised.attrs['comment'] = 'clipped, no values <0'
+                else:
+                    denoised.attrs['comment'] = 'not clipped, some values can be <0'
+                ds[varname] = denoised
+        return ds
+
+    @timing
     def _apply_calibration_lut(self, var_name):
         """
             Apply calibration lut to `digital_number` to compute `var_name`.
@@ -393,7 +459,7 @@ class RadarSat2Dataset:
             Parameters
             ----------
             var_name: str
-                Variable name to compute by applying lut. Must exist in `self._map_var_lut`` to be able to get the corresponding lut.
+                Variable name to compute by applying lut. Must exist in `self._map_var_lut` to be able to get the corresponding lut.
 
             Returns
             -------
@@ -407,7 +473,7 @@ class RadarSat2Dataset:
         res = ((self._dataset.digital_number ** 2.) + offset) / lut.compute()
         res = res.where(res > 0).compute()
         res.attrs.update(lut.compute().attrs)
-        return res.to_dataset(name=var_name)
+        return res.to_dataset(name=var_name + '_raw')
 
     @timing
     def apply_calibration_and_denoising(self):
@@ -420,4 +486,10 @@ class RadarSat2Dataset:
                 # merge var_name into dataset (not denoised)
                 self._dataset = xr.merge([self._apply_calibration_lut(var_name), self._dataset])
                 # merge noise equivalent for var_name (named 'ne%sz' % var_name[0)
+                self._dataset = xr.merge([self._get_noise(var_name), self._dataset])
+            else:
+                logger.debug("Skipping variable '%s' ('%s' lut is missing)" % (var_name, lut_name))
+        self._dataset = self._add_denoised(self._dataset)
+        self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
 
+        return

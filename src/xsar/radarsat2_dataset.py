@@ -562,3 +562,32 @@ class RadarSat2Dataset:
         else:
             new_ds = ds.copy()
         return new_ds
+
+    @property
+    def dataset(self):
+        """
+        `xarray.Dataset` representation of this `xsar.Sentinel1Dataset` object.
+        This property can be set with a new dataset, if the dataset was computed from the original dataset.
+        """
+        # return self._dataset
+        res = self.datatree['measurement'].to_dataset()
+        res.attrs = self.datatree.attrs
+        return res
+
+    @dataset.setter
+    def dataset(self, ds):
+        if self.rs2meta.name == ds.attrs['name']:
+            # check if new ds has changed coordinates
+            if not self.sliced:
+                self.sliced = any(
+                    [list(ds[d].values) != list(self._dataset[d].values) for d in ['line', 'sample']])
+            self._dataset = ds
+            # self._dataset = self.datatree['measurement'].ds
+            self.recompute_attrs()
+        else:
+            raise ValueError("dataset must be same kind as original one.")
+
+    @dataset.deleter
+    def dataset(self):
+        logger.debug('deleter dataset')
+

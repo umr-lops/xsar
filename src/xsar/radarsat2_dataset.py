@@ -169,6 +169,10 @@ class RadarSat2Dataset:
         a = self._dataset.copy()
         self._dataset = self.flip_line_da(a)
         self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
+        self.datatree = datatree.DataTree.from_dict(
+            {'measurement': self.datatree['measurement'],
+             'geolocation_annotation': self.datatree['geolocation_annotation'],
+             'reader': self.rs2meta.dt})
 
         """# noise_lut is noise_lut_range * noise_lut_azi
         if 'noise_lut_range' in self._luts.keys() and 'noise_lut_azi' in self._luts.keys():

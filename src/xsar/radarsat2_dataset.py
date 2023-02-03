@@ -163,6 +163,12 @@ class RadarSat2Dataset:
                                                           'incidence', 'elevation'
                                                           ]
                                                          ), self._dataset])
+        a = self._dataset.copy()
+        self._dataset = self.flip_sample_da(a)
+        self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
+        a = self._dataset.copy()
+        self._dataset = self.flip_line_da(a)
+        self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
 
         """# noise_lut is noise_lut_range * noise_lut_azi
         if 'noise_lut_range' in self._luts.keys() and 'noise_lut_azi' in self._luts.keys():
@@ -252,8 +258,8 @@ class RadarSat2Dataset:
                     pass
 
                 da_list.append(da_var)
-
-        return xr.merge(da_list)
+        ds = xr.merge(da_list)
+        return ds
 
     @timing
     def _load_incidence_from_lut(self):
@@ -384,6 +390,7 @@ class RadarSat2Dataset:
         initial_lut = self._get_lut_noise(var_name)
         first_pix = initial_lut.attrs['pixelFirstNoiseValue']
         step = initial_lut.attrs['stepSize']
+        #noise_values = (10 ** (initial_lut / 10)).values
         noise_values = initial_lut.values
         lines = np.arange(self.rs2meta.geoloc.line.values[-1] + 1)
         noise_values_2d = np.tile(noise_values, (lines.shape[0], 1))
@@ -410,12 +417,16 @@ class RadarSat2Dataset:
             xarray.Dataset
                 with one variable named by `'ne%sz' % var_name[0]` (ie 'nesz' for 'sigma0', 'nebz' for 'beta0', etc...)
         """
-        offset = self._get_lut(var_name).attrs['offset']
+        lut = self._get_lut(var_name)
+        offset = lut.attrs['offset']
+        if self.resolution is not None:
+            lut = dask.delayed(self._resample_lut_values)(lut)
         lut_noise = dask.delayed(self._interpolate_for_noise_lut(var_name))
         name = 'ne%sz' % var_name[0]
-        res = ((self._dataset.digital_number ** 2) + offset) / lut_noise.compute()
+        res = ((lut_noise.compute() ** 2) + offset) / lut.compute()
         return res.to_dataset(name=name)
 
+    @timing
     def _add_denoised(self, ds, clip=False, vars=None):
         """add denoised vars to dataset
 
@@ -493,3 +504,57 @@ class RadarSat2Dataset:
         self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
 
         return
+
+    @timing
+    def flip_sample_da(self, ds):
+        """
+        When a product is flipped, flip back data arrays (from a dataset) sample dimensions to respect the xsar
+        convention (increasing incidence values)
+
+        Parameters
+        ----------
+        ds : xarray.Dataset
+            Contains dataArrays which depends on `sample` dimension
+
+        Returns
+        -------
+        xarray.Dataset
+            Flipped back, respecting the xsar convention
+        """
+        antenna_pointing = self.rs2meta.dt['radarParameters'].attrs['antennaPointing']
+        pass_direction = self.rs2meta.dt.attrs['passDirection']
+        flipped_cases = [('Left', 'Ascending'), ('Right', 'Descending')]
+        if (antenna_pointing, pass_direction) in flipped_cases:
+            new_ds = ds.isel(sample=slice(None, None, -1)).assign_coords(sample=ds.sample)
+            new_ds.attrs['samples_flipped'] = 'xsar convention : increasing incidence values along samples axis'
+        else:
+            new_ds = ds
+        return new_ds
+
+    @timing
+    def flip_line_da(self, ds):
+        """
+        Flip dataArrays (from a dataset) that depend on line dimension when a product is ascending, in order to
+        respect the xsar convention (increasing time along line axis, whatever ascending or descending product).
+        Reference : `schemas/rs2prod_burstAttributes.xsd:This corresponds to the top-left pixel in a coordinate
+        system where the range increases to the right and the zero-Doppler time increases downward. Note that this is
+        not necessarily the top-left pixel of the image block in the final product.`
+
+        Parameters
+        ----------
+        ds : xarray.Dataset
+            Contains dataArrays which depends on `line` dimension
+
+        Returns
+        -------
+        xarray.Dataset
+            Flipped back, respecting the xsar convention
+        """
+        pass_direction = self.rs2meta.dt.attrs['passDirection']
+        if pass_direction == 'Ascending':
+            new_ds = ds.copy().isel(line=slice(None, None, -1)).assign_coords(line=ds.line)
+            new_ds.attrs['lines_flipped'] = 'xsar convention : increasing time along line axis (whatever ascending or '\
+                                            'descending pass direction)'
+        else:
+            new_ds = ds.copy()
+        return new_ds

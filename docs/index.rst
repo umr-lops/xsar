@@ -22,12 +22,12 @@ Overview
 
     Luts are decoded from xml files and applied to *digital_number*, following official `ESA thermal denoising document`_ and `ESA Sentinel-1 Product Specification`_.
 
-    So end user can directly use for example *sigma0* variable, thas is the denoised sigma0 computed from *digital_number* and by applying relevants luts.
+    So end user can directly use for example *sigma0* variable, this is the denoised sigma0 computed from *digital_number* and by applying relevants luts.
 
     Because **xsar** rely on `dask`_, it have a small memory footprint: variables are read from file and computed only if needed.
 
 
-    :meth:`xsar.open_dataset` is very close to `xarray.open_dataset`_, but in the followings examples, you will find some aditionnal keywords and classes that allow to:
+    :meth:`xsar.open_dataset` is very close to `xarray.open_dataset`_, but in the followings examples, you will find some additional keywords and classes that allow to:
 
     * `open a dataset at lower resolution`_
     * `convert lon/lat to dataset coordinates`_

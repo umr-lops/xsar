@@ -33,7 +33,25 @@ class RadarSat2Dataset:
     def __init__(self, dataset_id, resolution=None,
                  resampling=rasterio.enums.Resampling.rms,
                  luts=False, chunks={'line': 5000, 'sample': 5000},
-                 dtypes=None, patch_variable=True):
+                 dtypes=None, patch_variable=True, lazyloading=True):
+        # default dtypes
+        self._dtypes = {
+            'latitude': 'f4',
+            'longitude': 'f4',
+            'incidence': 'f4',
+            'elevation': 'f4',
+            'altitude': 'f4',
+            'ground_heading': 'f4',
+            'nesz': None,
+            'negz': None,
+            'sigma0_raw': None,
+            'gamma0_raw': None,
+            'noise_lut': 'f4',
+            'sigma0_lut': 'f8',
+            'gamma0_lut': 'f8',
+        }
+        if dtypes is not None:
+            self._dtypes.update(dtypes)
 
         # default meta for map_blocks output.
         # as asarray is imported from numpy, it's a numpy array.
@@ -143,18 +161,15 @@ class RadarSat2Dataset:
         # what's matter here is the shape of the image, not the values.
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", np.ComplexWarning)
-            # SLC TOPS, tune the high res grid because of bursts overlapping
             self._da_tmpl = xr.DataArray(
                 dask.array.empty_like(
-                    np.empty((len(self._dataset.line), len(self._dataset.sample))),
-                    ################# NOT SURE   ##################
+                    self._dataset.digital_number.isel(pol=0).drop('pol'),
                     dtype=np.int8, name="empty_var_tmpl-%s" % dask.base.tokenize(self.rs2meta.name)),
                 dims=('line', 'sample'),
-                coords={
-                    'line': self._dataset.line,
-                    'pixel': self._dataset.sample,
-                },
+                coords={'line': self._dataset.digital_number.line,
+                        'sample': self._dataset.digital_number.sample}
             )
+
         self._dataset.attrs.update(self.rs2meta.to_dict("all"))
         self.datatree.attrs.update(self.rs2meta.to_dict("all"))
         self._luts = self.rs2meta.dt['lut'].ds.rename({'pixels': 'sample'})
@@ -162,7 +177,7 @@ class RadarSat2Dataset:
         self._dataset = xr.merge([self._load_from_geoloc(['latitude', 'longitude', 'altitude',
                                                           'incidence', 'elevation'
                                                           ]
-                                                         ), self._dataset])
+                                                         , lazy_loading=lazyloading), self._dataset])
         a = self._dataset.copy()
         self._dataset = self.flip_sample_da(a)
         self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
@@ -184,7 +199,7 @@ class RadarSat2Dataset:
         # TODO : continue __init__
 
     @timing
-    def _load_from_geoloc(self, varnames):
+    def _load_from_geoloc(self, varnames, lazy_loading=True):
         """
         Interpolate (with RectBiVariateSpline) variables from `self.s1meta.geoloc` to `self._dataset`
 
@@ -244,11 +259,17 @@ class RadarSat2Dataset:
                     z_values,
                     kx=1, ky=1
                 )
-
-                da_val = interp_func(self._dataset.digital_number.line, self._dataset.digital_number.sample)
-                da_var = xr.DataArray(data=da_val, dims=['line', 'sample'],
-                                      coords={'line': self._dataset.digital_number.line,
-                                              'sample': self._dataset.digital_number.sample})
+                typee = self.rs2meta.geoloc[varname_in_geoloc].dtype
+                if lazy_loading:
+                    da_var = map_blocks_coords(
+                        self._da_tmpl.astype(typee),
+                        interp_func
+                    )
+                else:
+                    da_val = interp_func(self._dataset.digital_number.line, self._dataset.digital_number.sample)
+                    da_var = xr.DataArray(data=da_val, dims=['line', 'sample'],
+                                          coords={'line': self._dataset.digital_number.line,
+                                                  'sample': self._dataset.digital_number.sample})
                 if varname == 'longitude':
                     if self.rs2meta.cross_antemeridian:
                         da_var.data = da_var.data.map_blocks(to_lon180)
@@ -271,53 +292,25 @@ class RadarSat2Dataset:
         gamma = self._dataset.gamma0_raw[0]
         incidence_pre = gamma / beta
         i_angle = np.degrees(np.arctan(incidence_pre))
-        # i_angle_hd = np.tile(i_angle, (len(self._dataset.digital_number.line), 1))
         return xr.DataArray(data=i_angle, dims=['line', 'sample'], coords={
             'line': self._dataset.digital_number.line,
             'sample': self._dataset.digital_number.sample})
 
     @timing
     def _resample_lut_values(self, lut):
-        resolution = self.resolution
-        sample_spacing = self.rs2meta.dt["geolocationGrid"]["pixel"].attrs[
-            "rasterAttributes_sampledPixelSpacing_value"]
-        if isinstance(resolution, str) and resolution.endswith('m'):
-            resolution = float(self.resolution[:-1])
-            out_sample_resolution = resolution / sample_spacing
-        elif isinstance(resolution, dict):
-            out_sample_resolution = resolution['sample']
-        else:
-            raise ValueError("There is a problem with the resolution format")
-        data = lut.values
-        # filter the signal with a gaussian kernel 10 m
-        sig = 0.5 * out_sample_resolution
-        trunc = 4
-        res = ndimage.gaussian_filter1d(data, sigma=sig, mode='mirror', truncate=trunc)
-        res_da = xr.DataArray(res, coords={'sample': np.arange(lut.sample.shape[0])}, dims=['sample'])
-        # bb_da = xr.DataArray(data, coords={'sample': np.arange(lut.sample.shape[0])}, dims=['sample'])
-        # nperseg = {'sample': int(out_sample_resolution)}
-        # define the posting of the resampled coordinates using https://github.com/umr-lops/xsar_slc
-        # posting = xtiling(bb_da, nperseg, noverlap=0, centering=False, side='left', prefix='')
-        posting = self._dataset.digital_number.sample.values
-        # resampled_signal = res_da.isel(sample=posting['sample'].sample)
-        resampled_signal = res_da.isel(sample=posting.astype(int))
-        """# remove last samples which can't be averaged
-        new_size = int(int(data.shape[0]/out_sample_resolution) * out_sample_resolution)
-        data = data[:new_size]
-
-        group_idx = np.floor(np.arange(new_size) / out_sample_resolution).astype(int)
-        resampled_lut_values = npg.aggregate(group_idx, data, func='mean')
-        return xr.DataArray(data=resampled_lut_values, dims=['sample'],
-                            coords={'sample': self._dataset.digital_number.sample})"""
-        return resampled_signal.assign_coords({"sample": self._dataset.digital_number.sample})
-
-    """@timing
-    def _resample_lut_values(self, lut):
-        hr_line_nb = self.rs2meta.dt['geolocationGrid'].ds.line[-1].values + 1
-        lut_2d = xr.DataArray(data=np.tile(lut, (hr_line_nb, 1)),
-                              coords={'line': np.arange(hr_line_nb), 'sample': lut.sample},
-                              dims=['line', 'sample'])
-        signal_lut_2d = signal_lut(lut_2d.line, lut_2d.sample, lut)"""
+        lines = self.rs2meta.geoloc.line
+        samples = np.arange(lut.values.shape[0])
+        lut_values_2d = np.tile(lut.values, (lines.shape[0], 1))
+        interp_func = RectBivariateSpline(x=lines, y=samples, z=lut_values_2d, kx=1, ky=1)
+        """var = inter_func(self._dataset.digital_number.line, self._dataset.digital_number.sample)
+        da_var = xr.DataArray(data=var, dims=['line', 'sample'],
+                              coords={'line': self._dataset.digital_number.line,
+                                      'sample': self._dataset.digital_number.sample})"""
+        da_var = map_blocks_coords(
+            self._da_tmpl.astype(lut.dtype),
+            interp_func
+        )
+        return da_var
 
     @timing
     def _load_elevation_from_lut(self):
@@ -379,7 +372,12 @@ class RadarSat2Dataset:
     @timing
     def _interpolate_for_noise_lut(self, var_name):
         """
-        Interpolate the noise level values (from the reader) and resample it to create a noise lut
+        Interpolate the noise level values (from the reader) and resample it to create a noise lut.
+        Initial values are at low resolution, and the high resolution range is made from the pixel first noise
+        level value and the step. Then, an interpolation with RectBivariateSpline permit having a full resolution
+        and extrapolate the first pixels; getting by the end resampled noise values.
+        Nb : Noise Level Values extracted from the reader are already calibrated, and expressed in dB
+        (so they are converted in linear).
 
         Parameters
         ----------
@@ -394,16 +392,19 @@ class RadarSat2Dataset:
         initial_lut = self._get_lut_noise(var_name)
         first_pix = initial_lut.attrs['pixelFirstNoiseValue']
         step = initial_lut.attrs['stepSize']
-        #noise_values = (10 ** (initial_lut / 10)).values
-        noise_values = initial_lut.values
+        noise_values = (10 ** (initial_lut / 10)).values
         lines = np.arange(self.rs2meta.geoloc.line.values[-1] + 1)
         noise_values_2d = np.tile(noise_values, (lines.shape[0], 1))
         indexes = [first_pix + step * i for i in range(0, noise_values.shape[0])]
-        inter_func = RectBivariateSpline(x=lines, y=indexes, z=noise_values_2d, kx=1, ky=1)
-        var = inter_func(self._dataset.digital_number.line, self._dataset.digital_number.sample)
+        interp_func = RectBivariateSpline(x=lines, y=indexes, z=noise_values_2d, kx=1, ky=1)
+        """var = inter_func(self._dataset.digital_number.line, self._dataset.digital_number.sample)
         da_var = xr.DataArray(data=var, dims=['line', 'sample'],
                               coords={'line': self._dataset.digital_number.line,
-                                      'sample': self._dataset.digital_number.sample})
+                                      'sample': self._dataset.digital_number.sample})"""
+        da_var = map_blocks_coords(
+            self._da_tmpl.astype(self._dtypes['noise_lut']),
+            interp_func
+        )
         return da_var
 
     @timing
@@ -421,14 +422,9 @@ class RadarSat2Dataset:
             xarray.Dataset
                 with one variable named by `'ne%sz' % var_name[0]` (ie 'nesz' for 'sigma0', 'nebz' for 'beta0', etc...)
         """
-        lut = self._get_lut(var_name)
-        offset = lut.attrs['offset']
-        if self.resolution is not None:
-            lut = dask.delayed(self._resample_lut_values)(lut)
-        lut_noise = dask.delayed(self._interpolate_for_noise_lut(var_name))
         name = 'ne%sz' % var_name[0]
-        res = ((lut_noise.compute() ** 2) + offset) / lut.compute()
-        return res.to_dataset(name=name)
+        lut_noise = self._interpolate_for_noise_lut(var_name).compute()
+        return lut_noise.to_dataset(name=name)
 
     @timing
     def _add_denoised(self, ds, clip=False, vars=None):

@@ -248,14 +248,13 @@ class Sentinel1Dataset:
         # tmp_f = self.s1meta.to_dict("all")
         # del tmp_f
         # return
-
         self._dataset.attrs.update(self.s1meta.to_dict("all"))
         self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
         self.datatree.attrs.update(self.s1meta.to_dict("all"))
         if 'GRD' in str(self.datatree.attrs['product']):  # load land_mask by default for GRD products
             self.add_high_resolution_variables(patch_variable=patch_variable, luts=luts, lazy_loading=lazyloading)
             self.apply_calibration_and_denoising()
-
+        self.datatree['measurement'].attrs = self.datatree.attrs # added 6 fev 23, to fill  empty attrs
         self.sliced = False
         """True if dataset is a slice of original L1 dataset"""
 

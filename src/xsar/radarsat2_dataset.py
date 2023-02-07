@@ -13,6 +13,7 @@ import xarray as xr
 from scipy.interpolate import RectBivariateSpline
 import dask
 import datatree
+from shapely.geometry import Polygon
 # import numpy_groupies as npg
 from scipy import ndimage
 from .sentinel1_xml_mappings import signal_lut
@@ -59,6 +60,8 @@ class RadarSat2Dataset:
         self._default_meta = asarray([], dtype='f8')
         self.geoloc_tree = None
         self.rs2meta = None
+        self.sliced = False
+        """True if dataset is a slice of original L1 dataset"""
         self.resolution = resolution
         """`xsar.RadarSat2Meta` object"""
 
@@ -188,6 +191,8 @@ class RadarSat2Dataset:
             {'measurement': self.datatree['measurement'],
              'geolocation_annotation': self.datatree['geolocation_annotation'],
              'reader': self.rs2meta.dt})
+        self._dataset.attrs.update(self.rs2meta.to_dict("all"))  # TODO : improve the syntax
+        self.datatree.attrs.update(self.rs2meta.to_dict("all"))
 
         """# noise_lut is noise_lut_range * noise_lut_azi
         if 'noise_lut_range' in self._luts.keys() and 'noise_lut_azi' in self._luts.keys():
@@ -252,7 +257,6 @@ class RadarSat2Dataset:
                 else:
                     z_values = self.rs2meta.geoloc[varname_in_geoloc]
                 # interp_func = interp_func_agnostic_satellite
-                rbs = None
                 interp_func = RectBivariateSpline(
                     self.rs2meta.geoloc.line,
                     self.rs2meta.geoloc.pixel,
@@ -560,9 +564,142 @@ class RadarSat2Dataset:
         return new_ds
 
     @property
+    def len_line_m(self):
+        """line length, in meters"""
+        bbox_ll = list(zip(*self._bbox_ll))
+        len_m, _ = haversine(*bbox_ll[1], *bbox_ll[2])
+        return len_m
+
+    @property
+    def len_sample_m(self):
+        """sample length, in meters """
+        bbox_ll = list(zip(*self._bbox_ll))
+        len_m, _ = haversine(*bbox_ll[0], *bbox_ll[1])
+        return len_m
+
+    @property
+    def coverage(self):
+        """coverage string"""
+        return "%dkm * %dkm (line * sample )" % (self.len_line_m / 1000, self.len_sample_m / 1000)
+
+    @property
+    def _regularly_spaced(self):
+        return max(
+            [np.unique(np.round(np.diff(self._dataset[dim].values), 1)).size for dim in ['line', 'sample']]) == 1
+
+    @property
+    def _bbox_ll(self):
+        """Dataset bounding box, lon/lat"""
+        return self.rs2meta.coords2ll(*zip(*self._bbox_coords))
+
+    @property
+    def _bbox_coords(self):
+        """
+        Dataset bounding box, in line/sample coordinates
+        """
+        bbox_ext = bbox_coords(self.dataset.line.values, self.dataset.sample.values)
+        return bbox_ext
+
+    @property
+    def geometry(self):
+        """
+        geometry of this dataset, as a `shapely.geometry.Polygon` (lon/lat coordinates)
+        """
+        return Polygon(zip(*self._bbox_ll))
+
+    @property
+    def footprint(self):
+        """alias for `xsar.RadarSat2Dataset.geometry`"""
+        return self.geometry
+
+    def coords2ll(self, *args, **kwargs):
+        """
+         Alias for `xsar.Sentinel1Meta.coords2ll`
+
+         See Also
+         --------
+         xsar.Sentinel1Meta.coords2ll
+        """
+        return self.rs2meta.coords2ll(*args, **kwargs)
+
+    def _set_rio(self, ds):
+        # set .rio accessor for ds. ds must be same kind a self._dataset (not checked!)
+        gcps = self._local_gcps
+
+        want_dataset = True
+        if isinstance(ds, xr.DataArray):
+            # temporary convert to dataset
+            try:
+                ds = ds.to_dataset()
+            except ValueError:
+                ds = ds.to_dataset(name='_tmp_rio')
+            want_dataset = False
+
+        for v in ds:
+            if set(['line', 'sample']).issubset(set(ds[v].dims)):
+                ds[v] = ds[v].set_index({'sample': 'sample', 'line': 'line'})
+                ds[v] = ds[v].rio.write_gcps(
+                    gcps, 'epsg:4326', inplace=True
+                ).rio.set_spatial_dims(
+                    'sample', 'line', inplace=True
+                ).rio.write_coordinate_system(
+                    inplace=True)
+                # remove/reset some incorrect attrs set by rio
+                # (long_name is 'latitude', but it's incorrect for line axis ...)
+                for ax in ['line', 'sample']:
+                    [ds[v][ax].attrs.pop(k, None) for k in ['long_name', 'standard_name']]
+                    ds[v][ax].attrs['units'] = '1'
+
+        if not want_dataset:
+            # convert back to dataarray
+            ds = ds[v]
+            if ds.name == '_tmp_rio':
+                ds.name = None
+        return ds
+
+    def recompute_attrs(self):
+        """
+        Recompute dataset attributes. It's automaticaly called if you assign a new dataset, for example
+
+        >>> xsar_obj.dataset = xsar_obj.dataset.isel(line=slice(1000,5000))
+        >>> #xsar_obj.recompute_attrs() # not needed
+
+        This function must be manually called before using the `.rio` accessor of a variable
+
+        >>> xsar_obj.recompute_attrs()
+        >>> xsar_obj.dataset['sigma0'].rio.reproject(...)
+
+        See Also
+        --------
+            [rioxarray information loss](https://corteva.github.io/rioxarray/stable/getting_started/manage_information_loss.html)
+
+        """
+        if not self._regularly_spaced:
+            warnings.warn(
+                "Irregularly spaced dataset (probably multiple selection). Some attributes will be incorrect.")
+        attrs = self._dataset.attrs
+        # attrs['pixel_sample_m'] = self.pixel_sample_m
+        # attrs['pixel_line_m'] = self.pixel_line_m
+        attrs['coverage'] = self.coverage
+        attrs['footprint'] = self.footprint
+
+        self.dataset.attrs.update(attrs)
+
+        self._dataset = self._set_rio(self._dataset)
+
+        return None
+
+    def __repr__(self):
+        if self.sliced:
+            intro = "sliced"
+        else:
+            intro = "full covevage"
+        return "<RadarSat2Dataset %s object>" % intro
+
+    @property
     def dataset(self):
         """
-        `xarray.Dataset` representation of this `xsar.Sentinel1Dataset` object.
+        `xarray.Dataset` representation of this `xsar.RadarSat2Dataset` object.
         This property can be set with a new dataset, if the dataset was computed from the original dataset.
         """
         # return self._dataset

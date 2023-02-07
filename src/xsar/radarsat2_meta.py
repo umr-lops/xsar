@@ -1,6 +1,10 @@
 import copy
 
 import cartopy.feature
+import rasterio
+import shapely
+from rasterio.control import GroundControlPoint
+from scipy.interpolate import RectBivariateSpline
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
@@ -107,6 +111,30 @@ class RadarSat2Meta:
         p = Polygon(corners)
         self.geoloc.attrs['footprint'] = p
         dic["footprints"] = p
+        # compute acquisition size/resolution in meters
+        # first vector is on sample
+        acq_sample_meters, _ = haversine(*corners[0], *corners[1])
+        # second vector is on line
+        acq_line_meters, _ = haversine(*corners[1], *corners[2])
+        dic['coverage'] = "%dkm * %dkm (line * sample )" % (
+            acq_line_meters / 1000, acq_sample_meters / 1000)
+
+        def _to_rio_gcp(pt_geoloc):
+            # convert a point from self._geoloc grid to rasterio GroundControlPoint
+            return GroundControlPoint(
+                x=pt_geoloc.longitude.item(),
+                y=pt_geoloc.latitude.item(),
+                z=pt_geoloc.height.item(),
+                col=pt_geoloc.line.item(),
+                row=pt_geoloc.pixel.item()
+            )
+
+        gcps = [
+            _to_rio_gcp(self.geoloc.sel(line=line, pixel=sample))
+            for line in self.geoloc.line for sample in self.geoloc.pixel
+        ]
+        # approx transform, from all gcps (inaccurate)
+        dic['approx_transform'] = rasterio.transform.from_gcps(gcps)
         return dic
 
     @property
@@ -115,18 +143,24 @@ class RadarSat2Meta:
         return ((np.max(self.geoloc['longitude']) - np.min(
             self.geoloc['longitude'])) > 180).item()
 
-    """@property
-    def _bursts(self):
-        if self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.number_of_bursts') > 0:
-            bursts = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts')
-            bursts.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts',
-                                                                       describe=True)
-            return bursts
-        else:
-            bursts = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts_grd')
-            bursts.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts_grd',
-                                                                       describe=True)
-            return bursts"""
+    @property
+    def dict(self):
+        # return a minimal dictionary that can be used with Sentinel1Meta.from_dict() or pickle (see __reduce__)
+        # to reconstruct another instance of self
+        #
+        minidict = {
+            'name': self.name,
+            '_mask_features_raw': self._mask_features_raw,
+            '_mask_features': {},
+            '_mask_intersecting_geometries': {},
+            '_mask_geometry': {},
+            'rasters': self.rasters
+        }
+        for name in minidict['_mask_features_raw'].keys():
+            minidict['_mask_intersecting_geometries'][name] = None
+            minidict['_mask_geometry'][name] = None
+            minidict['_mask_features'][name] = None
+        return minidict
 
     @classmethod
     def from_dict(cls, minidict):
@@ -149,8 +183,10 @@ class RadarSat2Meta:
         }
         info_keys['all'] = info_keys['minimal'] + ['name', 'start_date', # 'stop_date',
                                                    'footprint',
-                                                   #'coverage',
+                                                   'coverage',
                                                    'pixel_line_m', 'pixel_sample_m',
+                                                   'approx_transform',
+
                                                    #'orbit_pass',
                                                    #'platform_heading'
                                                    ]
@@ -181,9 +217,36 @@ class RadarSat2Meta:
     @property
     def footprint(self):
         """footprint, as a shapely polygon or multi polygon"""
-        if self.multidataset:
-            return unary_union(self._footprints)
         return self.geoloc.attrs['footprint']
+
+    @property
+    def _dict_coords2ll(self):
+        """
+        dict with keys ['longitude', 'latitude'] with interpolation function (RectBivariateSpline) as values.
+
+        Examples:
+        ---------
+            get longitude at line=100 and sample=200:
+            ```
+            >>> self._dict_coords2ll['longitude'].ev(100,200)
+            array(-66.43947434)
+            ```
+        Notes:
+        ------
+            if self.cross_antemeridian is True, 'longitude' will be in range [0, 360]
+        """
+        resdict = {}
+        geoloc = self.geoloc
+        if self.cross_antemeridian:
+            geoloc['longitude'] = geoloc['longitude'] % 360
+
+        idx_sample = np.array(geoloc.pixel)
+        idx_line = np.array(geoloc.line)
+
+        for ll in ['longitude', 'latitude']:
+            resdict[ll] = RectBivariateSpline(idx_line, idx_sample, np.asarray(geoloc[ll]), kx=1, ky=1)
+
+        return resdict
 
     @property
     def pixel_line_m(self):
@@ -202,4 +265,103 @@ class RadarSat2Meta:
         else:
             res = self.geoloc.pixel.attrs['rasterAttributes_sampledPixelSpacing_value']
         return res
+
+    @property
+    def approx_transform(self):
+        """
+        Affine transfom from geoloc.
+
+        This is an inaccurate transform, with errors up to 600 meters.
+        But it's fast, and may fit some needs, because the error is stable localy.
+        See `xsar.Sentinel1Meta.coords2ll` `xsar.RdarSat2Dataset.ll2coords` for accurate methods.
+
+        Examples
+        --------
+            get `longitude` and `latitude` from tuple `(line, sample)`:
+
+            >>> longitude, latitude = self.approx_transform * (line, sample)
+
+            get `line` and `sample` from tuple `(longitude, latitude)`
+
+            >>> line, sample = ~self.approx_transform * (longitude, latitude)
+
+        See Also
+        --------
+        xsar.RadarSat2Dataset.coords2ll
+        xsar.RadarSat2Dataset.ll2coords`
+
+        """
+        return self.manifest_attrs['approx_transform']
+
+    def _coords2ll_shapely(self, shape, approx=False):
+        if approx:
+            (xoff, a, b, yoff, d, e) = self.approx_transform.to_gdal()
+            return shapely.affinity.affine_transform(shape, (a, b, d, e, xoff, yoff))
+        else:
+            return shapely.ops.transform(self.coords2ll, shape)
+
+    def coords2ll(self, *args, to_grid=False, approx=False):
+        """
+        convert `lines`, `samples` arrays to `longitude` and `latitude` arrays.
+        or a shapely object in `lines`, `samples` coordinates to `longitude` and `latitude`.
+
+        Parameters
+        ----------
+        *args: lines, samples  or a shapely geometry
+            lines, samples are iterables or scalar
+
+        to_grid: bool, default False
+            If True, `lines` and `samples` must be 1D arrays. The results will be 2D array of shape (lines.size, samples.size).
+
+        Returns
+        -------
+        tuple of np.array or tuple of float
+            (longitude, latitude) , with shape depending on `to_grid` keyword.
+
+        See Also
+        --------
+        xsar.RadarSat2Dataset.ll2coords
+        xsar.RadarSat2Dataset.ll2coords
+
+        """
+
+        if isinstance(args[0], shapely.geometry.base.BaseGeometry):
+            return self._coords2ll_shapely(args[0])
+
+        lines, samples = args
+
+        scalar = True
+        if hasattr(lines, '__iter__'):
+            scalar = False
+
+        if approx:
+            if to_grid:
+                samples2D, lines2D = np.meshgrid(samples, lines)
+                lon, lat = self.approx_transform * (lines2D, samples2D)
+                pass
+            else:
+                lon, lat = self.approx_transform * (lines, samples)
+        else:
+            dict_coords2ll = self._dict_coords2ll
+            if to_grid:
+                lon = dict_coords2ll['longitude'](lines, samples)
+                lat = dict_coords2ll['latitude'](lines, samples)
+            else:
+                lon = dict_coords2ll['longitude'].ev(lines, samples)
+                lat = dict_coords2ll['latitude'].ev(lines, samples)
+
+        if self.cross_antemeridian:
+            lon = to_lon180(lon)
+
+        if scalar and hasattr(lon, '__iter__'):
+            lon = lon.item()
+            lat = lat.item()
+
+        if hasattr(lon, '__iter__') and type(lon) is not type(lines):
+            lon = type(lines)(lon)
+            lat = type(lines)(lat)
+
+        return lon, lat
+
+
 

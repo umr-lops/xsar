@@ -28,6 +28,7 @@ import datatree
 import pandas as pd
 import geopandas as gpd
 from scipy.spatial import KDTree
+from xsar.utils import get_mask, mask_names, _get_mask_intersecting_geometries, _get_mask_feature
 
 logger = logging.getLogger('xsar.sentinel1_dataset')
 logger.addHandler(logging.NullHandler())
@@ -1067,7 +1068,7 @@ class Sentinel1Dataset:
             chunk_footprint_ll = self.s1meta.coords2ll(chunk_footprint_coords)
 
             # get vector mask over chunk, in lon/lat
-            vector_mask_ll = self.s1meta.get_mask(mask).intersection(chunk_footprint_ll)
+            vector_mask_ll = get_mask(self, mask).intersection(chunk_footprint_ll)
 
             if vector_mask_ll.is_empty:
                 # no intersection with mask, return zeros
@@ -1095,14 +1096,14 @@ class Sentinel1Dataset:
             return raster_mask
 
         da_list = []
-        for mask in self.s1meta.mask_names:
+        for mask in mask_names(self):
             da_mask = map_blocks_coords(
                 self._da_tmpl,
                 _rasterize_mask_by_chunks,
                 func_kwargs={'mask': mask}
             )
             name = '%s_mask' % mask
-            da_mask.attrs['history'] = yaml.safe_dump({name: self.s1meta.get_mask(mask, describe=True)})
+            da_mask.attrs['history'] = yaml.safe_dump({name: get_mask(self, mask, describe=True)})
             da_list.append(da_mask.to_dataset(name=name))
 
         return xr.merge(da_list)
@@ -1203,7 +1204,7 @@ class Sentinel1Dataset:
             if chunk_footprint_ll.is_valid is False:
                 chunk_footprint_ll = make_valid(chunk_footprint_ll)
             # get vector mask over chunk, in lon/lat
-            vector_mask_ll = self.s1meta.get_mask(mask).intersection(chunk_footprint_ll)
+            vector_mask_ll = get_mask(self, mask).intersection(chunk_footprint_ll)
             if vector_mask_ll.is_empty:
                 # no intersection with mask, return zeros
                 return np.zeros((line.size, sample.size))
@@ -1268,7 +1269,7 @@ class Sentinel1Dataset:
                     # 'line_time': line_time.astype(float),
                 }, )
 
-            for mask in self.s1meta.mask_names:
+            for mask in mask_names(self):
                 logger.debug('mask: %s', mask)
                 if lazy_loading:
                     da_mask = map_blocks_coords(
@@ -1284,7 +1285,7 @@ class Sentinel1Dataset:
                                                'line': a_burst_subset.digital_number.line,
                                                'sample': a_burst_subset.digital_number.sample, })
                 name = '%s_maskv2' % mask
-                da_mask.attrs['history'] = yaml.safe_dump({name: self.s1meta.get_mask(mask, describe=True)})
+                da_mask.attrs['history'] = yaml.safe_dump({name: get_mask(self, mask, describe=True)})
                 da_mask.attrs['meaning'] = '0: ocean , 1: land'
                 da_mask = da_mask.fillna(0)  # zero -> ocean
                 da_mask = da_mask.astype(np.int8)

@@ -1,6 +1,7 @@
 import copy
 
 import cartopy.feature
+import pandas as pd
 import rasterio
 import shapely
 from rasterio.control import GroundControlPoint
@@ -50,6 +51,7 @@ class RadarSat2Meta:
     manifest_attrs = None
     dt = None
     safe = None
+    _time_range = None
 
     @timing
     def __init__(self, name):
@@ -93,6 +95,16 @@ class RadarSat2Meta:
         self.radar_parameters = self.dt['radarParameters'].ds
         self.lut = self.dt['lut'].ds
         self.manifest_attrs = self._create_manifest_attrs()
+        self._mask_features_raw = {}
+        self._mask_features = {}
+        self._mask_intersecting_geometries = {}
+        self._mask_geometry = {}
+
+        # get defaults masks from class attribute
+        for name, feature in self.__class__._mask_features_raw.items():
+            self.set_mask_feature(name, feature)
+        self._geoloc = None
+        self.rasters = self.__class__.rasters.copy()
 
     def _create_manifest_attrs(self):
         dic = dict()
@@ -100,7 +112,8 @@ class RadarSat2Meta:
         dic["polarizations"] = self.dt["radarParameters"]["pole"].values
         dic["product_type"] = self.product
         dic['satellite'] = self.dt.attrs['satellite']
-        dic['start_date'] = self.dt.attrs['rawDataStartTime']
+        dic['start_date'] = self.start_date
+        dic['stop_date'] = self.stop_date
         # compute attributes (footprint, coverage, pixel_size)
         footprint_dict = {}
         for ll in ['longitude', 'latitude']:
@@ -181,7 +194,7 @@ class RadarSat2Meta:
                 #'platform',
                 'swath', 'product', 'pols']
         }
-        info_keys['all'] = info_keys['minimal'] + ['name', 'start_date', # 'stop_date',
+        info_keys['all'] = info_keys['minimal'] + ['name', 'start_date', 'stop_date',
                                                    'footprint',
                                                    'coverage',
                                                    'pixel_line_m', 'pixel_sample_m',
@@ -362,6 +375,97 @@ class RadarSat2Meta:
             lat = type(lines)(lat)
 
         return lon, lat
+
+    def coords2heading(self, lines, samples, to_grid=False, approx=True):
+        """
+        Get image heading (lines increasing direction) at coords `lines`, `samples`.
+
+        Parameters
+        ----------
+        lines: np.array or scalar
+        samples: np.array or scalar
+        to_grid: bool
+            If True, `lines` and `samples` must be 1D arrays. The results will be 2D array of shape (lines.size, samples.size).
+
+        Returns
+        -------
+        np.array or float
+            `heading` , with shape depending on `to_grid` keyword.
+
+        """
+
+        lon1, lat1 = self.coords2ll(lines - 1, samples, to_grid=to_grid, approx=approx)
+        lon2, lat2 = self.coords2ll(lines + 1, samples, to_grid=to_grid, approx=approx)
+        _, heading = haversine(lon1, lat1, lon2, lat2)
+        return heading
+
+    @class_or_instancemethod
+    def set_mask_feature(self_or_cls, name, feature):
+        """
+        Set a named mask from a shapefile or a cartopy feature.
+
+        Parameters
+        ----------
+        name: str
+            mask name
+        feature: str or cartopy.feature.Feature
+            if str, feature is a path to a shapefile or whatever file readable with fiona.
+            It is recommended to use str, as the serialization of cartopy feature might be big.
+
+        Examples
+        --------
+            Add an 'ocean' mask at class level (ie as default mask):
+            ```
+            >>> xsar.RadarSat2Meta.set_mask_feature('ocean', cartopy.feature.OCEAN)
+            ```
+
+            Add an 'ocean' mask at instance level (ie only for this self Sentinel1Meta instance):
+            ```
+            >>> xsar.RadarSat2Meta.set_mask_feature('ocean', cartopy.feature.OCEAN)
+            ```
+
+
+            High resoltion shapefiles can be found from openstreetmap.
+            It is recommended to use WGS84 with large polygons split from https://osmdata.openstreetmap.de/
+
+        See Also
+        --------
+        xsar.Sentinel1Meta.get_mask
+        """
+
+        # see https://stackoverflow.com/a/28238047/5988771 for self_or_cls
+
+        self_or_cls._mask_features_raw[name] = feature
+
+        if not isinstance(self_or_cls, type):
+            # self (instance, not class)
+            self_or_cls._mask_intersecting_geometries[name] = None
+            self_or_cls._mask_geometry[name] = None
+            self_or_cls._mask_features[name] = None
+
+    def _get_time_range(self):
+        if self.multidataset:
+            time_range = [self.manifest_attrs['start_date'], self.manifest_attrs['stop_date']]
+        else:
+            time_range = self.orbit_and_attitude.timeStamp
+        return pd.Interval(left=pd.Timestamp(time_range.values[0]), right=pd.Timestamp(time_range.values[-1]), closed='both')
+
+    @property
+    def time_range(self):
+        """time range as pd.Interval"""
+        if self._time_range is None:
+            self._time_range = self._get_time_range()
+        return self._time_range
+
+    @property
+    def start_date(self):
+        """start date, as datetime.datetime"""
+        return '%s' % self.time_range.left
+
+    @property
+    def stop_date(self):
+        """stort date, as datetime.datetime"""
+        return '%s' % self.time_range.right
 
 
 

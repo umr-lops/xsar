@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
 import logging
 import warnings
+
+import yaml
+from affine import Affine
+
 from .radarsat2_meta import RadarSat2Meta
 from .utils import timing, haversine, map_blocks_coords, bbox_coords, BlockingActorProxy, merge_yaml, get_glob, \
     to_lon180
@@ -14,6 +18,7 @@ from scipy.interpolate import RectBivariateSpline
 import dask
 import datatree
 from shapely.geometry import Polygon
+from xsar.utils import get_mask, mask_names, _get_mask_intersecting_geometries, _get_mask_feature
 # import numpy_groupies as npg
 from scipy import ndimage
 from .sentinel1_xml_mappings import signal_lut
@@ -34,7 +39,9 @@ class RadarSat2Dataset:
     def __init__(self, dataset_id, resolution=None,
                  resampling=rasterio.enums.Resampling.rms,
                  luts=False, chunks={'line': 5000, 'sample': 5000},
-                 dtypes=None, patch_variable=True, lazyloading=True):
+                 dtypes=None, patch_variable=True, lazyloading=True, skip_variables=None):
+        if skip_variables is None:
+            skip_variables = []
         # default dtypes
         self._dtypes = {
             'latitude': 'f4',
@@ -181,6 +188,10 @@ class RadarSat2Dataset:
                                                           'incidence', 'elevation'
                                                           ]
                                                          , lazy_loading=lazyloading), self._dataset])
+        if 'ground_heading' not in skip_variables:
+            self._dataset = xr.merge([self._load_ground_heading(), self._dataset])
+        self._rasterized_masks = self._load_rasterized_masks()
+        self._dataset = xr.merge([self._rasterized_masks, self._dataset])
         a = self._dataset.copy()
         self._dataset = self.flip_sample_da(a)
         self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
@@ -695,6 +706,85 @@ class RadarSat2Dataset:
         else:
             intro = "full covevage"
         return "<RadarSat2Dataset %s object>" % intro
+
+    @timing
+    def _load_ground_heading(self):
+        def coords2heading(lines, samples):
+            return self.rs2meta.coords2heading(lines, samples, to_grid=True, approx=True)
+
+        gh = map_blocks_coords(
+            self._da_tmpl.astype(self._dtypes['ground_heading']),
+            coords2heading,
+            name='ground_heading'
+        )
+
+        gh.attrs = {
+            'comment': 'at ground level, computed from lon/lat in line direction'
+        }
+
+        return gh.to_dataset(name='ground_heading')
+
+    @timing
+    def _load_rasterized_masks(self):
+
+        def _rasterize_mask_by_chunks(line, sample, mask='land'):
+            chunk_coords = bbox_coords(line, sample, pad=None)
+            # chunk footprint polygon, in dataset coordinates (with buffer, to enlarge a little the footprint)
+            chunk_footprint_coords = Polygon(chunk_coords).buffer(10)
+            # chunk footprint polygon, in lon/lat
+            chunk_footprint_ll = self.rs2meta.coords2ll(chunk_footprint_coords)
+
+            # get vector mask over chunk, in lon/lat
+            vector_mask_ll = get_mask(self, mask).intersection(chunk_footprint_ll)
+
+            if vector_mask_ll.is_empty:
+                # no intersection with mask, return zeros
+                return np.zeros((line.size, sample.size))
+
+            # vector mask, in line/sample coordinates
+            vector_mask_coords = self.rs2meta.ll2coords(vector_mask_ll)
+
+            # shape of the returned chunk
+            out_shape = (line.size, sample.size)
+
+            # transform * (x, y) -> (line, sample)
+            # (where (x, y) are index in out_shape)
+            # Affine.permutation() is used because (line, sample) is transposed from geographic
+
+            transform = Affine.translation(*chunk_coords[0]) * Affine.scale(
+                *[np.unique(np.diff(c))[0] for c in [line, sample]]) * Affine.permutation()
+
+            raster_mask = rasterio.features.rasterize(
+                [vector_mask_coords],
+                out_shape=out_shape,
+                all_touched=False,
+                transform=transform
+            )
+            return raster_mask
+
+        da_list = []
+        for mask in mask_names(self):
+            da_mask = map_blocks_coords(
+                self._da_tmpl,
+                _rasterize_mask_by_chunks,
+                func_kwargs={'mask': mask}
+            )
+            name = '%s_mask' % mask
+            da_mask.attrs['history'] = yaml.safe_dump({name: get_mask(self, mask, describe=True)})
+            da_list.append(da_mask.to_dataset(name=name))
+
+        return xr.merge(da_list)
+
+    def add_rasterized_masks(self):
+        """
+        add rasterized masks only (included in add_high_resolution_variables() )
+        :return:
+        """
+        self._rasterized_masks = self._load_rasterized_masks()
+        # self.datatree['measurement'].ds = xr.merge([self.datatree['measurement'].ds,self._rasterized_masks])
+        self.datatree['measurement'] = self.datatree['measurement'].assign(
+            xr.merge([self.datatree['measurement'].ds, self._rasterized_masks])
+        )
 
     @property
     def dataset(self):

@@ -39,6 +39,7 @@ except ImportError:
     logger.warning("psutil module not found. Disabling memory monitor")
     mem_monitor = False
 
+
 def _load_config():
     """
     load config from default xsar/config.yml file or user ~/.xsar/config.yml
@@ -62,7 +63,6 @@ def _load_config():
 
 global config
 config = _load_config()
-
 
 
 class bind(partial):
@@ -453,6 +453,7 @@ def merge_yaml(yaml_strings_list,section=None):
 
     return yaml.safe_dump(dict_like)
 
+
 def get_glob(strlist):
     # from list of str, replace diff by '?'
     def _get_glob(st):
@@ -554,6 +555,7 @@ def safe_dir(filename, path='.', only_exists=False):
                 # a path was found. Stop iterating over path list
                 break
     return filepath
+
 
 def url_get(url, cache_dir=os.path.join(config['data_dir'], 'fsspec_cache')):
     """

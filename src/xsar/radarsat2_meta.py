@@ -376,6 +376,68 @@ class RadarSat2Meta:
 
         return lon, lat
 
+    def ll2coords(self, *args):
+        """
+        Get `(lines, samples)` from `(lon, lat)`,
+        or convert a lon/lat shapely shapely object to line/sample coordinates.
+
+        Parameters
+        ----------
+        *args: lon, lat or shapely object
+            lon and lat might be iterables or scalars
+
+        Returns
+        -------
+        tuple of np.array or tuple of float (lines, samples) , or a shapely object
+
+        Examples
+        --------
+            get nearest (line,sample) from (lon,lat) = (84.81, 21.32) in ds, without bounds checks
+
+            >>> (line, sample) = meta.ll2coords(84.81, 21.32) # (lon, lat)
+            >>> (line, sample)
+            (9752.766349989339, 17852.571322887554)
+
+        See Also
+        --------
+        xsar.Sentinel1Meta.coords2ll
+        xsar.Sentinel1Dataset.coords2ll
+
+        """
+
+        if isinstance(args[0], shapely.geometry.base.BaseGeometry):
+            return self._ll2coords_shapely(args[0])
+
+        lon, lat = args
+
+        # approximation with global inaccurate transform
+        line_approx, sample_approx = ~self.approx_transform * (np.asarray(lon), np.asarray(lat))
+
+        # Theoretical identity. It should be the same, but the difference show the error.
+        lon_identity, lat_identity = self.coords2ll(line_approx, sample_approx, to_grid=False)
+        line_identity, sample_identity = ~self.approx_transform * (lon_identity, lat_identity)
+
+        # we are now able to compute the error, and make a correction
+        line_error = line_identity - line_approx
+        sample_error = sample_identity - sample_approx
+
+        line = line_approx - line_error
+        sample = sample_approx - sample_error
+
+        if hasattr(lon, '__iter__'):
+            scalar = False
+        else:
+            scalar = True
+
+        return line, sample
+
+    def _ll2coords_shapely(self, shape, approx=False):
+        if approx:
+            (xoff, a, b, yoff, d, e) = (~self.approx_transform).to_gdal()
+            return shapely.affinity.affine_transform(shape, (a, b, d, e, xoff, yoff))
+        else:
+            return shapely.ops.transform(self.ll2coords, shape)
+
     def coords2heading(self, lines, samples, to_grid=False, approx=True):
         """
         Get image heading (lines increasing direction) at coords `lines`, `samples`.
@@ -466,6 +528,18 @@ class RadarSat2Meta:
     def stop_date(self):
         """stort date, as datetime.datetime"""
         return '%s' % self.time_range.right
+
+    @property
+    def get_azitime(self):
+        """
+        Get time at low resolution
+
+        Returns
+        -------
+        array[datetime64[ns]]
+            times
+        """
+        return self.orbit_and_attitude.timeStamp.values
 
 
 

@@ -18,8 +18,7 @@ from scipy.interpolate import RectBivariateSpline
 import dask
 import datatree
 from shapely.geometry import Polygon
-from xsar.utils import get_mask, mask_names, _get_mask_intersecting_geometries, _get_mask_feature
-# import numpy_groupies as npg
+from xsar.utils import get_mask, mask_names
 from scipy import ndimage
 from .sentinel1_xml_mappings import signal_lut
 
@@ -180,14 +179,15 @@ class RadarSat2Dataset:
                         'sample': self._dataset.digital_number.sample}
             )
 
-        self._dataset.attrs.update(self.rs2meta.to_dict("all"))
-        self.datatree.attrs.update(self.rs2meta.to_dict("all"))
+        # self._dataset.attrs.update(self.rs2meta.to_dict("all"))
+        # self.datatree.attrs.update(self.rs2meta.to_dict("all"))
         self._luts = self.rs2meta.dt['lut'].ds.rename({'pixels': 'sample'})
         self.apply_calibration_and_denoising()
         self._dataset = xr.merge([self._load_from_geoloc(['latitude', 'longitude', 'altitude',
                                                           'incidence', 'elevation'
                                                           ]
                                                          , lazy_loading=lazyloading), self._dataset])
+        self._dataset = xr.merge([self.interpolate_times, self._dataset])
         if 'ground_heading' not in skip_variables:
             self._dataset = xr.merge([self._load_ground_heading(), self._dataset])
         self._rasterized_masks = self._load_rasterized_masks()
@@ -538,12 +538,18 @@ class RadarSat2Dataset:
         """
         antenna_pointing = self.rs2meta.dt['radarParameters'].attrs['antennaPointing']
         pass_direction = self.rs2meta.dt.attrs['passDirection']
+        val_samples_flipped = False
         flipped_cases = [('Left', 'Ascending'), ('Right', 'Descending')]
         if (antenna_pointing, pass_direction) in flipped_cases:
             new_ds = ds.isel(sample=slice(None, None, -1)).assign_coords(sample=ds.sample)
-            new_ds.attrs['samples_flipped'] = 'xsar convention : increasing incidence values along samples axis'
+            val_samples_flipped = True
         else:
             new_ds = ds
+        ds_samples_flipped = xr.DataArray(data=val_samples_flipped,
+                                          attrs={'meaning':
+                                                 'xsar convention : increasing incidence values along samples axis'}
+                                          ).to_dataset(name='samples_flipped')
+        new_ds = xr.merge([ds_samples_flipped, new_ds])
         return new_ds
 
     @timing
@@ -566,12 +572,18 @@ class RadarSat2Dataset:
             Flipped back, respecting the xsar convention
         """
         pass_direction = self.rs2meta.dt.attrs['passDirection']
+        val_lines_flipped = False
         if pass_direction == 'Ascending':
             new_ds = ds.copy().isel(line=slice(None, None, -1)).assign_coords(line=ds.line)
-            new_ds.attrs['lines_flipped'] = 'xsar convention : increasing time along line axis (whatever ascending or '\
-                                            'descending pass direction)'
+            val_lines_flipped = True
         else:
             new_ds = ds.copy()
+        ds_lines_flipped = xr.DataArray(data=val_lines_flipped,
+                                        attrs={'meaning':
+                                               'xsar convention : increasing time along line axis '
+                                               '(whatever ascending or descending pass direction)'}
+                                        ).to_dataset(name='lines_flipped')
+        new_ds = xr.merge([ds_lines_flipped, new_ds])
         return new_ds
 
     @property
@@ -667,6 +679,19 @@ class RadarSat2Dataset:
             if ds.name == '_tmp_rio':
                 ds.name = None
         return ds
+
+    @property
+    def interpolate_times(self):
+        times = self.rs2meta.get_azitime
+        lines = self.rs2meta.geoloc.line
+        samples = self.rs2meta.geoloc.pixel
+        time_values_2d = np.tile(times, (samples.shape[0], 1)).transpose()
+        interp_func = RectBivariateSpline(x=lines, y=samples, z=time_values_2d.astype(float), kx=1, ky=1)
+        da_var = map_blocks_coords(
+            self._da_tmpl.astype('datetime64[ns]'),
+            interp_func
+        )
+        return da_var.isel(sample=0).to_dataset(name='time')
 
     def recompute_attrs(self):
         """
@@ -771,6 +796,7 @@ class RadarSat2Dataset:
             )
             name = '%s_mask' % mask
             da_mask.attrs['history'] = yaml.safe_dump({name: get_mask(self, mask, describe=True)})
+            da_mask.attrs['meaning'] = '0: ocean , 1: land'
             da_list.append(da_mask.to_dataset(name=name))
 
         return xr.merge(da_list)
@@ -813,4 +839,3 @@ class RadarSat2Dataset:
     @dataset.deleter
     def dataset(self):
         logger.debug('deleter dataset')
-

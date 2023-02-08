@@ -28,7 +28,7 @@ import datatree
 import pandas as pd
 import geopandas as gpd
 from scipy.spatial import KDTree
-from xsar.utils import get_mask, mask_names, _get_mask_intersecting_geometries, _get_mask_feature
+from xsar.utils import get_mask, mask_names
 
 logger = logging.getLogger('xsar.sentinel1_dataset')
 logger.addHandler(logging.NullHandler())

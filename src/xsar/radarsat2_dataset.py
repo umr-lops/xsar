@@ -14,13 +14,12 @@ import rasterio.features
 from numpy import asarray
 from xradarsat2 import load_digital_number
 import xarray as xr
-from scipy.interpolate import RectBivariateSpline
+from scipy.interpolate import RectBivariateSpline, interp1d
 import dask
 import datatree
 from shapely.geometry import Polygon
 from xsar.utils import get_mask, mask_names
 from scipy import ndimage
-from .sentinel1_xml_mappings import signal_lut
 
 logger = logging.getLogger('xsar.sentinel1_dataset')
 logger.addHandler(logging.NullHandler())
@@ -138,6 +137,10 @@ class RadarSat2Dataset:
             'gamma0': 'lutGamma',
             'beta0': 'lutBeta',
         }
+        geoloc_vars = ['latitude', 'longitude', 'altitude', 'incidence', 'elevation']
+        for vv in skip_variables:
+            if vv in geoloc_vars:
+                geoloc_vars.remove(vv)
 
         for att in ['name', 'short_name', 'product', 'safe', 'swath', 'multidataset']:
             if att not in self.datatree.attrs:
@@ -183,13 +186,12 @@ class RadarSat2Dataset:
         # self.datatree.attrs.update(self.rs2meta.to_dict("all"))
         self._luts = self.rs2meta.dt['lut'].ds.rename({'pixels': 'sample'})
         self.apply_calibration_and_denoising()
-        self._dataset = xr.merge([self._load_from_geoloc(['latitude', 'longitude', 'altitude',
-                                                          'incidence', 'elevation'
-                                                          ]
-                                                         , lazy_loading=lazyloading), self._dataset])
+        self._dataset = xr.merge([self._load_from_geoloc(geoloc_vars, lazy_loading=lazyloading), self._dataset])
         self._dataset = xr.merge([self.interpolate_times, self._dataset])
         if 'ground_heading' not in skip_variables:
             self._dataset = xr.merge([self._load_ground_heading(), self._dataset])
+        if 'velocity' not in skip_variables:
+            self._dataset = xr.merge([self._get_sensor_velocity(), self._dataset])
         self._rasterized_masks = self._load_rasterized_masks()
         self._dataset = xr.merge([self._rasterized_masks, self._dataset])
         a = self._dataset.copy()
@@ -202,7 +204,7 @@ class RadarSat2Dataset:
             {'measurement': self.datatree['measurement'],
              'geolocation_annotation': self.datatree['geolocation_annotation'],
              'reader': self.rs2meta.dt})
-        self._dataset.attrs.update(self.rs2meta.to_dict("all"))  # TODO : improve the syntax
+        self._dataset.attrs.update(self.rs2meta.to_dict("all"))
         self.datatree.attrs.update(self.rs2meta.to_dict("all"))
 
         """# noise_lut is noise_lut_range * noise_lut_azi
@@ -692,6 +694,25 @@ class RadarSat2Dataset:
             interp_func
         )
         return da_var.isel(sample=0).to_dataset(name='time')
+
+    def _get_sensor_velocity(self):
+        """
+        Interpolated sensor velocity
+        Returns
+        -------
+        xarray.Dataset()
+            containing a single variable velocity
+        """
+        azimuth_times = self.rs2meta.get_azitime
+        orbstatevect = self.rs2meta.orbit_and_attitude
+        velos = np.array(
+            [orbstatevect['xVelocity'] ** 2., orbstatevect['yVelocity'] ** 2., orbstatevect['zVelocity'] ** 2.])
+        vels = np.sqrt(np.sum(velos, axis=0))
+        interp_f = interp1d(azimuth_times.astype(float), vels)
+        _vels = interp_f(self.interpolate_times['time'].astype(float))
+        res = xr.DataArray(_vels, dims=['line'], coords={'line': self.dataset.line})
+        return xr.Dataset({'velocity': res})
+
 
     def recompute_attrs(self):
         """

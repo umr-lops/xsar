@@ -717,7 +717,8 @@ class RadarSat2Dataset:
     def _reconfigure_reader_datatree(self):
         """
         Modify the structure of self.datatree to merge the reader's one and the measurement dataset.
-        Modify the structure of the reader datatree for a better user experience
+        Modify the structure of the reader datatree for a better user experience.
+        Include attributes from the reader (concerning the satellite) in the attributes of self.datatree
 
         Returns
         -------
@@ -760,13 +761,20 @@ class RadarSat2Dataset:
 
         dt = self.rs2meta.dt
 
+        # rename lut
         new_dt['lut'] = dt['lut'].rename(rename_lut)
+
+        # extract noise_lut, rename and put these in a dataset
         new_dt['noise_lut'] = dt['radarParameters'].rename(rename_radarParameters)
-        new_dt['radarParameters'] = dt['radarParameters']
         delete_list = get_list_keys_delete(new_dt['noise_lut'], rename_radarParameters.values(), inside=False)
         del_items_in_dt(new_dt['noise_lut'], delete_list)
+
+        # Create a dataset for radar parameters without the noise luts
+        new_dt['radarParameters'] = dt['radarParameters']
         delete_list = get_list_keys_delete(new_dt['radarParameters'], rename_radarParameters.keys())
         del_items_in_dt(new_dt['radarParameters'], delete_list)
+
+        # extract others dataset
         copy_dt = dt.copy()
         for key in dt.copy():
             if key not in exclude:

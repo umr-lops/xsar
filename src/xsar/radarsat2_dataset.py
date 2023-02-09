@@ -200,10 +200,11 @@ class RadarSat2Dataset:
         a = self._dataset.copy()
         self._dataset = self.flip_line_da(a)
         self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
-        self.datatree = datatree.DataTree.from_dict(
+        """self.datatree = datatree.DataTree.from_dict(
             {'measurement': self.datatree['measurement'],
              'geolocation_annotation': self.datatree['geolocation_annotation'],
-             'reader': self.rs2meta.dt})
+             'reader': self.rs2meta.dt})"""
+        self._reconfigure_reader_datatree()
         self._dataset.attrs.update(self.rs2meta.to_dict("all"))
         self.datatree.attrs.update(self.rs2meta.to_dict("all"))
 
@@ -713,6 +714,69 @@ class RadarSat2Dataset:
         res = xr.DataArray(_vels, dims=['line'], coords={'line': self.dataset.line})
         return xr.Dataset({'velocity': res})
 
+    def _reconfigure_reader_datatree(self):
+        """
+        Modify the structure of self.datatree to merge the reader's one and the measurement dataset.
+        Modify the structure of the reader datatree for a better user experience
+
+        Returns
+        -------
+        datatree.Datatree
+        """
+
+        dic = {'measurement': self.datatree['measurement'],
+                'geolocation_annotation': self.datatree['geolocation_annotation'],
+               }
+
+        def del_items_in_dt(dt, list_items):
+            for item in list_items:
+                dt.to_dataset().__delitem__(item)
+            return
+
+        def get_list_keys_delete(dt, list_keys, inside=True):
+            dt_keys = dt.keys()
+            final_list = []
+            for item in dt_keys:
+                if inside:
+                    if item in list_keys:
+                        final_list.append(item)
+                else:
+                    if item not in list_keys:
+                        final_list.append(item)
+            return final_list
+
+        exclude = ['geolocationGrid', 'lut', 'radarParameters']
+        rename_lut = {
+            'lutBeta': 'beta0_lut',
+            'lutGamma': 'gamma0_lut',
+            'lutSigma': 'sigma0_lut',
+        }
+        rename_radarParameters = {
+            'noiseLevelValues_BetaNought': 'beta0_noise_lut',
+            'noiseLevelValues_SigmaNought': 'sigma0_noise_lut',
+            'noiseLevelValues_Gamma': 'gamma0_noise_lut'
+        }
+        new_dt = datatree.DataTree.from_dict(dic)
+
+        dt = self.rs2meta.dt
+
+        new_dt['lut'] = dt['lut'].rename(rename_lut)
+        new_dt['noise_lut'] = dt['radarParameters'].rename(rename_radarParameters)
+        new_dt['radarParameters'] = dt['radarParameters']
+        delete_list = get_list_keys_delete(new_dt['noise_lut'], rename_radarParameters.values(), inside=False)
+        del_items_in_dt(new_dt['noise_lut'], delete_list)
+        delete_list = get_list_keys_delete(new_dt['radarParameters'], rename_radarParameters.keys())
+        del_items_in_dt(new_dt['radarParameters'], delete_list)
+        copy_dt = dt.copy()
+        for key in dt.copy():
+            if key not in exclude:
+                if key == 'imageGenerationParameters':
+                    new_dt[key] = datatree.DataTree(parent=None, children=copy_dt[key])
+                else:
+                    new_dt[key] = copy_dt[key]
+        self.datatree = new_dt
+        self.datatree.attrs.update(self.rs2meta.dt.attrs)
+        return
 
     def recompute_attrs(self):
         """

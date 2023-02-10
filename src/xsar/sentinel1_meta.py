@@ -941,3 +941,10 @@ class Sentinel1Meta:
                 final_dict[mykey] = myvalue
 
         return final_dict
+
+    def get_calibration_luts(self):
+        """
+        """
+        #sigma0_lut = self.xml_parser.get_var(self.files['calibration'].iloc[0], 'calibration.sigma0_lut',describe=True)
+        luts = self.xml_parser.get_compound_var(self.files['calibration'].iloc[0],'luts_raw')
+        return luts

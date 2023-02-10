@@ -232,6 +232,13 @@ def signal_lut(line, sample, lut):
     lut_f = RectBivariateSpline(line, sample, lut, kx=1, ky=1)
     return lut_f
 
+def signal_lut_raw(line,sample,lut_sigma0,lut_gamma0):
+    ds = xr.Dataset()
+    ds['sigma0_lut'] = xr.DataArray(lut_sigma0,dims=['line','sample'],coords={'line':line,'sample':sample},name='sigma0',attrs={'description':'look up table sigma0'})
+    ds['gamma0_lut'] = xr.DataArray(lut_gamma0,dims=['line','sample'],coords={'line':line,'sample':sample},name='gamma0',attrs={'description':'look up table gamma0'})
+    
+    return ds
+
 
 class _NoiseLut:
     """small internal class that return a lut function(lines, samples) defined on all the image, from blocks in the image"""
@@ -732,6 +739,10 @@ compounds_vars = {
     'sigma0_lut': {
         'func': signal_lut,
         'args': ('calibration.line', 'calibration.sample', 'calibration.sigma0_lut')
+    },
+    'luts_raw': {
+        'func': signal_lut_raw,
+        'args': ('calibration.line', 'calibration.sample', 'calibration.sigma0_lut', 'calibration.gamma0_lut')
     },
     'gamma0_lut': {
         'func': signal_lut,

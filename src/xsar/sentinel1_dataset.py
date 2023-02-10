@@ -168,12 +168,17 @@ class Sentinel1Dataset:
         # doppler
         dop = self.s1meta._doppler_estimate
         dop.attrs['history'] = 'annotations'
+        
+        # calibration LUTs
+        ds_luts = self.s1meta.get_calibration_luts()
+        ds_luts.attrs['history'] = 'calibration'
 
         self.datatree = datatree.DataTree.from_dict({'measurement': DN_tmp, 'geolocation_annotation': geoloc,
                                                      'bursts': bu, 'FMrate': FM, 'doppler_estimate': dop,
                                                      # 'image_information':
                                                      'orbit': self.s1meta.orbit,
-                                                     'image': self.s1meta.image
+                                                     'image': self.s1meta.image,
+                                                     'calibration':ds_luts
                                                      })
 
         # self.datatree.attrs = xr.Dataset(self.s1meta.image)
@@ -441,7 +446,7 @@ class Sentinel1Dataset:
         #     'measurement'].to_dataset()  # test oct 22 to see if then I can modify variables of the dt
 
         return
-
+        
     def __del__(self):
         logger.debug('__del__')
 

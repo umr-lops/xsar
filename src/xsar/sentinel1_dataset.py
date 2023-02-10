@@ -441,7 +441,17 @@ class Sentinel1Dataset:
         #     'measurement'].to_dataset()  # test oct 22 to see if then I can modify variables of the dt
 
         return
-
+    
+    def add_original_calibration_luts(self):
+        """
+        if you need low resolution look up tables for calibration in the datatree
+        """
+        ds_luts = self.s1meta.get_calibration_luts()
+        #cal_dt = datatree.DataTree.from_dict({'calibration':ds_luts})
+        #self.datatree = datatree.DataTree.merge(self.datatree,cal_dt)
+        self.datatree["calibration"] = datatree.DataTree(data=ds_luts)
+        return 
+        
     def __del__(self):
         logger.debug('__del__')
 

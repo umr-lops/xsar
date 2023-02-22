@@ -957,7 +957,11 @@ class Sentinel1Meta:
             pols.append(pol)
             noise_lut_azi_raw_ds = self.xml_parser.get_compound_var(xml_file,'noise_lut_azi_raw')
             for vari in noise_lut_azi_raw_ds:
-                hihi = self.xml_parser.get_var(self.files['noise'].iloc[0], 'noise.azi.%s' % vari,
+                if 'noiseLut' in vari:
+                    varitmp = 'noiseLut'
+                else:
+                    varitmp = vari
+                hihi = self.xml_parser.get_var(self.files['noise'].iloc[0], 'noise.azi.%s' % varitmp,
                                                       describe=True)
                 noise_lut_azi_raw_ds[vari].attrs['description'] = hihi
             tmp.append(noise_lut_azi_raw_ds)

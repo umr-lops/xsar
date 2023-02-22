@@ -362,10 +362,12 @@ def noise_lut_range_raw(lines, samples, noiseLuts):
 def noise_lut_azi_raw(line_azi,line_azi_start,line_azi_stop,
                   sample_azi_start, sample_azi_stop, noise_azi_lut, swath):
     ds = xr.Dataset()
-    ds['noiseLut'] = xr.DataArray(np.stack(noise_azi_lut).T, coords={'line_index': np.arange(len(line_azi[0])), 'swath': swath},
-                                  dims=['line_index', 'swath'])
-    ds['line'] = xr.DataArray(np.stack(line_azi).T, coords={'line_index': np.arange(len(line_azi[0])), 'swath': swath},
-                              dims=['line_index', 'swath'])
+    for ii, swathi in enumerate(swath):
+        ds['noiseLut_%s' % swathi] = xr.DataArray(noise_azi_lut[ii], coords={'line': line_azi[ii]}, dims=['line'])
+    # ds['noiseLut'] = xr.DataArray(np.stack(noise_azi_lut).T, coords={'line_index': np.arange(len(line_azi[0])), 'swath': swath},
+    #                               dims=['line_index', 'swath'])
+    # ds['line'] = xr.DataArray(np.stack(line_azi).T, coords={'line_index': np.arange(len(line_azi[0])), 'swath': swath},
+    #                           dims=['line_index', 'swath'])
     ds['line_start'] = xr.DataArray(line_azi_start, coords={'swath': swath}, dims=['swath'])
     ds['line_stop'] = xr.DataArray(line_azi_stop, coords={'swath': swath}, dims=['swath'])
     ds['sample_start'] = xr.DataArray(sample_azi_start, coords={'swath': swath}, dims=['swath'])

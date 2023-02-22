@@ -70,6 +70,7 @@ xpath_mappings = {
     "manifest": {
         'ipf_version': (scalar_float, '//xmlData/safe:processing/safe:facility/safe:software/@version'),
         'swath_type': (scalar, '//s1sarl1:instrumentMode/s1sarl1:mode'),
+       # 'product': (scalar, '/xfdu:XFDU/informationPackageMap/xfdu:contentUnit/@textInfo'),
         'polarizations': (
             ordered_category, '//s1sarl1:standAloneProductInformation/s1sarl1:transmitterReceiverPolarisation'),
         'footprints': (list_poly_from_list_string_coords, '//safe:frame/safe:footPrint/gml:coordinates'),
@@ -108,6 +109,7 @@ xpath_mappings = {
         'gamma0_lut': (float_2Darray_from_string_list, '//calibration/calibrationVectorList/calibrationVector/gamma')
     },
     'noise': {
+        'mode': (scalar, '/noise/adsHeader/mode'),
         'polarization': (scalar, '/noise/adsHeader/polarisation'),
         'range': {
             'line': (int_array, or_ipf28('/noise/noiseRangeVectorList/noiseRangeVector/line')),
@@ -349,11 +351,22 @@ def noise_lut_range_raw(lines, samples, noiseLuts):
     """
 
     ds = xr.Dataset()
-
-    ds['noiseLut'] = xr.DataArray(np.stack(noiseLuts),
-                                  coords={'lines': lines, 'sample_index': np.arange(len(samples[0]))},
+    # check that all the noiseLuts vector are the same size in range, in old IPF eg <=2017, there was one +/- 1 point over 634
+    minimum_pts = 100000
+    normalized_noise_luts = []
+    normalized_samples = []
+    for uu in range(len(noiseLuts)):
+        if len(noiseLuts[uu])<minimum_pts:
+            minimum_pts = len(noiseLuts[uu])
+    # reduce to the smaller number of points (knowing that it is quite often that last noise value is zero )
+    for uu in range(len(noiseLuts)):
+        normalized_noise_luts.append(noiseLuts[uu][0:minimum_pts])
+        normalized_samples.append(samples[uu][0:minimum_pts])
+    tmp_noise = np.stack(normalized_noise_luts)
+    ds['noiseLut'] = xr.DataArray(tmp_noise,
+                                  coords={'lines': lines, 'sample_index': np.arange(minimum_pts)},
                                   dims=['lines', 'sample_index'])
-    ds['sample'] = xr.DataArray(np.stack(samples), coords={'lines': lines, 'sample_index': np.arange(len(samples[0]))},
+    ds['sample'] = xr.DataArray(np.stack(normalized_samples), coords={'lines': lines, 'sample_index': np.arange(minimum_pts)},
                                 dims=['lines', 'sample_index'])
 
     return ds
@@ -362,8 +375,12 @@ def noise_lut_range_raw(lines, samples, noiseLuts):
 def noise_lut_azi_raw(line_azi,line_azi_start,line_azi_stop,
                   sample_azi_start, sample_azi_stop, noise_azi_lut, swath):
     ds = xr.Dataset()
-    for ii, swathi in enumerate(swath):
-        ds['noiseLut_%s' % swathi] = xr.DataArray(noise_azi_lut[ii], coords={'line': line_azi[ii]}, dims=['line'])
+    #if 'WV' in mode: # there is no noise in azimuth for WV acquisitions
+    if swath == []: #WV case
+        ds['noiseLut'] = xr.DataArray(1.) # set noise_azimuth to one to make post steps like noise_azi*noise_range always possible
+    else:
+        for ii, swathi in enumerate(swath): # with 2018 data the noise vector are not the same size -> stacking impossible
+            ds['noiseLut_%s' % swathi] = xr.DataArray(noise_azi_lut[ii], coords={'line': line_azi[ii]}, dims=['line'])
     # ds['noiseLut'] = xr.DataArray(np.stack(noise_azi_lut).T, coords={'line_index': np.arange(len(line_azi[0])), 'swath': swath},
     #                               dims=['line_index', 'swath'])
     # ds['line'] = xr.DataArray(np.stack(line_azi).T, coords={'line_index': np.arange(len(line_azi[0])), 'swath': swath},

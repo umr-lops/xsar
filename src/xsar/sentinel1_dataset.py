@@ -177,6 +177,8 @@ class Sentinel1Dataset:
         ds_noise_range = self.s1meta.get_noise_range_raw()
         ds_noise_range.attrs['history'] = 'noise'
         ds_noise_azi = self.s1meta.get_noise_azi_raw()
+        if self.s1meta.swath=='WV':
+            ds_noise_azi['noiseLut'] = self._patch_lut(ds_noise_azi['noiseLut']) # patch applied here is distinct to same patch applied on interpolated noise LUT
         ds_noise_azi.attrs['history'] = 'noise'
 
 
@@ -670,9 +672,9 @@ class Sentinel1Dataset:
 
     def _patch_lut(self, lut):
         """
-        patch proposed by MPC Sentinel-1 : https://jira-projects.cls.fr/browse/MPCS-2007 for noise vectors of WV SLC IPF2.9X products
-        adjustement proposed by BAE are the same for HH and VV, and suppose to work for both old and new WV2 EAP
-        they were estimated using WV image with very low NRCS (black images) and computing std(sigma0).
+        patch proposed by MPC Sentinel-1 : https://jira-projects.cls.fr/browse/MPCS-2007 for noise vectors of WV SLC
+        IPF2.9X products adjustment proposed by BAE are the same for HH and VV, and suppose to work for both old and
+        new WV2 EAP they were estimated using WV image with very low NRCS (black images) and computing std(sigma0).
         Parameters
         ----------
         lut xarray.Dataset
@@ -682,7 +684,7 @@ class Sentinel1Dataset:
         lut xarray.Dataset
         """
         if self.s1meta.swath == 'WV':
-            if lut.name in ['noise_lut_azi'] and self.s1meta.ipf in [2.9, 2.91] and \
+            if lut.name in ['noise_lut_azi','noiseLut'] and self.s1meta.ipf in [2.9, 2.91] and \
                     self.s1meta.platform in ['SENTINEL-1A', 'SENTINEL-1B']:
                 noise_calibration_cst_pp1 = {
                     'SENTINEL-1A':
@@ -694,7 +696,8 @@ class Sentinel1Dataset:
                          'WV2': -37.44,
                          }
                 }
-                cst_db = noise_calibration_cst_pp1[self.s1meta.platform][self.s1meta.image['swath_subswath']]
+                subswath = str(self.s1meta.image['swath_subswath'].values)
+                cst_db = noise_calibration_cst_pp1[self.s1meta.platform][subswath]
                 cst_lin = 10 ** (cst_db / 10)
                 lut = lut * cst_lin
                 lut.attrs['comment'] = 'patch on the noise_lut_azi : %s dB' % cst_db
@@ -721,7 +724,7 @@ class Sentinel1Dataset:
             xml_type = self._map_lut_files[lut_name]
             xml_files = self.s1meta.files.copy()
             # polarization is a category. we use codes (ie index),
-            # to have well ordered polarizations in latter combine_by_coords
+            # to have well-ordered polarizations in latter combine_by_coords
             xml_files['pol_code'] = xml_files['polarization'].cat.codes
             xml_files = xml_files.set_index('pol_code')[xml_type]
 

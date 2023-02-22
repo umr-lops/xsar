@@ -190,10 +190,6 @@ class Sentinel1Dataset:
                                                      'noise_azimuth':ds_noise_azi
                                                      })
 
-        # self.datatree.attrs = xr.Dataset(self.s1meta.image)
-        # self.datatree.assign_attrs(self.s1meta.image) #non
-        # self.datatree['image'] = self.s1meta.image
-
         # self.datatree['measurement'].ds = .from_dict({'measurement':self._load_digital_number(resolution=resolution, resampling=resampling, chunks=chunks)
         # self._dataset = self.datatree['measurement'].ds #the two variables should be linked then.
         self._dataset = self.datatree[

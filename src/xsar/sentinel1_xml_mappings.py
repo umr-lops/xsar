@@ -332,6 +332,49 @@ def noise_lut_range(lines, samples, noiseLuts):
     return _NoiseLut(blocks)
 
 
+def noise_lut_range_raw(lines, samples, noiseLuts):
+    """
+
+        Parameters
+        ----------
+        lines: np.ndarray
+            1D array of lines. lut is defined at each line
+        samples: list of np.ndarray
+            arrays of samples. list length is same as samples. each array define samples where lut is defined
+        noiseLuts: list of np.ndarray
+            arrays of luts. Same structure as samples.
+
+        Returns
+        -------
+    """
+
+    ds = xr.Dataset()
+
+    ds['noiseLut'] = xr.DataArray(np.stack(noiseLuts),
+                                  coords={'lines': lines, 'sample_index': np.arange(len(samples[0]))},
+                                  dims=['lines', 'sample_index'])
+    ds['sample'] = xr.DataArray(np.stack(samples), coords={'lines': lines, 'sample_index': np.arange(len(samples[0]))},
+                                dims=['lines', 'sample_index'])
+
+    return ds
+
+
+def noise_lut_azi_raw(line_azi,line_azi_start,line_azi_stop,
+                  sample_azi_start, sample_azi_stop, noise_azi_lut, swath):
+    ds = xr.Dataset()
+    ds['noiseLut'] = xr.DataArray(np.stack(noise_azi_lut).T, coords={'line_index': np.arange(len(line_azi[0])), 'swath': swath},
+                                  dims=['line_index', 'swath'])
+    ds['line'] = xr.DataArray(np.stack(line_azi).T, coords={'line_index': np.arange(len(line_azi[0])), 'swath': swath},
+                              dims=['line_index', 'swath'])
+    ds['line_start'] = xr.DataArray(line_azi_start, coords={'swath': swath}, dims=['swath'])
+    ds['line_stop'] = xr.DataArray(line_azi_stop, coords={'swath': swath}, dims=['swath'])
+    ds['sample_start'] = xr.DataArray(sample_azi_start, coords={'swath': swath}, dims=['swath'])
+    ds['sample_stop'] = xr.DataArray(sample_azi_stop, coords={'swath': swath}, dims=['swath'])
+
+    return ds
+
+
+
 def noise_lut_azi(line_azi, line_azi_start,
                   line_azi_stop,
                   sample_azi_start, sample_azi_stop, noise_azi_lut, swath):
@@ -752,8 +795,20 @@ compounds_vars = {
         'func': noise_lut_range,
         'args': ('noise.range.line', 'noise.range.sample', 'noise.range.noiseLut')
     },
+    'noise_lut_range_raw': {
+        'func': noise_lut_range_raw,
+        'args': ('noise.range.line', 'noise.range.sample', 'noise.range.noiseLut')
+    },
     'noise_lut_azi': {
         'func': noise_lut_azi,
+        'args': (
+            'noise.azi.line', 'noise.azi.line_start', 'noise.azi.line_stop',
+            'noise.azi.sample_start',
+            'noise.azi.sample_stop', 'noise.azi.noiseLut',
+            'noise.azi.swath')
+    },
+    'noise_lut_azi_raw': {
+        'func': noise_lut_azi_raw,
         'args': (
             'noise.azi.line', 'noise.azi.line_start', 'noise.azi.line_stop',
             'noise.azi.sample_start',

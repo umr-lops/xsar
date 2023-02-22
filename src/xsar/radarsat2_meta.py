@@ -1,5 +1,3 @@
-import copy
-
 import pandas as pd
 import rasterio
 from rasterio.control import GroundControlPoint
@@ -29,17 +27,7 @@ class RadarSat2Meta(BaseMeta):
     # class attributes are needed to fetch instance attribute (ie self.name) with dask actors
     # ref http://distributed.dask.org/en/stable/actors.html#access-attributes
     # FIXME: not needed if @property, so it might be a good thing to have getter for those attributes
-    multidataset = None
-    name = None
-    short_name = None
-    path = None
-    product = None
-    manifest = None
-    subdatasets = None
-    dsid = None
-    manifest_attrs = None
     dt = None
-    safe = None
 
     @timing
     def __init__(self, name):
@@ -85,12 +73,6 @@ class RadarSat2Meta(BaseMeta):
         self.manifest_attrs = self._create_manifest_attrs()
         for name, feature in self.__class__._mask_features_raw.items():
             self.set_mask_feature(name, feature)
-        #self.rasters = BaseMeta.__class__.rasters.copy()
-        #self._mask_features_raw = BaseMeta.__class__._mask_features_raw
-        #self._mask_features = BaseMeta.__class__._mask_features
-        #self._mask_intersecting_geometries = BaseMeta.__class__._mask_intersecting_geometries
-        #self._mask_geometry = BaseMeta.__class__._mask_geometry
-        #self._geoloc = super()._geoloc
 
     def _create_manifest_attrs(self):
         dic = dict()
@@ -163,12 +145,6 @@ class RadarSat2Meta(BaseMeta):
         """
         return self.manifest_attrs['approx_transform']
 
-    @property
-    def cross_antemeridian(self):
-        """True if footprint cross antemeridian"""
-        return ((np.max(self.geoloc['longitude']) - np.min(
-            self.geoloc['longitude'])) > 180).item()
-
     def to_dict(self, keys='minimal'):
 
         info_keys = {
@@ -200,11 +176,6 @@ class RadarSat2Meta(BaseMeta):
         return res_dict
 
     @property
-    def swath(self):
-        """string like 'EW', 'IW', 'WV', etc ..."""
-        return self.manifest_attrs['swath_type']
-
-    @property
     def pols(self):
         """polarisations strings, separated by spaces """
         return " ".join(self.manifest_attrs['polarizations'])
@@ -213,35 +184,6 @@ class RadarSat2Meta(BaseMeta):
     def footprint(self):
         """footprint, as a shapely polygon or multi polygon"""
         return self.geoloc.attrs['footprint']
-
-    @property
-    def _dict_coords2ll(self):
-        """
-        dict with keys ['longitude', 'latitude'] with interpolation function (RectBivariateSpline) as values.
-
-        Examples:
-        ---------
-            get longitude at line=100 and sample=200:
-            ```
-            >>> self._dict_coords2ll['longitude'].ev(100,200)
-            array(-66.43947434)
-            ```
-        Notes:
-        ------
-            if self.cross_antemeridian is True, 'longitude' will be in range [0, 360]
-        """
-        resdict = {}
-        geoloc = self.geoloc
-        if self.cross_antemeridian:
-            geoloc['longitude'] = geoloc['longitude'] % 360
-
-        idx_sample = np.array(geoloc.pixel)
-        idx_line = np.array(geoloc.line)
-
-        for ll in ['longitude', 'latitude']:
-            resdict[ll] = RectBivariateSpline(idx_line, idx_sample, np.asarray(geoloc[ll]), kx=1, ky=1)
-
-        return resdict
 
     @property
     def pixel_line_m(self):
@@ -287,35 +229,33 @@ class RadarSat2Meta(BaseMeta):
         return self.__class__, (self.name,), self.dict
 
     @property
-    def dict(self):
-        # return a minimal dictionary that can be used with Sentinel1Meta.from_dict() or pickle (see __reduce__)
-        # to reconstruct another instance of self
-        #
-        minidict = {
-            'name': self.name,
-            '_mask_features_raw': self._mask_features_raw,
-            '_mask_features': {},
-            '_mask_intersecting_geometries': {},
-            '_mask_geometry': {},
-            'rasters': self.rasters
-        }
-        for name in minidict['_mask_features_raw'].keys():
-            minidict['_mask_intersecting_geometries'][name] = None
-            minidict['_mask_geometry'][name] = None
-            minidict['_mask_features'][name] = None
-        return minidict
+    def _dict_coords2ll(self):
+        """
+        dict with keys ['longitude', 'latitude'] with interpolation function (RectBivariateSpline) as values.
 
-    @classmethod
-    def from_dict(cls, minidict):
-        # like copy constructor, but take a dict from Sentinel1Meta.dict
-        # https://github.com/umr-lops/xsar/issues/23
-        for name in minidict['_mask_features_raw'].keys():
-            assert minidict['_mask_geometry'][name] is None
-            assert minidict['_mask_features'][name] is None
-        minidict = copy.copy(minidict)
-        new = cls(minidict['name'])
-        new.__dict__.update(minidict)
-        return new
+        Examples:
+        ---------
+            get longitude at line=100 and sample=200:
+            ```
+            >>> self._dict_coords2ll['longitude'].ev(100,200)
+            array(-66.43947434)
+            ```
+        Notes:
+        ------
+            if self.cross_antemeridian is True, 'longitude' will be in range [0, 360]
+        """
+        resdict = {}
+        geoloc = self.geoloc
+        if self.cross_antemeridian:
+            geoloc['longitude'] = geoloc['longitude'] % 360
+
+        idx_sample = np.array(geoloc.pixel)
+        idx_line = np.array(geoloc.line)
+
+        for ll in ['longitude', 'latitude']:
+            resdict[ll] = RectBivariateSpline(idx_line, idx_sample, np.asarray(geoloc[ll]), kx=1, ky=1)
+
+        return resdict
 
 
 

@@ -7,6 +7,7 @@ import shapely
 import xarray as xr
 import yaml
 from affine import Affine
+from numpy import asarray
 from shapely.geometry import Polygon, box
 import numpy as np
 import logging
@@ -38,6 +39,29 @@ class BaseDataset(ABC):
     _rasterized_masks = None
     resolution = None
     _da_tmpl = None
+    _luts = None
+    _map_var_lut = None
+    _dtypes = {
+        'latitude': 'f4',
+        'longitude': 'f4',
+        'incidence': 'f4',
+        'elevation': 'f4',
+        'altitude': 'f4',
+        'ground_heading': 'f4',
+        'nesz': None,
+        'negz': None,
+        'sigma0_raw': None,
+        'gamma0_raw': None,
+        'noise_lut': 'f4',
+        'noise_lut_range': 'f4',
+        'noise_lut_azi': 'f4',
+        'sigma0_lut': 'f8',
+        'gamma0_lut': 'f8',
+        'azimuth_time': np.datetime64,
+        'slant_range_time': None
+    }
+    _default_meta = asarray([], dtype='f8')
+    geoloc_tree = None
 
     @property
     def len_line_m(self):
@@ -83,10 +107,21 @@ class BaseDataset(ABC):
         """
         return Polygon(zip(*self._bbox_ll))
 
-    @property
-    def footprint(self):
-        """alias for `xsar.RadarSat2Dataset.geometry`"""
-        return self.geometry
+    def _load_ground_heading(self):
+        def coords2heading(lines, samples):
+            return self.s1meta.coords2heading(lines, samples, to_grid=True, approx=True)
+
+        gh = map_blocks_coords(
+            self._da_tmpl.astype(self._dtypes['ground_heading']),
+            coords2heading,
+            name='ground_heading'
+        )
+
+        gh.attrs = {
+            'comment': 'at ground level, computed from lon/lat in line direction'
+        }
+
+        return gh.to_dataset(name='ground_heading')
 
     def add_rasterized_masks(self):
         """
@@ -594,6 +629,34 @@ class BaseDataset(ABC):
         self.dataset = tmpmerged
         self.datatree['measurement'] = self.datatree['measurement'].assign(tmpmerged)
         self.datatree['measurement'].attrs = tmpmerged.attrs
+
+    @property
+    def footprint(self):
+        """alias for `xsar.BaseDataset.geometry`"""
+        return self.geometry
+
+    def _get_lut(self, var_name):
+        """
+        Get lut for `var_name`
+
+        Parameters
+        ----------
+        var_name: str
+
+        Returns
+        -------
+        xarray.Dataarray
+            lut for `var_name`
+        """
+        try:
+            lut_name = self._map_var_lut[var_name]
+        except KeyError:
+            raise ValueError("can't find lut name for var '%s'" % var_name)
+        try:
+            lut = self._luts[lut_name]
+        except KeyError:
+            raise ValueError("can't find lut from name '%s' for variable '%s' " % (lut_name, var_name))
+        return lut
 
     @property
     def dataset(self):

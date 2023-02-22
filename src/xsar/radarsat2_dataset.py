@@ -1,16 +1,12 @@
 # -*- coding: utf-8 -*-
-import copy
 import logging
 import warnings
 
-import yaml
-from affine import Affine
 
 from .radarsat2_meta import RadarSat2Meta
 from .utils import timing, map_blocks_coords, BlockingActorProxy, to_lon180
 import numpy as np
 import rasterio.features
-from numpy import asarray
 from xradarsat2 import load_digital_number
 import xarray as xr
 from scipy.interpolate import RectBivariateSpline, interp1d
@@ -38,31 +34,13 @@ class RadarSat2Dataset(BaseDataset):
         if skip_variables is None:
             skip_variables = []
         # default dtypes
-        self._dtypes = {
-            'latitude': 'f4',
-            'longitude': 'f4',
-            'incidence': 'f4',
-            'elevation': 'f4',
-            'altitude': 'f4',
-            'ground_heading': 'f4',
-            'nesz': None,
-            'negz': None,
-            'sigma0_raw': None,
-            'gamma0_raw': None,
-            'noise_lut': 'f4',
-            'sigma0_lut': 'f8',
-            'gamma0_lut': 'f8',
-        }
         if dtypes is not None:
             self._dtypes.update(dtypes)
 
         # default meta for map_blocks output.
         # as asarray is imported from numpy, it's a numpy array.
         # but if later we decide to import asarray from cupy, il will be a cupy.array (gpu)
-        self._default_meta = asarray([], dtype='f8')
-        self.geoloc_tree = None
         self.rs2meta = None
-        self.sliced = False
         """True if dataset is a slice of original L1 dataset"""
         self.resolution = resolution
         """`xsar.RadarSat2Meta` object"""
@@ -178,7 +156,6 @@ class RadarSat2Dataset(BaseDataset):
                 coords={'line': self._dataset.digital_number.line,
                         'sample': self._dataset.digital_number.sample}
             )
-        #self.mask = mask.Mask(self)
         # self._dataset.attrs.update(self.rs2meta.to_dict("all"))
         # self.datatree.attrs.update(self.rs2meta.to_dict("all"))
         self._luts = self.rs2meta.dt['lut'].ds.rename({'pixels': 'sample'})
@@ -204,15 +181,6 @@ class RadarSat2Dataset(BaseDataset):
         self._reconfigure_reader_datatree()
         self._dataset.attrs.update(self.rs2meta.to_dict("all"))
         self.datatree.attrs.update(self.rs2meta.to_dict("all"))
-
-        """# noise_lut is noise_lut_range * noise_lut_azi
-        if 'noise_lut_range' in self._luts.keys() and 'noise_lut_azi' in self._luts.keys():
-            self._luts = self._luts.assign(noise_lut=self._luts.noise_lut_range * self._luts.noise_lut_azi)
-            self._luts.noise_lut.attrs['history'] = merge_yaml(
-                [self._luts.noise_lut_range.attrs['history'] + self._luts.noise_lut_azi.attrs['history']],
-                section='noise_lut'
-            )"""
-        # TODO : continue __init__
 
     @timing
     def _load_from_geoloc(self, varnames, lazy_loading=True):
@@ -337,30 +305,6 @@ class RadarSat2Dataset(BaseDataset):
         return np.degrees(np.arcsin(inside))
 
     @timing
-    def _get_lut(self, var_name):
-        """
-        Get lut for var_name
-
-        Parameters
-        ----------
-        var_name: str
-
-        Returns
-        -------
-        xarray.DataArray
-            lut for `var_name`
-        """
-        try:
-            lut_name = self._map_var_lut[var_name]
-        except KeyError:
-            raise ValueError("can't find lut name for var '%s'" % var_name)
-        try:
-            lut = self._luts[lut_name]
-        except KeyError:
-            raise ValueError("can't find lut from name '%s' for variable '%s'" % (lut_name, var_name))
-        return lut
-
-    @timing
     def _get_lut_noise(self, var_name):
         """
         Get noise lut in the reader for var_name
@@ -441,7 +385,28 @@ class RadarSat2Dataset(BaseDataset):
         lut_noise = self._interpolate_for_noise_lut(var_name).compute()
         return lut_noise.to_dataset(name=name)
 
-    @timing
+    def apply_calibration_and_denoising(self):
+        """
+        apply calibration and denoising functions to get high resolution sigma0 , beta0 and gamma0 + variables *_raw
+
+        Returns:
+        --------
+
+        """
+        for var_name, lut_name in self._map_var_lut.items():
+            if lut_name in self._luts:
+                # merge var_name into dataset (not denoised)
+                self._dataset = self._dataset.merge(self._apply_calibration_lut(var_name))
+                # merge noise equivalent for var_name (named 'ne%sz' % var_name[0)
+                self._dataset = self._dataset.merge(self._get_noise(var_name))
+            else:
+                logger.debug("Skipping variable '%s' ('%s' lut is missing)" % (var_name, lut_name))
+        self._dataset = self._add_denoised(self._dataset)
+        self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
+        # self._dataset = self.datatree[
+        #     'measurement'].to_dataset()  # test oct 22 to see if then I can modify variables of the dt
+        return
+
     def _add_denoised(self, ds, clip=False, vars=None):
         """add denoised vars to dataset
 
@@ -500,25 +465,6 @@ class RadarSat2Dataset(BaseDataset):
         res = res.where(res > 0).compute()
         res.attrs.update(lut.compute().attrs)
         return res.to_dataset(name=var_name + '_raw')
-
-    @timing
-    def apply_calibration_and_denoising(self):
-        """
-        apply calibration and denoising functions to get high resolution sigma0 , beta0 and gamma0 + variables *_raw
-        :return:
-        """
-        for var_name, lut_name in self._map_var_lut.items():
-            if lut_name in self._luts:
-                # merge var_name into dataset (not denoised)
-                self._dataset = xr.merge([self._apply_calibration_lut(var_name), self._dataset])
-                # merge noise equivalent for var_name (named 'ne%sz' % var_name[0)
-                self._dataset = xr.merge([self._get_noise(var_name), self._dataset])
-            else:
-                logger.debug("Skipping variable '%s' ('%s' lut is missing)" % (var_name, lut_name))
-        self._dataset = self._add_denoised(self._dataset)
-        self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
-
-        return
 
     @timing
     def flip_sample_da(self, ds):
@@ -585,11 +531,6 @@ class RadarSat2Dataset(BaseDataset):
                                         ).to_dataset(name='lines_flipped')
         new_ds = xr.merge([ds_lines_flipped, new_ds])
         return new_ds
-
-    @property
-    def footprint(self):
-        """alias for `xsar.RadarSat2Dataset.geometry`"""
-        return self.geometry
 
     @property
     def interpolate_times(self):
@@ -701,23 +642,6 @@ class RadarSat2Dataset(BaseDataset):
         else:
             intro = "full covevage"
         return "<RadarSat2Dataset %s object>" % intro
-
-    @timing
-    def _load_ground_heading(self):
-        def coords2heading(lines, samples):
-            return self.rs2meta.coords2heading(lines, samples, to_grid=True, approx=True)
-
-        gh = map_blocks_coords(
-            self._da_tmpl.astype(self._dtypes['ground_heading']),
-            coords2heading,
-            name='ground_heading'
-        )
-
-        gh.attrs = {
-            'comment': 'at ground level, computed from lon/lat in line direction'
-        }
-
-        return gh.to_dataset(name='ground_heading')
 
     @property
     def dataset(self):

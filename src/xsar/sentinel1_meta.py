@@ -2,7 +2,6 @@
 
 import logging
 import warnings
-import copy
 
 import numpy as np
 import xarray
@@ -42,19 +41,7 @@ class Sentinel1Meta(BaseMeta):
     # class attributes are needed to fetch instance attribute (ie self.name) with dask actors
     # ref http://distributed.dask.org/en/stable/actors.html#access-attributes
     # FIXME: not needed if @property, so it might be a good thing to have getter for those attributes
-    multidataset = None
     xml_parser = None
-    name = None
-    platform = None
-    short_name = None
-    safe = None
-    path = None
-    product = None
-    platform = None
-    manifest = None
-    subdatasets = None
-    dsid = None
-    manifest_attrs = None
     xsd_definitions = None
 
     @timing
@@ -125,13 +112,6 @@ class Sentinel1Meta(BaseMeta):
         """Mission platform"""
         for name, feature in self.__class__._mask_features_raw.items():
             self.set_mask_feature(name, feature)
-        # self._mask_features_raw = BaseMeta.__class__._mask_features_raw
-        # self._mask_features = BaseMeta.__class__._mask_features
-        # self._mask_intersecting_geometries = BaseMeta.__class__._mask_intersecting_geometries
-        # self._mask_geometry = BaseMeta.__class__._mask_geometry
-
-        # self._geoloc = BaseMeta.__class__._geoloc
-        # self.rasters = BaseMeta.__class__.rasters.copy()
         """pandas dataframe for rasters (see `xsar.Sentinel1Meta.set_raster`)"""
 
     def __del__(self):
@@ -423,19 +403,9 @@ class Sentinel1Meta(BaseMeta):
         return self.manifest_attrs['ipf_version']
 
     @property
-    def swath(self):
-        """string like 'EW', 'IW', 'WV', etc ..."""
-        return self.manifest_attrs['swath_type']
-
-    @property
     def pols(self):
         """polarisations strings, separated by spaces """
         return " ".join(self.manifest_attrs['polarizations'])
-
-    @property
-    def cross_antemeridian(self):
-        """True if footprint cross antemeridian"""
-        return ((np.max(self.geoloc['longitude']) - np.min(self.geoloc['longitude'])) > 180).item()
 
     @property
     def orbit(self):
@@ -489,35 +459,6 @@ class Sentinel1Meta(BaseMeta):
             if vv in self.xsd_definitions:
                 fmrates[vv].attrs['definition'] = self.xsd_definitions[vv]
         return fmrates
-
-    @property
-    def _dict_coords2ll(self):
-        """
-        dict with keys ['longitude', 'latitude'] with interpolation function (RectBivariateSpline) as values.
-
-        Examples:
-        ---------
-            get longitude at line=100 and sample=200:
-            ```
-            >>> self._dict_coords2ll['longitude'].ev(100,200)
-            array(-66.43947434)
-            ```
-        Notes:
-        ------
-            if self.cross_antemeridian is True, 'longitude' will be in range [0, 360]
-        """
-        resdict = {}
-        geoloc = self.geoloc
-        if self.cross_antemeridian:
-            geoloc['longitude'] = geoloc['longitude'] % 360
-
-        idx_sample = np.array(geoloc.sample)
-        idx_line = np.array(geoloc.line)
-
-        for ll in ['longitude', 'latitude']:
-            resdict[ll] = RectBivariateSpline(idx_line, idx_sample, np.asarray(geoloc[ll]), kx=1, ky=1)
-
-        return resdict
 
     @property
     def _bursts(self):
@@ -581,39 +522,37 @@ class Sentinel1Meta(BaseMeta):
 
         return final_dict
 
+    @property
+    def _dict_coords2ll(self):
+        """
+        dict with keys ['longitude', 'latitude'] with interpolation function (RectBivariateSpline) as values.
+
+        Examples:
+        ---------
+            get longitude at line=100 and sample=200:
+            ```
+            >>> self._dict_coords2ll['longitude'].ev(100,200)
+            array(-66.43947434)
+            ```
+        Notes:
+        ------
+            if self.cross_antemeridian is True, 'longitude' will be in range [0, 360]
+        """
+        resdict = {}
+        geoloc = self.geoloc
+        if self.cross_antemeridian:
+            geoloc['longitude'] = geoloc['longitude'] % 360
+
+        idx_sample = np.array(geoloc.sample)
+        idx_line = np.array(geoloc.line)
+
+        for ll in ['longitude', 'latitude']:
+            resdict[ll] = RectBivariateSpline(idx_line, idx_sample, np.asarray(geoloc[ll]), kx=1, ky=1)
+
+        return resdict
+
     def __reduce__(self):
         # make self serializable with pickle
         # https://docs.python.org/3/library/pickle.html#object.__reduce__
 
         return self.__class__, (self.name,), self.dict
-
-    @property
-    def dict(self):
-        # return a minimal dictionary that can be used with Sentinel1Meta.from_dict() or pickle (see __reduce__)
-        # to reconstruct another instance of self
-        #
-        minidict = {
-            'name': self.name,
-            '_mask_features_raw': self._mask_features_raw,
-            '_mask_features': {},
-            '_mask_intersecting_geometries': {},
-            '_mask_geometry': {},
-            'rasters': self.rasters
-        }
-        for name in minidict['_mask_features_raw'].keys():
-            minidict['_mask_intersecting_geometries'][name] = None
-            minidict['_mask_geometry'][name] = None
-            minidict['_mask_features'][name] = None
-        return minidict
-
-    @classmethod
-    def from_dict(cls, minidict):
-        # like copy constructor, but take a dict from Sentinel1Meta.dict
-        # https://github.com/umr-lops/xsar/issues/23
-        for name in minidict['_mask_features_raw'].keys():
-            assert minidict['_mask_geometry'][name] is None
-            assert minidict['_mask_features'][name] is None
-        minidict = copy.copy(minidict)
-        new = cls(minidict['name'])
-        new.__dict__.update(minidict)
-        return new

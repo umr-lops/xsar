@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-import copy
 import pdb
 
 import logging
@@ -98,33 +97,12 @@ class Sentinel1Dataset(BaseDataset):
                  luts=False, chunks={'line': 5000, 'sample': 5000},
                  dtypes=None, patch_variable=True, lazyloading=True):
         # default dtypes
-        self._dtypes = {
-            'latitude': 'f4',
-            'longitude': 'f4',
-            'incidence': 'f4',
-            'elevation': 'f4',
-            'altitude': 'f4',
-            'ground_heading': 'f4',
-            'nesz': None,
-            'negz': None,
-            'sigma0_raw': None,
-            'gamma0_raw': None,
-            'noise_lut': 'f4',
-            'noise_lut_range': 'f4',
-            'noise_lut_azi': 'f4',
-            'sigma0_lut': 'f8',
-            'gamma0_lut': 'f8',
-            'azimuth_time': np.datetime64,
-            'slant_range_time': None
-        }
         if dtypes is not None:
             self._dtypes.update(dtypes)
 
         # default meta for map_blocks output.
         # as asarray is imported from numpy, it's a numpy array.
         # but if later we decide to import asarray from cupy, il will be a cupy.array (gpu)
-        self._default_meta = asarray([], dtype='f8')
-        self.geoloc_tree = None
         self.s1meta = None
         self.interpolation_func_slc = {}
         """`xsar.Sentinel1Meta` object"""
@@ -140,10 +118,6 @@ class Sentinel1Dataset(BaseDataset):
             self.s1meta = BlockingActorProxy(Sentinel1Meta.from_dict, dataset_id.dict)
         del dataset_id
         self.objet_meta = self.s1meta
-        """#test var heritage
-        self.s1meta.var_test = 2
-        print(f"s1meta : {self.s1meta.var_test}, objet_meta : {self.s1meta.var_test}")"""
-        #BaseDataset.objet_meta = self.s1meta
 
         if self.s1meta.multidataset:
             raise IndexError(
@@ -240,7 +214,6 @@ class Sentinel1Dataset(BaseDataset):
                     coords={'line': self._dataset.digital_number.line,
                             'sample': self._dataset.digital_number.sample}
                 )
-        #self.mask = mask.Mask(self)
         # FIXME possible memory leak
         # when calling a self.s1meta method, an ActorFuture is returned.
         # But this seems to break __del__ methods from both Sentinel1Meta and XmlParser
@@ -440,7 +413,6 @@ class Sentinel1Dataset(BaseDataset):
         self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
         # self._dataset = self.datatree[
         #     'measurement'].to_dataset()  # test oct 22 to see if then I can modify variables of the dt
-
         return
 
     def __del__(self):
@@ -457,11 +429,6 @@ class Sentinel1Dataset(BaseDataset):
     @dataset.deleter
     def dataset(self):
         logger.debug('deleter dataset')
-
-    @property
-    def footprint(self):
-        """alias for `xsar.Sentinel1Dataset.geometry`"""
-        return self.geometry
 
     # @property
     # def pixel_line_m(self):
@@ -854,23 +821,6 @@ class Sentinel1Dataset(BaseDataset):
         z_interp_value = self.interpolation_func_slc[varname](line_az_times_values, sample, grid=False)
         return z_interp_value
 
-    @timing
-    def _load_ground_heading(self):
-        def coords2heading(lines, samples):
-            return self.s1meta.coords2heading(lines, samples, to_grid=True, approx=True)
-
-        gh = map_blocks_coords(
-            self._da_tmpl.astype(self._dtypes['ground_heading']),
-            coords2heading,
-            name='ground_heading'
-        )
-
-        gh.attrs = {
-            'comment': 'at ground level, computed from lon/lat in line direction'
-        }
-
-        return gh.to_dataset(name='ground_heading')
-
     def ll2coords_SLC(self, *args):
         """
         for SLC product with irregular projected pixel spacing in range Affine transformation are not relevant
@@ -1063,29 +1013,6 @@ class Sentinel1Dataset(BaseDataset):
 
             da_var_list.append(reprojected_ds)
         return xr.merge(da_var_list)
-
-    def _get_lut(self, var_name):
-        """
-        Get lut for `var_name`
-
-        Parameters
-        ----------
-        var_name: str
-
-        Returns
-        -------
-        xarray.Dataarray
-            lut for `var_name`
-        """
-        try:
-            lut_name = self._map_var_lut[var_name]
-        except KeyError:
-            raise ValueError("can't find lut name for var '%s'" % var_name)
-        try:
-            lut = self._luts[lut_name]
-        except KeyError:
-            raise ValueError("can't find lut from name '%s' for variable '%s' " % (lut_name, var_name))
-        return lut
 
     def _apply_calibration_lut(self, var_name):
         """

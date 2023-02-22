@@ -1,25 +1,21 @@
+import copy
 import logging
 import warnings
 
 import cartopy
 import rasterio
 import shapely
-import yaml
-from affine import Affine
 from shapely.geometry import Polygon
 from shapely import ops
 import numpy as np
-import xarray as xr
 
 from abc import abstractmethod
-
-from shapely.validation import make_valid
 
 from .raster_readers import available_rasters
 from .base_dataset import BaseDataset
 import geopandas as gpd
 
-from .utils import class_or_instancemethod, map_blocks_coords, bbox_coords, timing, to_lon180, haversine
+from .utils import class_or_instancemethod, to_lon180, haversine
 
 logger = logging.getLogger('xsar.base_meta')
 logger.addHandler(logging.NullHandler())
@@ -46,8 +42,18 @@ class BaseMeta(BaseDataset):
     _mask_geometry = {}
     _geoloc = None
     _rasterized_masks = None
-    manifest_attrs = {}
+    manifest_attrs = None
     _time_range = None
+    name = None
+    multidataset = None
+    short_name = None
+    path = None
+    product = None
+    manifest = None
+    subdatasets = None
+    dsid = None
+    safe = None
+    geoloc = None
 
     def _get_mask_feature(self, name):
         # internal method that returns a cartopy feature from a mask name
@@ -177,9 +183,15 @@ class BaseMeta(BaseDataset):
         pass
 
     @property
-    @abstractmethod
     def cross_antemeridian(self):
-        pass
+        """True if footprint cross antemeridian"""
+        return ((np.max(self.geoloc['longitude']) - np.min(
+            self.geoloc['longitude'])) > 180).item()
+
+    @property
+    def swath(self):
+        """string like 'EW', 'IW', 'WV', etc ..."""
+        return self.manifest_attrs['swath_type']
 
     @property
     @abstractmethod
@@ -378,3 +390,33 @@ class BaseMeta(BaseDataset):
         """stort date, as datetime.datetime"""
         return '%s' % self.time_range.right
 
+    @property
+    def dict(self):
+        # return a minimal dictionary that can be used with Sentinel1Meta.from_dict() or pickle (see __reduce__)
+        # to reconstruct another instance of self
+        #
+        minidict = {
+            'name': self.name,
+            '_mask_features_raw': self._mask_features_raw,
+            '_mask_features': {},
+            '_mask_intersecting_geometries': {},
+            '_mask_geometry': {},
+            'rasters': self.rasters
+        }
+        for name in minidict['_mask_features_raw'].keys():
+            minidict['_mask_intersecting_geometries'][name] = None
+            minidict['_mask_geometry'][name] = None
+            minidict['_mask_features'][name] = None
+        return minidict
+
+    @classmethod
+    def from_dict(cls, minidict):
+        # like copy constructor, but take a dict from Sentinel1Meta.dict
+        # https://github.com/umr-lops/xsar/issues/23
+        for name in minidict['_mask_features_raw'].keys():
+            assert minidict['_mask_geometry'][name] is None
+            assert minidict['_mask_features'][name] is None
+        minidict = copy.copy(minidict)
+        new = cls(minidict['name'])
+        new.__dict__.update(minidict)
+        return new

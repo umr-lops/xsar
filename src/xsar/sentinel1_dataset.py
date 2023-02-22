@@ -173,12 +173,21 @@ class Sentinel1Dataset:
         ds_luts = self.s1meta.get_calibration_luts()
         ds_luts.attrs['history'] = 'calibration'
 
+        # noise levels LUTs
+        ds_noise_range = self.s1meta.get_noise_range_raw()
+        ds_noise_range.attrs['history'] = 'noise'
+        ds_noise_azi = self.s1meta.get_noise_azi_raw()
+        ds_noise_azi.attrs['history'] = 'noise'
+
+
         self.datatree = datatree.DataTree.from_dict({'measurement': DN_tmp, 'geolocation_annotation': geoloc,
                                                      'bursts': bu, 'FMrate': FM, 'doppler_estimate': dop,
                                                      # 'image_information':
                                                      'orbit': self.s1meta.orbit,
                                                      'image': self.s1meta.image,
-                                                     'calibration':ds_luts
+                                                     'calibration':ds_luts,
+                                                     'noise_range':ds_noise_range,
+                                                     'noise_azimuth':ds_noise_azi
                                                      })
 
         # self.datatree.attrs = xr.Dataset(self.s1meta.image)
@@ -354,7 +363,8 @@ class Sentinel1Dataset:
             if skip_variables is None:
                 skip_variables = []
             # variables not returned to the user (unless luts=True)
-            self._hidden_vars = ['sigma0_lut', 'gamma0_lut', 'noise_lut', 'noise_lut_range', 'noise_lut_azi']
+            #self._hidden_vars = ['sigma0_lut', 'gamma0_lut', 'noise_lut', 'noise_lut_range', 'noise_lut_azi']
+            self._hidden_vars = []
             # attribute to activate correction on variables, if available
             self._patch_variable = patch_variable
             if load_luts:

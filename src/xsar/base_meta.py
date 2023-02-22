@@ -1,0 +1,334 @@
+import logging
+import warnings
+
+import cartopy
+import rasterio
+import shapely
+import yaml
+from affine import Affine
+from shapely.geometry import Polygon
+from shapely import ops
+import numpy as np
+import xarray as xr
+
+from abc import abstractmethod
+
+from shapely.validation import make_valid
+
+from .raster_readers import available_rasters
+from .base_dataset import BaseDataset
+import geopandas as gpd
+
+from .utils import class_or_instancemethod, map_blocks_coords, bbox_coords, timing, to_lon180
+
+logger = logging.getLogger('xsar.base_meta')
+logger.addHandler(logging.NullHandler())
+
+# we know tiff as no geotransform : ignore warning
+warnings.filterwarnings("ignore", category=rasterio.errors.NotGeoreferencedWarning)
+
+# allow nan without warnings
+# some dask warnings are still non filtered: https://github.com/dask/dask/issues/3245
+np.errstate(invalid='ignore')
+
+
+class BaseMeta(BaseDataset):
+
+    # default mask feature (see self.set_mask_feature and cls.set_mask_feature)
+    _mask_features_raw = {
+        'land': cartopy.feature.NaturalEarthFeature('physical', 'land', '10m')
+    }
+
+    rasters = available_rasters.iloc[0:0].copy()
+
+    _mask_features = {}
+    _mask_intersecting_geometries = {}
+    _mask_geometry = {}
+    _geoloc = None
+    _rasterized_masks = None
+    manifest_attrs = {}
+
+    def _get_mask_feature(self, name):
+        # internal method that returns a cartopy feature from a mask name
+        if self._mask_features[name] is None:
+            feature = self._mask_features_raw[name]
+            if isinstance(feature, str):
+                # feature is a shapefile.
+                # we get the crs from the shapefile to be able to transform the footprint to this crs_in
+                # (so we can use `mask=` in gpd.read_file)
+                import fiona
+                import pyproj
+                from shapely.ops import transform
+                with fiona.open(feature) as fshp:
+                    try:
+                        # proj6 give a " FutureWarning: '+init=<authority>:<code>' syntax is deprecated. "
+                        # '<authority>:<code>' is the preferred initialization method"
+                        crs_in = fshp.crs['init']
+                    except KeyError:
+                        crs_in = fshp.crs
+                    crs_in = pyproj.CRS(crs_in)
+                proj_transform = pyproj.Transformer.from_crs(pyproj.CRS('EPSG:4326'), crs_in, always_xy=True).transform
+                footprint_crs = transform(proj_transform, self.footprint)
+
+                with warnings.catch_warnings():
+                    # ignore "RuntimeWarning: Sequential read of iterator was interrupted. Resetting iterator."
+                    warnings.simplefilter("ignore", RuntimeWarning)
+                    feature = cartopy.feature.ShapelyFeature(
+                        gpd.read_file(feature, mask=footprint_crs).to_crs(epsg=4326).geometry,
+                        cartopy.crs.PlateCarree()
+                    )
+            if not isinstance(feature, cartopy.feature.Feature):
+                raise TypeError('Expected a cartopy.feature.Feature type')
+            self._mask_features[name] = feature
+
+        return self._mask_features[name]
+
+    @class_or_instancemethod
+    def set_mask_feature(self_or_cls, name, feature):
+        """
+        Set a named mask from a shapefile or a cartopy feature.
+
+        Parameters
+        ----------
+        name: str
+            mask name
+        feature: str or cartopy.feature.Feature
+            if str, feature is a path to a shapefile or whatever file readable with fiona.
+            It is recommended to use str, as the serialization of cartopy feature might be big.
+
+        Examples
+        --------
+            Add an 'ocean' mask at class level (ie as default mask):
+            ```
+            >>> xsar.RadarSat2Meta.set_mask_feature('ocean', cartopy.feature.OCEAN)
+            ```
+
+            Add an 'ocean' mask at instance level (ie only for this self Sentinel1Meta instance):
+            ```
+            >>> xsar.RadarSat2Meta.set_mask_feature('ocean', cartopy.feature.OCEAN)
+            ```
+
+
+            High resoltion shapefiles can be found from openstreetmap.
+            It is recommended to use WGS84 with large polygons split from https://osmdata.openstreetmap.de/
+
+        See Also
+        --------
+        xsar.BaseMeta.get_mask
+        """
+
+        # see https://stackoverflow.com/a/28238047/5988771 for self_or_cls
+
+        self_or_cls._mask_features_raw[name] = feature
+
+        if not isinstance(self_or_cls, type):
+            # self (instance, not class)
+            self_or_cls._mask_intersecting_geometries[name] = None
+            self_or_cls._mask_geometry[name] = None
+            self_or_cls._mask_features[name] = None
+
+    def get_mask(self, name, describe=False):
+        """
+        Get mask from `name` (e.g. 'land') as a shapely Polygon.
+        The resulting polygon is contained in the footprint.
+
+        Parameters
+        ----------
+        name: str
+
+        Returns
+        -------
+        shapely.geometry.Polygon
+
+        """
+        if describe:
+            descr = self._mask_features_raw[name]
+            try:
+                # nice repr for a class (like 'cartopy.feature.NaturalEarthFeature land')
+                descr = '%s.%s %s' % (descr.__module__, descr.__class__.__name__, descr.name)
+            except AttributeError:
+                pass
+            return descr
+
+        if self._mask_geometry[name] is None:
+            poly = self._get_mask_intersecting_geometries(name) \
+                .unary_union.intersection(self.footprint)
+
+            if poly.is_empty:
+                poly = Polygon()
+
+            self._mask_geometry[name] = poly
+        return self._mask_geometry[name]
+
+    def _get_mask_intersecting_geometries(self, name):
+        if self._mask_intersecting_geometries[name] is None:
+            gseries = gpd.GeoSeries(self._get_mask_feature(name)
+                                    .intersecting_geometries(self.footprint.bounds))
+            if len(gseries) == 0:
+                # no intersection with mask, but we want at least one geometry in the serie (an empty one)
+                gseries = gpd.GeoSeries([Polygon()])
+            self._mask_intersecting_geometries[name] = gseries
+        return self._mask_intersecting_geometries[name]
+
+    @property
+    @abstractmethod
+    def footprint(self):
+        pass
+
+    @property
+    @abstractmethod
+    def cross_antemeridian(self):
+        pass
+
+    @property
+    @abstractmethod
+    def _dict_coords2ll(self):
+        pass
+
+    @property
+    @abstractmethod
+    def approx_transform(self):
+        pass
+
+    @property
+    def mask_names(self):
+        """
+
+        Returns
+        -------
+        list of str
+            mask names
+        """
+        return self._mask_features.keys()
+
+    def coords2ll(self, *args, to_grid=False, approx=False):
+        """
+        convert `lines`, `samples` arrays to `longitude` and `latitude` arrays.
+        or a shapely object in `lines`, `samples` coordinates to `longitude` and `latitude`.
+
+        Parameters
+        ----------
+        *args: lines, samples  or a shapely geometry
+            lines, samples are iterables or scalar
+
+        to_grid: bool, default False
+            If True, `lines` and `samples` must be 1D arrays. The results will be 2D array of shape (lines.size, samples.size).
+
+        Returns
+        -------
+        tuple of np.array or tuple of float
+            (longitude, latitude) , with shape depending on `to_grid` keyword.
+
+        See Also
+        --------
+        xsar.BaseMeta.ll2coords
+        xsar.BaseDataset.ll2coords
+
+        """
+        if isinstance(args[0], shapely.geometry.base.BaseGeometry):
+            return self._coords2ll_shapely(args[0])
+
+        lines, samples = args
+
+        scalar = True
+        if hasattr(lines, '__iter__'):
+            scalar = False
+
+        if approx:
+            if to_grid:
+                samples2D, lines2D = np.meshgrid(samples, lines)
+                lon, lat = self.approx_transform * (lines2D, samples2D)
+                pass
+            else:
+                lon, lat = self.approx_transform * (lines, samples)
+        else:
+            dict_coords2ll = self._dict_coords2ll
+            if to_grid:
+                lon = dict_coords2ll['longitude'](lines, samples)
+                lat = dict_coords2ll['latitude'](lines, samples)
+            else:
+                lon = dict_coords2ll['longitude'].ev(lines, samples)
+                lat = dict_coords2ll['latitude'].ev(lines, samples)
+
+        if self.cross_antemeridian:
+            lon = to_lon180(lon)
+
+        if scalar and hasattr(lon, '__iter__'):
+            lon = lon.item()
+            lat = lat.item()
+
+        if hasattr(lon, '__iter__') and type(lon) is not type(lines):
+            lon = type(lines)(lon)
+            lat = type(lines)(lat)
+
+        return lon, lat
+
+    def _ll2coords_shapely(self, shape, approx=False):
+        if approx:
+            (xoff, a, b, yoff, d, e) = (~self.approx_transform).to_gdal()
+            return shapely.affinity.affine_transform(shape, (a, b, d, e, xoff, yoff))
+        else:
+            return shapely.ops.transform(self.ll2coords, shape)
+
+    def _coords2ll_shapely(self, shape, approx=False):
+        if approx:
+            (xoff, a, b, yoff, d, e) = self.approx_transform.to_gdal()
+            return shapely.affinity.affine_transform(shape, (a, b, d, e, xoff, yoff))
+        else:
+            return shapely.ops.transform(self.coords2ll, shape)
+
+    def ll2coords(self, *args):
+        """
+        Get `(lines, samples)` from `(lon, lat)`,
+        or convert a lon/lat shapely object to line/sample coordinates.
+
+        Parameters
+        ----------
+        *args: lon, lat or shapely object
+            lon and lat might be iterables or scalars
+
+        Returns
+        -------
+        tuple of np.array or tuple of float (lines, samples) , or a shapely object
+
+        Examples
+        --------
+            get nearest (line,sample) from (lon,lat) = (84.81, 21.32) in ds, without bounds checks
+
+            >>> (line, sample) = self.ll2coords(84.81, 21.32) # (lon, lat)
+            >>> (line, sample)
+            (9752.766349989339, 17852.571322887554)
+
+        See Also
+        --------
+        xsar.BaseMeta.coords2ll
+        xsar.BaseDataset.coords2ll
+
+        """
+
+        if isinstance(args[0], shapely.geometry.base.BaseGeometry):
+            return self._ll2coords_shapely(args[0])
+
+        lon, lat = args
+
+        # approximation with global inaccurate transform
+        line_approx, sample_approx = ~self.approx_transform * (np.asarray(lon), np.asarray(lat))
+
+        # Theoretical identity. It should be the same, but the difference show the error.
+        lon_identity, lat_identity = self.coords2ll(line_approx, sample_approx, to_grid=False)
+        line_identity, sample_identity = ~self.approx_transform * (lon_identity, lat_identity)
+
+        # we are now able to compute the error, and make a correction
+        line_error = line_identity - line_approx
+        sample_error = sample_identity - sample_approx
+
+        line = line_approx - line_error
+        sample = sample_approx - sample_error
+
+        if hasattr(lon, '__iter__'):
+            scalar = False
+        else:
+            scalar = True
+
+        return line, sample
+

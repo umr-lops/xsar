@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import copy
 import pdb
 
 import logging
@@ -10,14 +11,11 @@ import xarray as xr
 import dask
 import rasterio
 import rasterio.features
-from rasterio.control import GroundControlPoint
 import rioxarray
 import time
 from scipy.interpolate import interp1d
-from shapely.geometry import Polygon, box
-from shapely.validation import make_valid
-import shapely
-from .utils import timing, haversine, map_blocks_coords, bbox_coords, BlockingActorProxy, merge_yaml, get_glob, \
+
+from .utils import timing, map_blocks_coords, BlockingActorProxy, merge_yaml, get_glob, \
     to_lon180
 from numpy import asarray
 from affine import Affine
@@ -25,10 +23,8 @@ from .sentinel1_meta import Sentinel1Meta
 from .ipython_backends import repr_mimebundle
 import yaml
 import datatree
-import pandas as pd
-import geopandas as gpd
 from scipy.spatial import KDTree
-from xsar.utils import get_mask, mask_names
+from .base_dataset import BaseDataset
 
 logger = logging.getLogger('xsar.sentinel1_dataset')
 logger.addHandler(logging.NullHandler())
@@ -50,7 +46,7 @@ mapping_dataset_geoloc = {'latitude': 'latitude',
 
 
 # noinspection PyTypeChecker
-class Sentinel1Dataset:
+class Sentinel1Dataset(BaseDataset):
     """
     Handle a SAFE subdataset.
     A dataset might contain several tiff files (multiples polarizations), but all tiff files must share the same footprint.
@@ -101,7 +97,6 @@ class Sentinel1Dataset:
                  resampling=rasterio.enums.Resampling.rms,
                  luts=False, chunks={'line': 5000, 'sample': 5000},
                  dtypes=None, patch_variable=True, lazyloading=True):
-
         # default dtypes
         self._dtypes = {
             'latitude': 'f4',
@@ -144,6 +139,11 @@ class Sentinel1Dataset:
             # we want self.s1meta to be a dask actor on a worker
             self.s1meta = BlockingActorProxy(Sentinel1Meta.from_dict, dataset_id.dict)
         del dataset_id
+        self.objet_meta = self.s1meta
+        """#test var heritage
+        self.s1meta.var_test = 2
+        print(f"s1meta : {self.s1meta.var_test}, objet_meta : {self.s1meta.var_test}")"""
+        #BaseDataset.objet_meta = self.s1meta
 
         if self.s1meta.multidataset:
             raise IndexError(
@@ -240,7 +240,7 @@ class Sentinel1Dataset:
                     coords={'line': self._dataset.digital_number.line,
                             'sample': self._dataset.digital_number.sample}
                 )
-
+        #self.mask = mask.Mask(self)
         # FIXME possible memory leak
         # when calling a self.s1meta method, an ActorFuture is returned.
         # But this seems to break __del__ methods from both Sentinel1Meta and XmlParser
@@ -249,7 +249,6 @@ class Sentinel1Dataset:
         # tmp_f = self.s1meta.to_dict("all")
         # del tmp_f
         # return
-
         self._dataset.attrs.update(self.s1meta.to_dict("all"))
         self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
         self.datatree.attrs.update(self.s1meta.to_dict("all"))
@@ -449,128 +448,20 @@ class Sentinel1Dataset:
 
     @property
     def dataset(self):
-        """
-        `xarray.Dataset` representation of this `xsar.Sentinel1Dataset` object.
-        This property can be set with a new dataset, if the dataset was computed from the original dataset.
-        """
-        # return self._dataset
-        res = self.datatree['measurement'].to_dataset()
-        res.attrs = self.datatree.attrs
-        return res
+        return super().dataset
 
     @dataset.setter
     def dataset(self, ds):
-        if self.s1meta.name == ds.attrs['name']:
-            # check if new ds has changed coordinates
-            if not self.sliced:
-                self.sliced = any(
-                    [list(ds[d].values) != list(self._dataset[d].values) for d in ['line', 'sample']])
-            self._dataset = ds
-            # self._dataset = self.datatree['measurement'].ds
-            self.recompute_attrs()
-        else:
-            raise ValueError("dataset must be same kind as original one.")
+        super().dataset(ds)
 
     @dataset.deleter
     def dataset(self):
         logger.debug('deleter dataset')
 
     @property
-    def _bbox_coords(self):
-        """
-        Dataset bounding box, in line/sample coordinates
-        """
-        bbox_ext = bbox_coords(self.dataset.line.values, self.dataset.sample.values)
-        return bbox_ext
-
-    @property
-    def _bbox_ll(self):
-        """Dataset bounding box, lon/lat"""
-        return self.s1meta.coords2ll(*zip(*self._bbox_coords))
-
-    @property
-    def geometry(self):
-        """
-        geometry of this dataset, as a `shapely.geometry.Polygon` (lon/lat coordinates)
-        """
-        return Polygon(zip(*self._bbox_ll))
-
-    @property
     def footprint(self):
         """alias for `xsar.Sentinel1Dataset.geometry`"""
         return self.geometry
-
-    def ll2coords(self, *args):
-        """
-        Get `(lines, samples)` from `(lon, lat)`,
-        or convert a lon/lat shapely shapely object to line/sample coordinates.
-
-        Parameters
-        ----------
-        *args: lon, lat or shapely object
-
-            lon and lat might be iterables or scalars
-
-        Returns
-        -------
-        tuple of np.array or tuple of float (lines, samples) , or a shapely object
-
-        Notes
-        -----
-        The difference with `xsar.Sentinel1Meta.ll2coords` is that coordinates are rounded to the nearest dataset coordinates.
-
-        See Also
-        --------
-        xsar.Sentinel1Meta.ll2coords
-
-        """
-        if isinstance(args[0], shapely.geometry.base.BaseGeometry):
-            return self.s1meta.ll2coords_shapely(args[0].intersection(self.geometry))
-
-        line, sample = self.s1meta.ll2coords(*args)
-
-        if hasattr(args[0], '__iter__'):
-            scalar = False
-        else:
-            scalar = True
-
-        tolerance = np.max([np.percentile(np.diff(self.dataset[c].values), 90) / 2 for c in ['line', 'sample']]) + 1
-        try:
-            # select the nearest valid pixel in ds
-            ds_nearest = self.dataset.sel(line=line, sample=sample, method='nearest', tolerance=tolerance)
-            if scalar:
-                (line, sample) = (ds_nearest.line.values.item(), ds_nearest.sample.values.item())
-            else:
-                (line, sample) = (ds_nearest.line.values, ds_nearest.sample.values)
-        except KeyError:
-            # out of bounds, because of `tolerance` keyword
-            (line, sample) = (line * np.nan, sample * np.nan)
-
-        return line, sample
-
-    def coords2ll(self, *args, **kwargs):
-        """
-         Alias for `xsar.Sentinel1Meta.coords2ll`
-
-         See Also
-         --------
-         xsar.Sentinel1Meta.coords2ll
-        """
-        return self.s1meta.coords2ll(*args, **kwargs)
-
-    @property
-    def len_line_m(self):
-        """line length, in meters"""
-        bbox_ll = list(zip(*self._bbox_ll))
-        len_m, _ = haversine(*bbox_ll[1], *bbox_ll[2])
-        return len_m
-
-    @property
-    def len_sample_m(self):
-        """sample length, in meters """
-        bbox_ll = list(zip(*self._bbox_ll))
-        len_m, _ = haversine(*bbox_ll[0], *bbox_ll[1])
-        return len_m
 
     # @property
     # def pixel_line_m(self):
@@ -581,83 +472,6 @@ class Sentinel1Dataset:
     # def pixel_sample_m(self):
     #     """sample pixel spacing, in meters (relative to dataset)"""
     #     return self.s1meta.pixel_sample_m * np.unique(np.round(np.diff(self._dataset['sample'].values), 1))[0]
-
-    @property
-    def coverage(self):
-        """coverage string"""
-        return "%dkm * %dkm (line * sample )" % (self.len_line_m / 1000, self.len_sample_m / 1000)
-
-    @property
-    def _regularly_spaced(self):
-        return max(
-            [np.unique(np.round(np.diff(self._dataset[dim].values), 1)).size for dim in ['line', 'sample']]) == 1
-
-    def _set_rio(self, ds):
-        # set .rio accessor for ds. ds must be same kind a self._dataset (not checked!)
-        gcps = self._local_gcps
-
-        want_dataset = True
-        if isinstance(ds, xarray.DataArray):
-            # temporary convert to dataset
-            try:
-                ds = ds.to_dataset()
-            except ValueError:
-                ds = ds.to_dataset(name='_tmp_rio')
-            want_dataset = False
-
-        for v in ds:
-            if set(['line', 'sample']).issubset(set(ds[v].dims)):
-                ds[v] = ds[v].set_index({'sample': 'sample', 'line': 'line'})
-                ds[v] = ds[v].rio.write_gcps(
-                    gcps, 'epsg:4326', inplace=True
-                ).rio.set_spatial_dims(
-                    'sample', 'line', inplace=True
-                ).rio.write_coordinate_system(
-                    inplace=True)
-                # remove/reset some incorrect attrs set by rio
-                # (long_name is 'latitude', but it's incorrect for line axis ...)
-                for ax in ['line', 'sample']:
-                    [ds[v][ax].attrs.pop(k, None) for k in ['long_name', 'standard_name']]
-                    ds[v][ax].attrs['units'] = '1'
-
-        if not want_dataset:
-            # convert back to dataarray
-            ds = ds[v]
-            if ds.name == '_tmp_rio':
-                ds.name = None
-        return ds
-
-    def recompute_attrs(self):
-        """
-        Recompute dataset attributes. It's automaticaly called if you assign a new dataset, for example
-
-        >>> xsar_obj.dataset = xsar_obj.dataset.isel(line=slice(1000,5000))
-        >>> #xsar_obj.recompute_attrs() # not needed
-
-        This function must be manually called before using the `.rio` accessor of a variable
-
-        >>> xsar_obj.recompute_attrs()
-        >>> xsar_obj.dataset['sigma0'].rio.reproject(...)
-
-        See Also
-        --------
-            [rioxarray information loss](https://corteva.github.io/rioxarray/stable/getting_started/manage_information_loss.html)
-
-        """
-        if not self._regularly_spaced:
-            warnings.warn(
-                "Irregularly spaced dataset (probably multiple selection). Some attributes will be incorrect.")
-        attrs = self._dataset.attrs
-        # attrs['pixel_sample_m'] = self.pixel_sample_m
-        # attrs['pixel_line_m'] = self.pixel_line_m
-        attrs['coverage'] = self.coverage
-        attrs['footprint'] = self.footprint
-
-        self.dataset.attrs.update(attrs)
-
-        self._dataset = self._set_rio(self._dataset)
-
-        return None
 
     def _patch_lut(self, lut):
         """
@@ -1057,68 +871,6 @@ class Sentinel1Dataset:
 
         return gh.to_dataset(name='ground_heading')
 
-    @timing
-    def _load_rasterized_masks(self):
-
-        def _rasterize_mask_by_chunks(line, sample, mask='land'):
-            chunk_coords = bbox_coords(line, sample, pad=None)
-            # chunk footprint polygon, in dataset coordinates (with buffer, to enlarge a little the footprint)
-            chunk_footprint_coords = Polygon(chunk_coords).buffer(10)
-            # chunk footprint polygon, in lon/lat
-            chunk_footprint_ll = self.s1meta.coords2ll(chunk_footprint_coords)
-
-            # get vector mask over chunk, in lon/lat
-            vector_mask_ll = get_mask(self, mask).intersection(chunk_footprint_ll)
-
-            if vector_mask_ll.is_empty:
-                # no intersection with mask, return zeros
-                return np.zeros((line.size, sample.size))
-
-            # vector mask, in line/sample coordinates
-            vector_mask_coords = self.s1meta.ll2coords(vector_mask_ll)
-
-            # shape of the returned chunk
-            out_shape = (line.size, sample.size)
-
-            # transform * (x, y) -> (line, sample)
-            # (where (x, y) are index in out_shape)
-            # Affine.permutation() is used because (line, sample) is transposed from geographic
-
-            transform = Affine.translation(*chunk_coords[0]) * Affine.scale(
-                *[np.unique(np.diff(c))[0] for c in [line, sample]]) * Affine.permutation()
-
-            raster_mask = rasterio.features.rasterize(
-                [vector_mask_coords],
-                out_shape=out_shape,
-                all_touched=False,
-                transform=transform
-            )
-            return raster_mask
-
-        da_list = []
-        for mask in mask_names(self):
-            da_mask = map_blocks_coords(
-                self._da_tmpl,
-                _rasterize_mask_by_chunks,
-                func_kwargs={'mask': mask}
-            )
-            name = '%s_mask' % mask
-            da_mask.attrs['history'] = yaml.safe_dump({name: get_mask(self, mask, describe=True)})
-            da_list.append(da_mask.to_dataset(name=name))
-
-        return xr.merge(da_list)
-
-    def add_rasterized_masks(self):
-        """
-        add rasterized masks only (included in add_high_resolution_variables() )
-        :return:
-        """
-        self._rasterized_masks = self._load_rasterized_masks()
-        # self.datatree['measurement'].ds = xr.merge([self.datatree['measurement'].ds,self._rasterized_masks])
-        self.datatree['measurement'] = self.datatree['measurement'].assign(
-            xr.merge([self.datatree['measurement'].ds, self._rasterized_masks])
-        )
-
     def ll2coords_SLC(self, *args):
         """
         for SLC product with irregular projected pixel spacing in range Affine transformation are not relevant
@@ -1162,156 +914,6 @@ class Sentinel1Dataset:
         lon = self.dataset['longitude'].sel(line=da_line, sample=da_sample)
         lat = self.dataset['latitude'].sel(line=da_line, sample=da_sample)
         return lon, lat
-
-    def land_mask_slc_per_bursts(self, lazy_loading=True):
-        """
-        1) loop on burst polygons to get rasterized landmask
-        2) merge the landmask pieces into a single Dataset to replace existing 'land_mask' is any
-
-        Parameters
-        ----------
-
-        lazy_loading bool
-
-        Returns
-        -------
-
-        """
-        # TODO: add a prior step to compute the intersection between the self.dataset (could be a subset) and the different bursts
-        # if 'land_mask' in self.dataset:
-        #     self.datatree['measurement'] = self.datatree['measurement'].assign(self.datatree['measurement'].to_dataset().drop('land_mask'))
-        logger.debug('start land_mask_slc_per_bursts()')
-
-        def _rasterize_mask_by_chunks(line, sample, mask='land'):
-            """
-            copy/pasted from _load_rasterized_masks()
-            :param line:
-            :param sample:
-            :param mask:
-            :return:
-            """
-            chunk_coords = bbox_coords(line, sample, pad=None)
-            # chunk footprint polygon, in dataset coordinates (with buffer, to enlarge a little the footprint)
-            chunk_footprint_coords = Polygon(chunk_coords)  # .buffer(1) #no buffer-> corruption of the polygon
-            assert chunk_footprint_coords.is_valid
-            lines, samples = chunk_footprint_coords.exterior.xy
-            lines = np.array([hh for hh in lines]).astype(int)
-            lines = np.clip(lines, a_min=0, a_max=self.dataset['line'].max().values)
-            samples = np.array([hh for hh in samples]).astype(int)
-            samples = np.clip(samples, a_min=0, a_max=self.dataset['sample'].max().values)
-            chunk_footprint_lon, chunk_footprint_lat = self.coords2ll_SLC(lines, samples)
-            chunk_footprint_ll = Polygon(np.vstack([chunk_footprint_lon, chunk_footprint_lat]).T)
-            if chunk_footprint_ll.is_valid is False:
-                chunk_footprint_ll = make_valid(chunk_footprint_ll)
-            # get vector mask over chunk, in lon/lat
-            vector_mask_ll = get_mask(self, mask).intersection(chunk_footprint_ll)
-            if vector_mask_ll.is_empty:
-                # no intersection with mask, return zeros
-                return np.zeros((line.size, sample.size))
-
-            # vector mask, in line/sample coordinates
-            if isinstance(vector_mask_ll, shapely.geometry.Polygon):
-                lons_ma, lats_ma = vector_mask_ll.exterior.xy
-                lons = np.array([hh for hh in lons_ma])
-                lats = np.array([hh for hh in lats_ma])
-                vector_mask_coords_lines, vector_mask_coords_samples = self.ll2coords_SLC(lons, lats)
-                vector_mask_coords = [Polygon(np.vstack([vector_mask_coords_lines, vector_mask_coords_samples]).T)]
-            else:  # multipolygon
-                vector_mask_coords = []  # to store polygons in image coordinates
-                for iio, onepoly in enumerate(vector_mask_ll.geoms):
-                    lons_ma, lats_ma = onepoly.exterior.xy
-                    lons = np.array([hh for hh in lons_ma])
-                    lats = np.array([hh for hh in lats_ma])
-                    vector_mask_coords_lines, vector_mask_coords_samples = self.ll2coords_SLC(lons, lats)
-                    vector_mask_coords.append(
-                        Polygon(np.vstack([vector_mask_coords_lines, vector_mask_coords_samples]).T))
-
-            # shape of the returned chunk
-            out_shape = (line.size, sample.size)
-
-            # transform * (x, y) -> (line, sample)
-            # (where (x, y) are index in out_shape)
-            # Affine.permutation() is used because (line, sample) is transposed from geographic
-            # this transform Affine seems to be sufficient approx for SLC -> curvilinear could be even better?
-            transform = Affine.translation(*chunk_coords[0]) * Affine.scale(
-                *[np.unique(np.diff(c))[0] for c in [line, sample]]) * Affine.permutation()
-
-            raster_mask = rasterio.features.rasterize(
-                vector_mask_coords,
-                out_shape=out_shape,
-                all_touched=False,
-                transform=transform
-            )
-
-            return raster_mask
-
-        # all_bursts = self.datatree['bursts']
-        all_bursts = self.get_bursts_polygons(only_valid_location=False)
-        da_dict = {}  # dictionnary to store the DataArray of each mask and each burst
-        for burst_id in range(len(all_bursts['geometry_image'])):
-            a_burst_bbox = all_bursts['geometry_image'].iloc[burst_id]
-            line_index = np.array([int(jj) for jj in a_burst_bbox.exterior.xy[0]])
-            sample_index = np.array([int(jj) for jj in a_burst_bbox.exterior.xy[1]])
-            logger.debug('line_index : %s %s %s', line_index, line_index.min(), line_index.max())
-            logger.debug('dataset shape %s', self.dataset.digital_number.shape)
-            a_burst_subset = self.dataset.isel({'line': slice(line_index.min(), line_index.max()),
-                                                'sample': slice(sample_index.min(), sample_index.max()), 'pol': 0})
-            logger.debug('a_burst_subset %s', a_burst_subset.digital_number.shape)
-            # logging.info('burst : %s lines: %s samples: %s',burst_id,a_burst_subset.digital_number.line,a_burst_subset.digital_number.sample)
-            da_tmpl = xr.DataArray(
-                dask.array.empty_like(
-                    np.empty((len(a_burst_subset.digital_number.line), len(a_burst_subset.digital_number.sample))),
-                    dtype=np.int8, name="empty_var_tmpl-%s" % dask.base.tokenize(self.s1meta.name)),
-                dims=('line', 'sample'),
-                coords={
-                    'line': a_burst_subset.digital_number.line,
-                    'sample': a_burst_subset.digital_number.sample,
-                    # 'line_time': line_time.astype(float),
-                }, )
-
-            for mask in mask_names(self):
-                logger.debug('mask: %s', mask)
-                if lazy_loading:
-                    da_mask = map_blocks_coords(
-                        da_tmpl,
-                        _rasterize_mask_by_chunks,
-                        func_kwargs={'mask': mask}
-                    )
-                else:
-                    tmpmask_val = _rasterize_mask_by_chunks(a_burst_subset.digital_number.line,
-                                                            a_burst_subset.digital_number.sample, mask=mask)
-                    da_mask = xr.DataArray(tmpmask_val, dims=('line', 'sample'),
-                                           coords={
-                                               'line': a_burst_subset.digital_number.line,
-                                               'sample': a_burst_subset.digital_number.sample, })
-                name = '%s_maskv2' % mask
-                da_mask.attrs['history'] = yaml.safe_dump({name: get_mask(self, mask, describe=True)})
-                da_mask.attrs['meaning'] = '0: ocean , 1: land'
-                da_mask = da_mask.fillna(0)  # zero -> ocean
-                da_mask = da_mask.astype(np.int8)
-                logger.debug('%s -> %s', mask, da_mask.attrs['history'])
-                # da_list.append(da_mask.to_dataset(name=name))
-                if mask not in da_dict:
-                    da_dict[mask] = [da_mask.to_dataset(name=name)]
-                else:
-                    da_dict[mask].append(da_mask.to_dataset(name=name))
-            logger.debug('da_dict[mask] = %s %s', mask, da_dict[mask])
-        # merge with existing dataset
-        all_masks = []
-        for kk in da_dict:
-            logger.debug('da_dict[kk] %s', da_dict[kk])
-            complet_mask = xr.combine_by_coords(da_dict[kk])
-            all_masks.append(complet_mask)
-        tmpds = self.datatree['measurement'].to_dataset()
-        tmpds.attrs = self.dataset.attrs
-        tmpmerged = xr.merge([tmpds] + all_masks)
-        tmpmerged = tmpmerged.drop('land_mask')
-        logger.debug('rename land_maskv2 -> land_mask')
-        tmpmerged = tmpmerged.rename({'land_maskv2': 'land_mask'})
-        tmpmerged.attrs['land_mask_computed_by_burst'] = True
-        self.dataset = tmpmerged
-        self.datatree['measurement'] = self.datatree['measurement'].assign(tmpmerged)
-        self.datatree['measurement'].attrs = tmpmerged.attrs
 
     @timing
     def map_raster(self, raster_ds):
@@ -1703,45 +1305,6 @@ class Sentinel1Dataset:
                                                      dims=['sample'])
         return xr.Dataset({'range_ground_spacing': range_ground_spacing_vect})
 
-    @property
-    def _local_gcps(self):
-        # get local gcps, for rioxarray.reproject (row and col are *index*, not coordinates)
-        local_gcps = []
-        line_decimated = self.dataset.line.values[::int(self.dataset.line.size / 20) + 1]
-        sample_decimated = self.dataset.sample.values[::int(self.dataset.sample.size / 20) + 1]
-        XX, YY = np.meshgrid(line_decimated, sample_decimated)
-        if self.s1meta.product == 'SLC':
-            logger.debug(
-                'GCPs computed from affine transformations on SLC products can be strongly shifted in position, we advise against ds.rio.reproject()')
-        #     lon_s,lat_s = self.coords2ll_SLC(XX.ravel(order='F'),YY.ravel(order='F'))
-        #     lon_s = lon_s.values
-        #     lat_s = lat_s.values
-        cpt = 0
-        for line in line_decimated:
-            for sample in sample_decimated:
-                irow = np.argmin(np.abs(self.dataset.line.values - line))
-                icol = np.argmin(np.abs(self.dataset.sample.values - sample))
-                # if self.s1meta.product == 'SLC':
-                #     #lon, lat = self.coords2ll_SLC(line,sample)
-                #     lon = lon_s[cpt]
-                #     lat = lat_s[cpt]
-                #     if sample%0==0:
-                #         print('#########')
-                #         print('lon',lon)
-                #         print('lat',lat)
-                # else:
-                lon, lat = self.s1meta.coords2ll(line, sample)
-                gcp = GroundControlPoint(
-                    x=lon,
-                    y=lat,
-                    z=0,
-                    col=icol,
-                    row=irow
-                )
-                local_gcps.append(gcp)
-                cpt += 1
-        return local_gcps
-
     def __repr__(self):
         if self.sliced:
             intro = "sliced"
@@ -1751,138 +1314,6 @@ class Sentinel1Dataset:
 
     def _repr_mimebundle_(self, include=None, exclude=None):
         return repr_mimebundle(self, include=include, exclude=exclude)
-
-    def get_burst_valid_location(self):
-        """
-        add a field 'valid_location' in the bursts sub-group of the datatree
-
-        Returns:
-        --------
-
-        """
-        nbursts = len(self.datatree['bursts'].ds['burst'])
-        burst_firstValidSample = self.datatree['bursts'].ds['firstValidSample'].values
-        burst_lastValidSample = self.datatree['bursts'].ds['lastValidSample'].values
-        valid_locations = np.empty((nbursts, 4), dtype='int32')
-        line_per_burst = len(self.datatree['bursts'].ds['line'])
-        for ibur in range(nbursts):
-            fvs = burst_firstValidSample[ibur, :]
-            lvs = burst_lastValidSample[ibur, :]
-            # valind = np.where((fvs != -1) | (lvs != -1))[0]
-            valind = np.where(np.isfinite(fvs) | np.isfinite(lvs))[0]
-            valloc = [ibur * line_per_burst + valind.min(), fvs[valind].min(),
-                      ibur * line_per_burst + valind.max(), lvs[valind].max()]
-            valid_locations[ibur, :] = valloc
-        tmpda = xr.DataArray(dims=['burst', 'limits'],
-                             coords={'burst': self.datatree['bursts'].ds['burst'].values, 'limits': np.arange(4)},
-                             data=valid_locations,
-                             name='valid_location',
-                             attrs={
-                                 'description': 'start line index, start sample index, stop line index, stop sample index'})
-        # self.datatree['bursts'].ds['valid_location'] = tmpda
-        tmpds = xr.merge([self.datatree['bursts'].ds, tmpda])
-        self.datatree['bursts'] = self.datatree['bursts'].assign(tmpds)
-
-    def get_bursts_polygons(self, only_valid_location=True):
-        """
-        get the polygons of radar bursts in the image geometry
-
-        Parameters
-        ----------
-        only_valid_location : bool
-            [True] -> polygons of the TOPS SLC bursts are cropped using valid location index
-            False -> polygons of the TOPS SLC bursts are aligned with azimuth time start/stop index
-
-        Returns
-        -------
-        geopandas.GeoDataframe
-            polygons of the burst in the image (ie line/sample) geometry
-            'geometry' is the polygon
-
-        """
-        if self.resolution is not None:
-            factor_range = self.dataset['sampleSpacing'].values / self.resolution  # eg 2.3/100
-            factor_azimuth = self.dataset['lineSpacing'].values / self.resolution
-        else:
-            factor_range = 1
-            factor_azimuth = 1
-        # compute resolution factor if any
-        if self.s1meta.multidataset:
-            blocks_list = []
-            # for subswath in self.subdatasets.index:
-            for submeta in self.s1meta._submeta:
-                block = submeta.bursts(only_valid_location=only_valid_location)
-                block['subswath'] = submeta.dsid
-                block = block.set_index('subswath', append=True).reorder_levels(['subswath', 'burst'])
-                blocks_list.append(block)
-            blocks = pd.concat(blocks_list)
-        else:
-            # burst_list = self._bursts
-            self.get_burst_valid_location()
-            burst_list = self.datatree['bursts'].ds
-            nb_samples = int(self.datatree['image'].ds['numberOfSamples'] * factor_range)
-            if burst_list['burst'].size == 0:
-                blocks = gpd.GeoDataFrame()
-            else:
-                bursts = []
-                bursts_az_inds = {}
-                inds_burst, geoloc_azitime, geoloc_iburst, geoloc_line = self._get_indices_bursts()
-                for burst_ind, uu in enumerate(np.unique(inds_burst)):
-                    if only_valid_location:
-                        extent = np.copy(burst_list['valid_location'].values[burst_ind, :])
-                        area = box(int(extent[0] * factor_azimuth), int(extent[1] * factor_range),
-                                   int(extent[2] * factor_azimuth), int(extent[3] * factor_range))
-                    else:
-                        inds_one_val = np.where(inds_burst == uu)[0]
-                        bursts_az_inds[uu] = inds_one_val
-                        area = box(bursts_az_inds[burst_ind][0], 0, bursts_az_inds[burst_ind][-1], nb_samples)
-                    burst = pd.Series(dict([
-                        ('geometry_image', area)]))
-                    bursts.append(burst)
-                # to geopandas
-                blocks = pd.concat(bursts, axis=1).T
-                blocks = gpd.GeoDataFrame(blocks)
-                blocks['geometry'] = blocks['geometry_image'].apply(self.coords2ll)
-                blocks.index.name = 'burst'
-        return blocks
-
-    def _get_indices_bursts(self):
-        """
-
-        Returns
-        -------
-        ind np.array
-            index of the burst start in the line coordinates
-        geoloc_azitime np.array
-            azimuth time at the middle of the image from geolocation grid (low resolution)
-        geoloc_iburst np.array
-
-        """
-        ind = None
-        geoloc_azitime = None
-        geoloc_iburst = None
-        geoloc_line = None
-        if self.s1meta.product == 'SLC' and 'WV' not in self.s1meta.swath:
-            # if self.datatree.attrs['product'] == 'SLC' and 'WV' not in self.datatree.attrs['swath']:
-            burst_nlines = int(self.s1meta._bursts['linesPerBurst'])
-            # burst_nlines = self.datatree['bursts'].ds['line'].size
-
-            geoloc_line = self.s1meta.geoloc['line'].values
-            # geoloc_line = self.datatree['geolocation_annotation'].ds['line'].values
-            # find the indice of the bursts in the geolocation grid
-            geoloc_iburst = np.floor(geoloc_line / float(burst_nlines)).astype('int32')
-            # find the indices of the bursts in the high resolution grid
-            line = np.arange(0, self.s1meta.image['numberOfLines'])
-            # line = np.arange(0, self.datatree.attrs['numberOfLines'])
-            iburst = np.floor(line / float(burst_nlines)).astype('int32')
-            # find the indices of the burst transitions
-            ind = np.searchsorted(geoloc_iburst, iburst, side='left')
-            n_pixels = int((len(self.s1meta.geoloc['sample']) - 1) / 2)
-            geoloc_azitime = self.s1meta.geoloc['azimuthTime'].values[:, n_pixels]
-            # security check for unrealistic line_values exceeding the image extent
-            if ind.max() >= len(geoloc_azitime):
-                ind[ind >= len(geoloc_azitime)] = len(geoloc_azitime) - 1
-        return ind, geoloc_azitime, geoloc_iburst, geoloc_line
 
     def _burst_azitime(self):
         """
@@ -1919,3 +1350,5 @@ class Sentinel1Dataset:
                                    'description': 'azimuth times interpolated along line dimension at the middle of range dimension'})
 
         return azitime
+
+

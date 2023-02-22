@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
-import cartopy.feature
+
 import logging
 import warnings
 import copy
+
 import numpy as np
 import xarray
 import xarray as xr
@@ -10,26 +11,22 @@ import pandas as pd
 import geopandas as gpd
 import rasterio
 from rasterio.control import GroundControlPoint
-from scipy.interpolate import RectBivariateSpline, interp1d
+from scipy.interpolate import RectBivariateSpline
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
-import shapely
-from shapely.geometry import box
-from .utils import to_lon180, haversine, timing, class_or_instancemethod
+from .utils import haversine, timing, class_or_instancemethod
 from .raster_readers import available_rasters
 from . import sentinel1_xml_mappings
 from .xml_parser import XmlParser
-from affine import Affine
 import os
-from datetime import datetime
-from collections import OrderedDict
 from .ipython_backends import repr_mimebundle
+from .base_meta import BaseMeta
 
 logger = logging.getLogger('xsar.sentinel1_meta')
 logger.addHandler(logging.NullHandler())
 
 
-class Sentinel1Meta:
+class Sentinel1Meta(BaseMeta):
     """
     Handle dataset metadata.
     A `xsar.Sentinel1Meta` object can be used with `xsar.open_dataset`,
@@ -41,13 +38,6 @@ class Sentinel1Meta:
         path or gdal identifier like `'SENTINEL1_DS:%s:WV_001' % path`
 
     """
-
-    # default mask feature (see self.set_mask_feature and cls.set_mask_feature)
-    _mask_features_raw = {
-        'land': cartopy.feature.NaturalEarthFeature('physical', 'land', '10m')
-    }
-
-    rasters = available_rasters.iloc[0:0].copy()
 
     # class attributes are needed to fetch instance attribute (ie self.name) with dask actors
     # ref http://distributed.dask.org/en/stable/actors.html#access-attributes
@@ -126,24 +116,22 @@ class Sentinel1Meta:
                 self.subdatasets = gpd.GeoDataFrame(geometry=self.manifest_attrs['footprints'], index=datasets_names)
             except ValueError:
                 # not as many footprints than subdatasets count. (probably TOPS product)
-                self._submeta = [ Sentinel1Meta(subds) for subds in datasets_names ]
-                sub_footprints = [ submeta.footprint for submeta in self._submeta ]
+                self._submeta = [Sentinel1Meta(subds) for subds in datasets_names]
+                sub_footprints = [submeta.footprint for submeta in self._submeta]
                 self.subdatasets = gpd.GeoDataFrame(geometry=sub_footprints, index=datasets_names)
             self.multidataset = True
 
         self.platform = self.manifest_attrs['mission'] + self.manifest_attrs['satellite']
         """Mission platform"""
-        self._time_range = None
-        self._mask_features_raw = {}
-        self._mask_features = {}
-        self._mask_intersecting_geometries = {}
-        self._mask_geometry = {}
-
-        # get defaults masks from class attribute
         for name, feature in self.__class__._mask_features_raw.items():
             self.set_mask_feature(name, feature)
-        self._geoloc = None
-        self.rasters = self.__class__.rasters.copy()
+        # self._mask_features_raw = BaseMeta.__class__._mask_features_raw
+        # self._mask_features = BaseMeta.__class__._mask_features
+        # self._mask_intersecting_geometries = BaseMeta.__class__._mask_intersecting_geometries
+        # self._mask_geometry = BaseMeta.__class__._mask_geometry
+
+        # self._geoloc = BaseMeta.__class__._geoloc
+        # self.rasters = BaseMeta.__class__.rasters.copy()
         """pandas dataframe for rasters (see `xsar.Sentinel1Meta.set_raster`)"""
 
     def __del__(self):
@@ -164,7 +152,6 @@ class Sentinel1Meta:
         """
         return name == self.name or name in self.subdatasets.index
 
-
     def _get_time_range(self):
         if self.multidataset:
             time_range = [self.manifest_attrs['start_date'], self.manifest_attrs['stop_date']]
@@ -178,7 +165,8 @@ class Sentinel1Meta:
             'minimal': ['ipf', 'platform', 'swath', 'product', 'pols']
         }
         info_keys['all'] = info_keys['minimal'] + ['name', 'start_date', 'stop_date', 'footprint', 'coverage',
-                                                   'orbit_pass', 'platform_heading'] #  'pixel_line_m', 'pixel_sample_m',
+                                                   'orbit_pass',
+                                                   'platform_heading']  # 'pixel_line_m', 'pixel_sample_m',
 
         if isinstance(keys, str):
             keys = info_keys[keys]
@@ -273,9 +261,6 @@ class Sentinel1Meta:
         """
         return self.safe_files[self.safe_files['dsid'] == self.name]
 
-
-
-
     @property
     def footprint(self):
         """footprint, as a shapely polygon or multi polygon"""
@@ -287,6 +272,33 @@ class Sentinel1Meta:
     def geometry(self):
         """alias for footprint"""
         return self.footprint
+
+    @property
+    def approx_transform(self):
+        """
+        Affine transfom from geoloc.
+
+        This is an inaccurate transform, with errors up to 600 meters.
+        But it's fast, and may fit some needs, because the error is stable localy.
+        See `xsar.Sentinel1Meta.coords2ll` `xsar.RdarSat2Dataset.ll2coords` for accurate methods.
+
+        Examples
+        --------
+            get `longitude` and `latitude` from tuple `(line, sample)`:
+
+            >>> longitude, latitude = self.approx_transform * (line, sample)
+
+            get `line` and `sample` from tuple `(longitude, latitude)`
+
+            >>> line, sample = ~self.approx_transform * (longitude, latitude)
+
+        See Also
+        --------
+        xsar.BaseDataset.coords2ll
+        xsar.BaseDataset.ll2coords`
+
+        """
+        return self.geoloc.attrs['approx_transform']
 
     @property
     def geoloc(self):
@@ -329,7 +341,7 @@ class Sentinel1Meta:
             acq_line_meters, _ = haversine(*corners[1], *corners[2])
             self._geoloc.attrs['coverage'] = "%dkm * %dkm (line * sample )" % (
                 acq_line_meters / 1000, acq_sample_meters / 1000)
-            
+
             # compute self._geoloc.attrs['approx_transform'], from gcps
             # we need to convert self._geoloc to  a list of GroundControlPoint
             def _to_rio_gcp(pt_geoloc):
@@ -344,7 +356,7 @@ class Sentinel1Meta:
 
             gcps = [
                 _to_rio_gcp(self._geoloc.sel(line=line, sample=sample))
-                for line in  self._geoloc.line for sample in self._geoloc.sample
+                for line in self._geoloc.line for sample in self._geoloc.sample
             ]
             # approx transform, from all gcps (inaccurate)
             self._geoloc.attrs['approx_transform'] = rasterio.transform.from_gcps(gcps)
@@ -352,57 +364,12 @@ class Sentinel1Meta:
                 if vv in self.xsd_definitions:
                     self._geoloc[vv].attrs['definition'] = str(self.xsd_definitions[vv])
 
-
         return self._geoloc
 
     @property
     def _footprints(self):
         """footprints as list. should len 1 for single meta, or len(self.subdatasets) for multi meta"""
         return self.manifest_attrs['footprints']
-
-    @class_or_instancemethod
-    def set_mask_feature(self_or_cls, name, feature):
-        """
-        Set a named mask from a shapefile or a cartopy feature.
-
-        Parameters
-        ----------
-        name: str
-            mask name
-        feature: str or cartopy.feature.Feature
-            if str, feature is a path to a shapefile or whatever file readable with fiona.
-            It is recommended to use str, as the serialization of cartopy feature might be big.
-
-        Examples
-        --------
-            Add an 'ocean' mask at class level (ie as default mask):
-            ```
-            >>> xsar.Sentinel1Meta.set_mask_feature('ocean', cartopy.feature.OCEAN)
-            ```
-
-            Add an 'ocean' mask at instance level (ie only for this self Sentinel1Meta instance):
-            ```
-            >>> xsar.Sentinel1Meta.set_mask_feature('ocean', cartopy.feature.OCEAN)
-            ```
-
-
-            High resoltion shapefiles can be found from openstreetmap.
-            It is recommended to use WGS84 with large polygons split from https://osmdata.openstreetmap.de/
-
-        See Also
-        --------
-        xsar.Sentinel1Meta.get_mask
-        """
-
-        # see https://stackoverflow.com/a/28238047/5988771 for self_or_cls
-
-        self_or_cls._mask_features_raw[name] = feature
-
-        if not isinstance(self_or_cls, type):
-            # self (instance, not class)
-            self_or_cls._mask_intersecting_geometries[name] = None
-            self_or_cls._mask_geometry[name] = None
-            self_or_cls._mask_features[name] = None
 
     @class_or_instancemethod
     def set_raster(self_or_cls, name, resource, read_function=None, get_function=None):
@@ -440,23 +407,6 @@ class Sentinel1Meta:
         else:
             res = self.image['groundRangePixelSpacing']
         return res
-
-    @property
-    def time_range(self):
-        """time range as pd.Interval"""
-        if self._time_range is None:
-            self._time_range = self._get_time_range()
-        return self._time_range
-
-    @property
-    def start_date(self):
-        """start date, as datetime.datetime"""
-        return '%s'%self.time_range.left
-
-    @property
-    def stop_date(self):
-        """stort date, as datetime.datetime"""
-        return '%s'%self.time_range.right
 
     @property
     def denoised(self):
@@ -569,161 +519,6 @@ class Sentinel1Meta:
 
         return resdict
 
-    def _coords2ll_shapely(self, shape, approx=False):
-        if approx:
-            (xoff, a, b, yoff, d, e) = self.approx_transform.to_gdal()
-            return shapely.affinity.affine_transform(shape, (a, b, d, e, xoff, yoff))
-        else:
-            return shapely.ops.transform(self.coords2ll, shape)
-
-    def _ll2coords_shapely(self, shape, approx=False):
-        if approx:
-            (xoff, a, b, yoff, d, e) = (~self.approx_transform).to_gdal()
-            return shapely.affinity.affine_transform(shape, (a, b, d, e, xoff, yoff))
-        else:
-            return shapely.ops.transform(self.ll2coords, shape)
-
-    def coords2ll(self, *args, to_grid=False, approx=False):
-        """
-        convert `lines`, `samples` arrays to `longitude` and `latitude` arrays.
-        or a shapely object in `lines`, `samples` coordinates to `longitude` and `latitude`.
-
-        Parameters
-        ----------
-        *args: lines, samples  or a shapely geometry
-            lines, samples are iterables or scalar
-
-        to_grid: bool, default False
-            If True, `lines` and `samples` must be 1D arrays. The results will be 2D array of shape (lines.size, samples.size).
-
-        Returns
-        -------
-        tuple of np.array or tuple of float
-            (longitude, latitude) , with shape depending on `to_grid` keyword.
-
-        See Also
-        --------
-        xsar.Sentinel1Meta.ll2coords
-        xsar.Sentinel1Dataset.ll2coords
-
-        """
-
-        if isinstance(args[0], shapely.geometry.base.BaseGeometry):
-            return self._coords2ll_shapely(args[0])
-
-        lines, samples = args
-
-        scalar = True
-        if hasattr(lines, '__iter__'):
-            scalar = False
-
-        if approx:
-            if to_grid:
-                samples2D, lines2D = np.meshgrid(samples, lines)
-                lon, lat = self.approx_transform * (lines2D, samples2D)
-                pass
-            else:
-                lon, lat = self.approx_transform * (lines, samples)
-        else:
-            dict_coords2ll = self._dict_coords2ll
-            if to_grid:
-                lon = dict_coords2ll['longitude'](lines, samples)
-                lat = dict_coords2ll['latitude'](lines, samples)
-            else:
-                lon = dict_coords2ll['longitude'].ev(lines, samples)
-                lat = dict_coords2ll['latitude'].ev(lines, samples)
-
-        if self.cross_antemeridian:
-            lon = to_lon180(lon)
-
-        if scalar and hasattr(lon, '__iter__'):
-            lon = lon.item()
-            lat = lat.item()
-
-        if hasattr(lon, '__iter__') and type(lon) is not type(lines):
-            lon = type(lines)(lon)
-            lat = type(lines)(lat)
-
-        return lon, lat
-
-    def ll2coords(self, *args):
-        """
-        Get `(lines, samples)` from `(lon, lat)`,
-        or convert a lon/lat shapely shapely object to line/sample coordinates.
-
-        Parameters
-        ----------
-        *args: lon, lat or shapely object
-            lon and lat might be iterables or scalars
-
-        Returns
-        -------
-        tuple of np.array or tuple of float (lines, samples) , or a shapely object
-
-        Examples
-        --------
-            get nearest (line,sample) from (lon,lat) = (84.81, 21.32) in ds, without bounds checks
-
-            >>> (line, sample) = meta.ll2coords(84.81, 21.32) # (lon, lat)
-            >>> (line, sample)
-            (9752.766349989339, 17852.571322887554)
-
-        See Also
-        --------
-        xsar.Sentinel1Meta.coords2ll
-        xsar.Sentinel1Dataset.coords2ll
-
-        """
-
-        if isinstance(args[0], shapely.geometry.base.BaseGeometry):
-            return self._ll2coords_shapely(args[0])
-
-        lon, lat = args
-
-        # approximation with global inaccurate transform
-        line_approx, sample_approx = ~self.approx_transform * (np.asarray(lon), np.asarray(lat))
-
-        # Theoretical identity. It should be the same, but the difference show the error.
-        lon_identity, lat_identity = self.coords2ll(line_approx, sample_approx, to_grid=False)
-        line_identity, sample_identity = ~self.approx_transform * (lon_identity, lat_identity)
-
-        # we are now able to compute the error, and make a correction
-        line_error = line_identity - line_approx
-        sample_error = sample_identity - sample_approx
-
-        line = line_approx - line_error
-        sample = sample_approx - sample_error
-
-        if hasattr(lon, '__iter__'):
-            scalar = False
-        else:
-            scalar = True
-
-        return line, sample
-
-    def coords2heading(self, lines, samples, to_grid=False, approx=True):
-        """
-        Get image heading (lines increasing direction) at coords `lines`, `samples`.
-
-        Parameters
-        ----------
-        lines: np.array or scalar
-        samples: np.array or scalar
-        to_grid: bool
-            If True, `lines` and `samples` must be 1D arrays. The results will be 2D array of shape (lines.size, samples.size).
-
-        Returns
-        -------
-        np.array or float
-            `heading` , with shape depending on `to_grid` keyword.
-
-        """
-
-        lon1, lat1 = self.coords2ll(lines - 1, samples, to_grid=to_grid, approx=approx)
-        lon2, lat2 = self.coords2ll(lines + 1, samples, to_grid=to_grid, approx=approx)
-        _, heading = haversine(lon1, lat1, lon2, lat2)
-        return heading
-
     @property
     def _bursts(self):
         if self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.number_of_bursts') > 0:
@@ -740,33 +535,6 @@ class Sentinel1Meta:
                                                                        describe=True)
             return bursts
 
-    @property
-    def approx_transform(self):
-        """
-        Affine transfom from geoloc.
-
-        This is an inaccurate transform, with errors up to 600 meters.
-        But it's fast, and may fit some needs, because the error is stable localy.
-        See `xsar.Sentinel1Meta.coords2ll` `xsar.Sentinel1Meta.ll2coords` for accurate methods.
-
-        Examples
-        --------
-            get `longitude` and `latitude` from tuple `(line, sample)`:
-
-            >>> longitude, latitude = self.approx_transform * (line, sample)
-
-            get `line` and `sample` from tuple `(longitude, latitude)`
-
-            >>> line, sample = ~self.approx_transform * (longitude, latitude)
-
-        See Also
-        --------
-        xsar.Sentinel1Meta.coords2ll
-        xsar.Sentinel1Meta.ll2coords`
-
-        """
-        return self.geoloc.attrs['approx_transform']
-
     def __repr__(self):
         if self.multidataset:
             meta_type = "multi (%d)" % len(self.subdatasets)
@@ -776,6 +544,42 @@ class Sentinel1Meta:
 
     def _repr_mimebundle_(self, include=None, exclude=None):
         return repr_mimebundle(self, include=include, exclude=exclude)
+
+    @property
+    def _doppler_estimate(self):
+        """
+        xarray.Dataset
+            with Doppler Centroid Estimates from annotations such as geo_polynom,data_polynom or frequency
+        """
+        dce = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'doppler_estimate')
+        for vv in dce:
+            if vv in self.xsd_definitions:
+                dce[vv].attrs['definition'] = self.xsd_definitions[vv]
+        dce.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'doppler_estimate',
+                                                                describe=True)
+        return dce
+
+    def get_annotation_definitions(self):
+        """
+        
+        :return:
+        """
+        final_dict = {}
+        ds_path_xsd = self.xml_parser.get_compound_var(self.manifest, 'xsd_files')
+        full_path_xsd = os.path.join(self.path, ds_path_xsd['xsd_product'].values[0])
+        if os.path.exists(full_path_xsd):
+            rootxsd = self.xml_parser.getroot(full_path_xsd)
+            mypath = '/xsd:schema/xsd:complexType/xsd:sequence/xsd:element'
+
+            for lulu, uu in enumerate(rootxsd.xpath(mypath, namespaces=sentinel1_xml_mappings.namespaces)):
+                mykey = uu.values()[0]
+                if uu.getchildren() != []:
+                    myvalue = uu.getchildren()[0].getchildren()[0]
+                else:
+                    myvalue = None
+                final_dict[mykey] = myvalue
+
+        return final_dict
 
     def __reduce__(self):
         # make self serializable with pickle
@@ -813,41 +617,3 @@ class Sentinel1Meta:
         new = cls(minidict['name'])
         new.__dict__.update(minidict)
         return new
-
-    @property
-    def _doppler_estimate(self):
-        """
-        xarray.Dataset
-            with Doppler Centroid Estimates from annotations such as geo_polynom,data_polynom or frequency
-        """
-        dce = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'doppler_estimate')
-        for vv in dce:
-            if vv in self.xsd_definitions:
-                dce[vv].attrs['definition'] = self.xsd_definitions[vv]
-        dce.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'doppler_estimate',
-                                                                describe=True)
-        return dce
-
-
-
-    def get_annotation_definitions(self):
-        """
-        
-        :return:
-        """
-        final_dict = {}
-        ds_path_xsd = self.xml_parser.get_compound_var(self.manifest, 'xsd_files')
-        full_path_xsd = os.path.join(self.path, ds_path_xsd['xsd_product'].values[0])
-        if os.path.exists(full_path_xsd):
-            rootxsd = self.xml_parser.getroot(full_path_xsd)
-            mypath = '/xsd:schema/xsd:complexType/xsd:sequence/xsd:element'
-
-            for lulu, uu in enumerate(rootxsd.xpath(mypath, namespaces=sentinel1_xml_mappings.namespaces)):
-                mykey = uu.values()[0]
-                if uu.getchildren() != []:
-                    myvalue = uu.getchildren()[0].getchildren()[0]
-                else:
-                    myvalue = None
-                final_dict[mykey] = myvalue
-
-        return final_dict

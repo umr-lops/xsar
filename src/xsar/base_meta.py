@@ -19,7 +19,7 @@ from .raster_readers import available_rasters
 from .base_dataset import BaseDataset
 import geopandas as gpd
 
-from .utils import class_or_instancemethod, map_blocks_coords, bbox_coords, timing, to_lon180
+from .utils import class_or_instancemethod, map_blocks_coords, bbox_coords, timing, to_lon180, haversine
 
 logger = logging.getLogger('xsar.base_meta')
 logger.addHandler(logging.NullHandler())
@@ -47,6 +47,7 @@ class BaseMeta(BaseDataset):
     _geoloc = None
     _rasterized_masks = None
     manifest_attrs = {}
+    _time_range = None
 
     def _get_mask_feature(self, name):
         # internal method that returns a cartopy feature from a mask name
@@ -331,4 +332,49 @@ class BaseMeta(BaseDataset):
             scalar = True
 
         return line, sample
+
+    def coords2heading(self, lines, samples, to_grid=False, approx=True):
+        """
+        Get image heading (lines increasing direction) at coords `lines`, `samples`.
+
+        Parameters
+        ----------
+        lines: np.array or scalar
+        samples: np.array or scalar
+        to_grid: bool
+            If True, `lines` and `samples` must be 1D arrays. The results will be 2D array of shape (lines.size, samples.size).
+
+        Returns
+        -------
+        np.array or float
+            `heading` , with shape depending on `to_grid` keyword.
+
+        """
+
+        lon1, lat1 = self.coords2ll(lines - 1, samples, to_grid=to_grid, approx=approx)
+        lon2, lat2 = self.coords2ll(lines + 1, samples, to_grid=to_grid, approx=approx)
+        _, heading = haversine(lon1, lat1, lon2, lat2)
+        return heading
+
+    @property
+    @abstractmethod
+    def _get_time_range(self):
+        pass
+
+    @property
+    def time_range(self):
+        """time range as pd.Interval"""
+        if self._time_range is None:
+            self._time_range = self._get_time_range()
+        return self._time_range
+
+    @property
+    def start_date(self):
+        """start date, as datetime.datetime"""
+        return '%s' % self.time_range.left
+
+    @property
+    def stop_date(self):
+        """stort date, as datetime.datetime"""
+        return '%s' % self.time_range.right
 

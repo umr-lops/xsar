@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import copy
 import logging
 import warnings
 
@@ -6,10 +7,8 @@ import yaml
 from affine import Affine
 
 from .radarsat2_meta import RadarSat2Meta
-from .utils import timing, haversine, map_blocks_coords, bbox_coords, BlockingActorProxy, merge_yaml, get_glob, \
-    to_lon180
+from .utils import timing, map_blocks_coords, BlockingActorProxy, to_lon180
 import numpy as np
-import rasterio
 import rasterio.features
 from numpy import asarray
 from xradarsat2 import load_digital_number
@@ -17,9 +16,7 @@ import xarray as xr
 from scipy.interpolate import RectBivariateSpline, interp1d
 import dask
 import datatree
-from shapely.geometry import Polygon
-from xsar.utils import get_mask, mask_names
-from scipy import ndimage
+from .base_dataset import BaseDataset
 
 logger = logging.getLogger('xsar.sentinel1_dataset')
 logger.addHandler(logging.NullHandler())
@@ -32,7 +29,7 @@ warnings.filterwarnings("ignore", category=rasterio.errors.NotGeoreferencedWarni
 np.errstate(invalid='ignore')
 
 
-class RadarSat2Dataset:
+class RadarSat2Dataset(BaseDataset):
 
     def __init__(self, dataset_id, resolution=None,
                  resampling=rasterio.enums.Resampling.rms,
@@ -75,17 +72,17 @@ class RadarSat2Dataset:
             # check serializable
             # import pickle
             # s1meta = pickle.loads(pickle.dumps(self.s1meta))
-            # assert isinstance(s1meta.coords2ll(100, 100),tuple)
+            # assert isinstance(rs2meta.coords2ll(100, 100),tuple)
         else:
-            # we want self.s1meta to be a dask actor on a worker
+            # we want self.rs2meta to be a dask actor on a worker
             self.rs2meta = BlockingActorProxy(RadarSat2Meta.from_dict, dataset_id.dict)
         del dataset_id
+        self.objet_meta = self.rs2meta
 
         if self.rs2meta.multidataset:
             raise IndexError(
                 """Can't open an multi-dataset. Use `xsar.RadarSat2Meta('%s').subdatasets` to show availables ones""" % self.rs2.path
             )
-
         self.DN_without_res = load_digital_number(self.rs2meta.dt, resampling=resampling, chunks=chunks)[
             'digital_numbers'].ds
         # build datatree
@@ -181,7 +178,7 @@ class RadarSat2Dataset:
                 coords={'line': self._dataset.digital_number.line,
                         'sample': self._dataset.digital_number.sample}
             )
-
+        #self.mask = mask.Mask(self)
         # self._dataset.attrs.update(self.rs2meta.to_dict("all"))
         # self.datatree.attrs.update(self.rs2meta.to_dict("all"))
         self._luts = self.rs2meta.dt['lut'].ds.rename({'pixels': 'sample'})
@@ -590,98 +587,9 @@ class RadarSat2Dataset:
         return new_ds
 
     @property
-    def len_line_m(self):
-        """line length, in meters"""
-        bbox_ll = list(zip(*self._bbox_ll))
-        len_m, _ = haversine(*bbox_ll[1], *bbox_ll[2])
-        return len_m
-
-    @property
-    def len_sample_m(self):
-        """sample length, in meters """
-        bbox_ll = list(zip(*self._bbox_ll))
-        len_m, _ = haversine(*bbox_ll[0], *bbox_ll[1])
-        return len_m
-
-    @property
-    def coverage(self):
-        """coverage string"""
-        return "%dkm * %dkm (line * sample )" % (self.len_line_m / 1000, self.len_sample_m / 1000)
-
-    @property
-    def _regularly_spaced(self):
-        return max(
-            [np.unique(np.round(np.diff(self._dataset[dim].values), 1)).size for dim in ['line', 'sample']]) == 1
-
-    @property
-    def _bbox_ll(self):
-        """Dataset bounding box, lon/lat"""
-        return self.rs2meta.coords2ll(*zip(*self._bbox_coords))
-
-    @property
-    def _bbox_coords(self):
-        """
-        Dataset bounding box, in line/sample coordinates
-        """
-        bbox_ext = bbox_coords(self.dataset.line.values, self.dataset.sample.values)
-        return bbox_ext
-
-    @property
-    def geometry(self):
-        """
-        geometry of this dataset, as a `shapely.geometry.Polygon` (lon/lat coordinates)
-        """
-        return Polygon(zip(*self._bbox_ll))
-
-    @property
     def footprint(self):
         """alias for `xsar.RadarSat2Dataset.geometry`"""
         return self.geometry
-
-    def coords2ll(self, *args, **kwargs):
-        """
-         Alias for `xsar.Sentinel1Meta.coords2ll`
-
-         See Also
-         --------
-         xsar.Sentinel1Meta.coords2ll
-        """
-        return self.rs2meta.coords2ll(*args, **kwargs)
-
-    def _set_rio(self, ds):
-        # set .rio accessor for ds. ds must be same kind a self._dataset (not checked!)
-        gcps = self._local_gcps
-
-        want_dataset = True
-        if isinstance(ds, xr.DataArray):
-            # temporary convert to dataset
-            try:
-                ds = ds.to_dataset()
-            except ValueError:
-                ds = ds.to_dataset(name='_tmp_rio')
-            want_dataset = False
-
-        for v in ds:
-            if set(['line', 'sample']).issubset(set(ds[v].dims)):
-                ds[v] = ds[v].set_index({'sample': 'sample', 'line': 'line'})
-                ds[v] = ds[v].rio.write_gcps(
-                    gcps, 'epsg:4326', inplace=True
-                ).rio.set_spatial_dims(
-                    'sample', 'line', inplace=True
-                ).rio.write_coordinate_system(
-                    inplace=True)
-                # remove/reset some incorrect attrs set by rio
-                # (long_name is 'latitude', but it's incorrect for line axis ...)
-                for ax in ['line', 'sample']:
-                    [ds[v][ax].attrs.pop(k, None) for k in ['long_name', 'standard_name']]
-                    ds[v][ax].attrs['units'] = '1'
-
-        if not want_dataset:
-            # convert back to dataarray
-            ds = ds[v]
-            if ds.name == '_tmp_rio':
-                ds.name = None
-        return ds
 
     @property
     def interpolate_times(self):
@@ -766,6 +674,7 @@ class RadarSat2Dataset:
 
         # extract noise_lut, rename and put these in a dataset
         new_dt['noise_lut'] = dt['radarParameters'].rename(rename_radarParameters)
+        new_dt['noise_lut'].attrs = {}  # reset attributes
         delete_list = get_list_keys_delete(new_dt['noise_lut'], rename_radarParameters.values(), inside=False)
         del_items_in_dt(new_dt['noise_lut'], delete_list)
 
@@ -785,38 +694,6 @@ class RadarSat2Dataset:
         self.datatree = new_dt
         self.datatree.attrs.update(self.rs2meta.dt.attrs)
         return
-
-    def recompute_attrs(self):
-        """
-        Recompute dataset attributes. It's automaticaly called if you assign a new dataset, for example
-
-        >>> xsar_obj.dataset = xsar_obj.dataset.isel(line=slice(1000,5000))
-        >>> #xsar_obj.recompute_attrs() # not needed
-
-        This function must be manually called before using the `.rio` accessor of a variable
-
-        >>> xsar_obj.recompute_attrs()
-        >>> xsar_obj.dataset['sigma0'].rio.reproject(...)
-
-        See Also
-        --------
-            [rioxarray information loss](https://corteva.github.io/rioxarray/stable/getting_started/manage_information_loss.html)
-
-        """
-        if not self._regularly_spaced:
-            warnings.warn(
-                "Irregularly spaced dataset (probably multiple selection). Some attributes will be incorrect.")
-        attrs = self._dataset.attrs
-        # attrs['pixel_sample_m'] = self.pixel_sample_m
-        # attrs['pixel_line_m'] = self.pixel_line_m
-        attrs['coverage'] = self.coverage
-        attrs['footprint'] = self.footprint
-
-        self.dataset.attrs.update(attrs)
-
-        self._dataset = self._set_rio(self._dataset)
-
-        return None
 
     def __repr__(self):
         if self.sliced:
@@ -842,93 +719,15 @@ class RadarSat2Dataset:
 
         return gh.to_dataset(name='ground_heading')
 
-    @timing
-    def _load_rasterized_masks(self):
-
-        def _rasterize_mask_by_chunks(line, sample, mask='land'):
-            chunk_coords = bbox_coords(line, sample, pad=None)
-            # chunk footprint polygon, in dataset coordinates (with buffer, to enlarge a little the footprint)
-            chunk_footprint_coords = Polygon(chunk_coords).buffer(10)
-            # chunk footprint polygon, in lon/lat
-            chunk_footprint_ll = self.rs2meta.coords2ll(chunk_footprint_coords)
-
-            # get vector mask over chunk, in lon/lat
-            vector_mask_ll = get_mask(self, mask).intersection(chunk_footprint_ll)
-
-            if vector_mask_ll.is_empty:
-                # no intersection with mask, return zeros
-                return np.zeros((line.size, sample.size))
-
-            # vector mask, in line/sample coordinates
-            vector_mask_coords = self.rs2meta.ll2coords(vector_mask_ll)
-
-            # shape of the returned chunk
-            out_shape = (line.size, sample.size)
-
-            # transform * (x, y) -> (line, sample)
-            # (where (x, y) are index in out_shape)
-            # Affine.permutation() is used because (line, sample) is transposed from geographic
-
-            transform = Affine.translation(*chunk_coords[0]) * Affine.scale(
-                *[np.unique(np.diff(c))[0] for c in [line, sample]]) * Affine.permutation()
-
-            raster_mask = rasterio.features.rasterize(
-                [vector_mask_coords],
-                out_shape=out_shape,
-                all_touched=False,
-                transform=transform
-            )
-            return raster_mask
-
-        da_list = []
-        for mask in mask_names(self):
-            da_mask = map_blocks_coords(
-                self._da_tmpl,
-                _rasterize_mask_by_chunks,
-                func_kwargs={'mask': mask}
-            )
-            name = '%s_mask' % mask
-            da_mask.attrs['history'] = yaml.safe_dump({name: get_mask(self, mask, describe=True)})
-            da_mask.attrs['meaning'] = '0: ocean , 1: land'
-            da_list.append(da_mask.to_dataset(name=name))
-
-        return xr.merge(da_list)
-
-    def add_rasterized_masks(self):
-        """
-        add rasterized masks only (included in add_high_resolution_variables() )
-        :return:
-        """
-        self._rasterized_masks = self._load_rasterized_masks()
-        # self.datatree['measurement'].ds = xr.merge([self.datatree['measurement'].ds,self._rasterized_masks])
-        self.datatree['measurement'] = self.datatree['measurement'].assign(
-            xr.merge([self.datatree['measurement'].ds, self._rasterized_masks])
-        )
-
     @property
     def dataset(self):
-        """
-        `xarray.Dataset` representation of this `xsar.RadarSat2Dataset` object.
-        This property can be set with a new dataset, if the dataset was computed from the original dataset.
-        """
-        # return self._dataset
-        res = self.datatree['measurement'].to_dataset()
-        res.attrs = self.datatree.attrs
-        return res
+        return super().dataset
 
     @dataset.setter
     def dataset(self, ds):
-        if self.rs2meta.name == ds.attrs['name']:
-            # check if new ds has changed coordinates
-            if not self.sliced:
-                self.sliced = any(
-                    [list(ds[d].values) != list(self._dataset[d].values) for d in ['line', 'sample']])
-            self._dataset = ds
-            # self._dataset = self.datatree['measurement'].ds
-            self.recompute_attrs()
-        else:
-            raise ValueError("dataset must be same kind as original one.")
+        super().dataset(ds)
 
     @dataset.deleter
     def dataset(self):
         logger.debug('deleter dataset')
+

@@ -953,16 +953,22 @@ class Sentinel1Meta:
         tmp = []
         pols = []
         for pol_code, xml_file in self.files['noise'].items():
-            pol = self.files['polarization'].cat.categories[pol_code-1]
+            #pol = self.files['polarization'].cat.categories[pol_code-1]
+            pol = os.path.basename(xml_file).split('-')[4].lower()
             pols.append(pol)
             noise_lut_azi_raw_ds = self.xml_parser.get_compound_var(xml_file,'noise_lut_azi_raw')
             for vari in noise_lut_azi_raw_ds:
-                if 'noiseLut' in vari:
+                if 'noiseLut_' in vari:
                     varitmp = 'noiseLut'
+                    hihi = self.xml_parser.get_var(self.files['noise'].iloc[0], 'noise.azi.%s' % varitmp,
+                                                   describe=True)
+                elif vari == 'noiseLut': #WV case
+                    hihi = 'dummy variable, noise is not defined in azimuth for WV acquisitions'
                 else:
                     varitmp = vari
-                hihi = self.xml_parser.get_var(self.files['noise'].iloc[0], 'noise.azi.%s' % varitmp,
-                                                      describe=True)
+                    hihi = self.xml_parser.get_var(self.files['noise'].iloc[0], 'noise.azi.%s' % varitmp,
+                                                   describe=True)
+
                 noise_lut_azi_raw_ds[vari].attrs['description'] = hihi
             tmp.append(noise_lut_azi_raw_ds)
         ds = xr.concat(tmp,pd.Index(pols, name="pol"))
@@ -972,7 +978,8 @@ class Sentinel1Meta:
         tmp = []
         pols = []
         for pol_code, xml_file in self.files['noise'].items():
-            pol = self.files['polarization'].cat.categories[pol_code - 1]
+            #pol = self.files['polarization'].cat.categories[pol_code - 1]
+            pol = os.path.basename(xml_file).split('-')[4].lower()
             pols.append(pol)
             noise_lut_range_raw_ds = self.xml_parser.get_compound_var(xml_file, 'noise_lut_range_raw')
             for vari in noise_lut_range_raw_ds:

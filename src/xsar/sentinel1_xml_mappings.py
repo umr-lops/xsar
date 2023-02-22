@@ -70,6 +70,7 @@ xpath_mappings = {
     "manifest": {
         'ipf_version': (scalar_float, '//xmlData/safe:processing/safe:facility/safe:software/@version'),
         'swath_type': (scalar, '//s1sarl1:instrumentMode/s1sarl1:mode'),
+       # 'product': (scalar, '/xfdu:XFDU/informationPackageMap/xfdu:contentUnit/@textInfo'),
         'polarizations': (
             ordered_category, '//s1sarl1:standAloneProductInformation/s1sarl1:transmitterReceiverPolarisation'),
         'footprints': (list_poly_from_list_string_coords, '//safe:frame/safe:footPrint/gml:coordinates'),
@@ -108,6 +109,7 @@ xpath_mappings = {
         'gamma0_lut': (float_2Darray_from_string_list, '//calibration/calibrationVectorList/calibrationVector/gamma')
     },
     'noise': {
+        'mode': (scalar, '/noise/adsHeader/mode'),
         'polarization': (scalar, '/noise/adsHeader/polarisation'),
         'range': {
             'line': (int_array, or_ipf28('/noise/noiseRangeVectorList/noiseRangeVector/line')),
@@ -330,6 +332,66 @@ def noise_lut_range(lines, samples, noiseLuts):
     blocks = gpd.GeoDataFrame(blocks)
 
     return _NoiseLut(blocks)
+
+
+def noise_lut_range_raw(lines, samples, noiseLuts):
+    """
+
+        Parameters
+        ----------
+        lines: np.ndarray
+            1D array of lines. lut is defined at each line
+        samples: list of np.ndarray
+            arrays of samples. list length is same as samples. each array define samples where lut is defined
+        noiseLuts: list of np.ndarray
+            arrays of luts. Same structure as samples.
+
+        Returns
+        -------
+    """
+
+    ds = xr.Dataset()
+    # check that all the noiseLuts vector are the same size in range, in old IPF eg <=2017, there was one +/- 1 point over 634
+    minimum_pts = 100000
+    normalized_noise_luts = []
+    normalized_samples = []
+    for uu in range(len(noiseLuts)):
+        if len(noiseLuts[uu])<minimum_pts:
+            minimum_pts = len(noiseLuts[uu])
+    # reduce to the smaller number of points (knowing that it is quite often that last noise value is zero )
+    for uu in range(len(noiseLuts)):
+        normalized_noise_luts.append(noiseLuts[uu][0:minimum_pts])
+        normalized_samples.append(samples[uu][0:minimum_pts])
+    tmp_noise = np.stack(normalized_noise_luts)
+    ds['noiseLut'] = xr.DataArray(tmp_noise,
+                                  coords={'lines': lines, 'sample_index': np.arange(minimum_pts)},
+                                  dims=['lines', 'sample_index'])
+    ds['sample'] = xr.DataArray(np.stack(normalized_samples), coords={'lines': lines, 'sample_index': np.arange(minimum_pts)},
+                                dims=['lines', 'sample_index'])
+
+    return ds
+
+
+def noise_lut_azi_raw(line_azi,line_azi_start,line_azi_stop,
+                  sample_azi_start, sample_azi_stop, noise_azi_lut, swath):
+    ds = xr.Dataset()
+    #if 'WV' in mode: # there is no noise in azimuth for WV acquisitions
+    if swath == []: #WV case
+        ds['noiseLut'] = xr.DataArray(1.) # set noise_azimuth to one to make post steps like noise_azi*noise_range always possible
+    else:
+        for ii, swathi in enumerate(swath): # with 2018 data the noise vector are not the same size -> stacking impossible
+            ds['noiseLut_%s' % swathi] = xr.DataArray(noise_azi_lut[ii], coords={'line': line_azi[ii]}, dims=['line'])
+    # ds['noiseLut'] = xr.DataArray(np.stack(noise_azi_lut).T, coords={'line_index': np.arange(len(line_azi[0])), 'swath': swath},
+    #                               dims=['line_index', 'swath'])
+    # ds['line'] = xr.DataArray(np.stack(line_azi).T, coords={'line_index': np.arange(len(line_azi[0])), 'swath': swath},
+    #                           dims=['line_index', 'swath'])
+    ds['line_start'] = xr.DataArray(line_azi_start, coords={'swath': swath}, dims=['swath'])
+    ds['line_stop'] = xr.DataArray(line_azi_stop, coords={'swath': swath}, dims=['swath'])
+    ds['sample_start'] = xr.DataArray(sample_azi_start, coords={'swath': swath}, dims=['swath'])
+    ds['sample_stop'] = xr.DataArray(sample_azi_stop, coords={'swath': swath}, dims=['swath'])
+
+    return ds
+
 
 
 def noise_lut_azi(line_azi, line_azi_start,
@@ -752,8 +814,20 @@ compounds_vars = {
         'func': noise_lut_range,
         'args': ('noise.range.line', 'noise.range.sample', 'noise.range.noiseLut')
     },
+    'noise_lut_range_raw': {
+        'func': noise_lut_range_raw,
+        'args': ('noise.range.line', 'noise.range.sample', 'noise.range.noiseLut')
+    },
     'noise_lut_azi': {
         'func': noise_lut_azi,
+        'args': (
+            'noise.azi.line', 'noise.azi.line_start', 'noise.azi.line_stop',
+            'noise.azi.sample_start',
+            'noise.azi.sample_stop', 'noise.azi.noiseLut',
+            'noise.azi.swath')
+    },
+    'noise_lut_azi_raw': {
+        'func': noise_lut_azi_raw,
         'args': (
             'noise.azi.line', 'noise.azi.line_start', 'noise.azi.line_stop',
             'noise.azi.sample_start',

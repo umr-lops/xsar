@@ -657,7 +657,3 @@ class BaseDataset(ABC):
         except KeyError:
             raise ValueError("can't find lut from name '%s' for variable '%s' " % (lut_name, var_name))
         return lut
-
-    @dataset.deleter
-    def dataset(self):
-        logger.debug('deleter dataset')

@@ -644,7 +644,7 @@ class RadarSat2Dataset(BaseDataset):
         if self.sliced:
             intro = "sliced"
         else:
-            intro = "full covevage"
+            intro = "full coverage"
         return "<RadarSat2Dataset %s object>" % intro
 
     @property
@@ -674,4 +674,5 @@ class RadarSat2Dataset(BaseDataset):
     @dataset.deleter
     def dataset(self):
         logger.debug('deleter dataset')
+
 

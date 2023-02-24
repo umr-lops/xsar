@@ -442,6 +442,10 @@ class Sentinel1Dataset(BaseDataset):
         else:
             raise ValueError("dataset must be same kind as original one.")
 
+    @dataset.deleter
+    def dataset(self):
+        logger.debug('deleter dataset')
+
     # @property
     # def pixel_line_m(self):
     #     """line pixel spacing, in meters (relative to dataset)"""
@@ -1247,7 +1251,7 @@ class Sentinel1Dataset(BaseDataset):
         if self.sliced:
             intro = "sliced"
         else:
-            intro = "full covevage"
+            intro = "full coverage"
         return "<Sentinel1Dataset %s object>" % intro
 
     def _repr_mimebundle_(self, include=None, exclude=None):

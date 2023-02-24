@@ -228,6 +228,13 @@ class RadarSat2Meta(BaseMeta):
 
         return self.__class__, (self.name,), self.dict
 
+    def __repr__(self):
+        if self.multidataset:
+            meta_type = "multi (%d)" % len(self.subdatasets)
+        else:
+            meta_type = "single"
+        return "<RadarSat2Meta %s object>" % meta_type
+
     @property
     def _dict_coords2ll(self):
         """

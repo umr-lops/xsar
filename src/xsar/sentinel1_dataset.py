@@ -431,7 +431,7 @@ class Sentinel1Dataset(BaseDataset):
 
     @dataset.setter
     def dataset(self, ds):
-        if self.name == ds.attrs['name']:
+        if self.s1meta.name == ds.attrs['name']:
             # check if new ds has changed coordinates
             if not self.sliced:
                 self.sliced = any(

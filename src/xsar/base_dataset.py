@@ -586,7 +586,7 @@ class BaseDataset(ABC):
                     # 'line_time': line_time.astype(float),
                 }, )
 
-            for mask in self.objet_meta.mask_names():
+            for mask in self.objet_meta.mask_names:
                 logger.debug('mask: %s', mask)
                 if lazy_loading:
                     da_mask = map_blocks_coords(

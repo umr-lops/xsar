@@ -159,6 +159,8 @@ class RadarSat2Dataset(BaseDataset):
         # self._dataset.attrs.update(self.rs2meta.to_dict("all"))
         # self.datatree.attrs.update(self.rs2meta.to_dict("all"))
         self._luts = self.rs2meta.dt['lut'].ds.rename({'pixels': 'sample'})
+        #self._luts = self._lazy_load_luts()
+        #print(self._get_lut('beta0'))
         self.apply_calibration_and_denoising()
         self._dataset = xr.merge([self._load_from_geoloc(geoloc_vars, lazy_loading=lazyloading), self._dataset])
         self._dataset = xr.merge([self.interpolate_times, self._dataset])
@@ -181,6 +183,8 @@ class RadarSat2Dataset(BaseDataset):
         self._reconfigure_reader_datatree()
         self._dataset.attrs.update(self.rs2meta.to_dict("all"))
         self.datatree.attrs.update(self.rs2meta.to_dict("all"))
+
+        self.resampled = resolution is not None
 
     @timing
     def _load_from_geoloc(self, varnames, lazy_loading=True):
@@ -284,7 +288,7 @@ class RadarSat2Dataset(BaseDataset):
         lines = self.rs2meta.geoloc.line
         samples = np.arange(lut.values.shape[0])
         lut_values_2d = np.tile(lut.values, (lines.shape[0], 1))
-        interp_func = RectBivariateSpline(x=lines, y=samples, z=lut_values_2d, kx=1, ky=1)
+        interp_func = dask.delayed(RectBivariateSpline)(x=lines, y=samples, z=lut_values_2d, kx=1, ky=1)
         """var = inter_func(self._dataset.digital_number.line, self._dataset.digital_number.sample)
         da_var = xr.DataArray(data=var, dims=['line', 'sample'],
                               coords={'line': self._dataset.digital_number.line,
@@ -355,7 +359,7 @@ class RadarSat2Dataset(BaseDataset):
         lines = np.arange(self.rs2meta.geoloc.line.values[-1] + 1)
         noise_values_2d = np.tile(noise_values, (lines.shape[0], 1))
         indexes = [first_pix + step * i for i in range(0, noise_values.shape[0])]
-        interp_func = RectBivariateSpline(x=lines, y=indexes, z=noise_values_2d, kx=1, ky=1)
+        interp_func = dask.delayed(RectBivariateSpline)(x=lines, y=indexes, z=noise_values_2d, kx=1, ky=1)
         """var = inter_func(self._dataset.digital_number.line, self._dataset.digital_number.sample)
         da_var = xr.DataArray(data=var, dims=['line', 'sample'],
                               coords={'line': self._dataset.digital_number.line,
@@ -382,7 +386,7 @@ class RadarSat2Dataset(BaseDataset):
                 with one variable named by `'ne%sz' % var_name[0]` (ie 'nesz' for 'sigma0', 'nebz' for 'beta0', etc...)
         """
         name = 'ne%sz' % var_name[0]
-        lut_noise = self._interpolate_for_noise_lut(var_name).compute()
+        lut_noise = self._interpolate_for_noise_lut(var_name)
         return lut_noise.to_dataset(name=name)
 
     def apply_calibration_and_denoising(self):
@@ -459,11 +463,11 @@ class RadarSat2Dataset(BaseDataset):
         """
         lut = self._get_lut(var_name)
         offset = lut.attrs['offset']
-        if self.resolution is not None:
-            lut = dask.delayed(self._resample_lut_values)(lut)
-        res = ((self._dataset.digital_number ** 2.) + offset) / lut.compute()
-        res = res.where(res > 0).compute()
-        res.attrs.update(lut.compute().attrs)
+        # if self.resolution is not None:
+        lut = self._resample_lut_values(lut)
+        res = ((self._dataset.digital_number ** 2.) + offset) / lut
+        res = res.where(res > 0)
+        res.attrs.update(lut.attrs)
         return res.to_dataset(name=var_name + '_raw')
 
     @timing

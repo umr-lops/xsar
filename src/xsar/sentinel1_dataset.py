@@ -515,7 +515,6 @@ class Sentinel1Dataset(BaseDataset):
                     lut_f_delayed,
                     name='blocks_%s' % name
                 )
-
                 # needs to add pol dim ?
                 if self._vars_with_pol[lut_name]:
                     lut = lut.assign_coords(pol_code=pol_code).expand_dims('pol_code')

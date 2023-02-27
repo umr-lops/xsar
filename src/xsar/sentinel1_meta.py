@@ -965,7 +965,7 @@ class Sentinel1Meta:
                     varitmp = 'noiseLut'
                     hihi = self.xml_parser.get_var(self.files['noise'].iloc[0], 'noise.azi.%s' % varitmp,
                                                    describe=True)
-                elif vari == 'noiseLut': #WV case
+                elif vari == 'noiseLut' and self.product=='WV': #WV case
                     hihi = 'dummy variable, noise is not defined in azimuth for WV acquisitions'
                 else:
                     varitmp = vari

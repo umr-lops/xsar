@@ -956,13 +956,16 @@ class Sentinel1Meta:
             #pol = self.files['polarization'].cat.categories[pol_code-1]
             pol = os.path.basename(xml_file).split('-')[4].lower()
             pols.append(pol)
-            noise_lut_azi_raw_ds = self.xml_parser.get_compound_var(xml_file,'noise_lut_azi_raw')
+            if self.product == 'SLC':
+                noise_lut_azi_raw_ds = self.xml_parser.get_compound_var(xml_file,'noise_lut_azi_raw_slc')
+            else:
+                noise_lut_azi_raw_ds = self.xml_parser.get_compound_var(xml_file, 'noise_lut_azi_raw_grd')
             for vari in noise_lut_azi_raw_ds:
                 if 'noiseLut_' in vari:
                     varitmp = 'noiseLut'
                     hihi = self.xml_parser.get_var(self.files['noise'].iloc[0], 'noise.azi.%s' % varitmp,
                                                    describe=True)
-                elif vari == 'noiseLut': #WV case
+                elif vari == 'noiseLut' and self.product=='WV': #WV case
                     hihi = 'dummy variable, noise is not defined in azimuth for WV acquisitions'
                 else:
                     varitmp = vari

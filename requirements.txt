@@ -13,4 +13,3 @@ packaging
 pytest
 dill
 xarray-datatree
-xradarSat2

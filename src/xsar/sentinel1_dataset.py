@@ -16,7 +16,6 @@ from scipy.interpolate import interp1d
 
 from .utils import timing, map_blocks_coords, BlockingActorProxy, merge_yaml, get_glob, \
     to_lon180
-from numpy import asarray
 from affine import Affine
 from .sentinel1_meta import Sentinel1Meta
 from .ipython_backends import repr_mimebundle

@@ -16,7 +16,7 @@ from rasterio.control import GroundControlPoint
 from shapely.validation import make_valid
 import geopandas as gpd
 
-from xsar.utils import bbox_coords, haversine, to_lon180, map_blocks_coords, timing
+from xsar.utils import bbox_coords, haversine, map_blocks_coords, timing
 
 logger = logging.getLogger('xsar.base_dataset')
 logger.addHandler(logging.NullHandler())

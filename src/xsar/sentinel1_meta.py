@@ -8,21 +8,16 @@ import pandas as pd
 import geopandas as gpd
 import rasterio
 from rasterio.control import GroundControlPoint
-from scipy.interpolate import RectBivariateSpline, interp1d
+from scipy.interpolate import RectBivariateSpline
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
-import shapely
-from shapely.geometry import box
 
 from .base_meta import BaseMeta
-from .utils import to_lon180, haversine, timing, class_or_instancemethod
+from .utils import haversine, timing, class_or_instancemethod
 from .raster_readers import available_rasters
 from . import sentinel1_xml_mappings
 from .xml_parser import XmlParser
-from affine import Affine
 import os
-from datetime import datetime
-from collections import OrderedDict
 from .ipython_backends import repr_mimebundle
 
 logger = logging.getLogger('xsar.sentinel1_meta')

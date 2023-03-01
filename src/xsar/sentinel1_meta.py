@@ -944,17 +944,28 @@ class Sentinel1Meta:
 
     def get_calibration_luts(self):
         """
+        get original (ie not interpolation) xr.Dataset sigma0 and gamma0 Look Up Tables to apply calibration
+
         """
         #sigma0_lut = self.xml_parser.get_var(self.files['calibration'].iloc[0], 'calibration.sigma0_lut',describe=True)
-        luts = self.xml_parser.get_compound_var(self.files['calibration'].iloc[0],'luts_raw')
-        return luts
+        pols = []
+        tmp = []
+        for pol_code, xml_file in self.files['calibration'].items():
+            luts_ds = self.xml_parser.get_compound_var(xml_file,'luts_raw')
+            pol = os.path.basename(xml_file).split('-')[4].upper()
+            pols.append(pol)
+            tmp.append(luts_ds)
+        ds = xr.concat(tmp, pd.Index(pols, name="pol"))
+        # ds.attrs = {'description':
+        #                                 'original (ie not interpolation) xr.Dataset sigma0 and gamma0 Look Up Tables'}
+        return ds
 
     def get_noise_azi_raw(self):
         tmp = []
         pols = []
         for pol_code, xml_file in self.files['noise'].items():
             #pol = self.files['polarization'].cat.categories[pol_code-1]
-            pol = os.path.basename(xml_file).split('-')[4].lower()
+            pol = os.path.basename(xml_file).split('-')[4].upper()
             pols.append(pol)
             if self.product == 'SLC':
                 noise_lut_azi_raw_ds = self.xml_parser.get_compound_var(xml_file,'noise_lut_azi_raw_slc')
@@ -982,7 +993,7 @@ class Sentinel1Meta:
         pols = []
         for pol_code, xml_file in self.files['noise'].items():
             #pol = self.files['polarization'].cat.categories[pol_code - 1]
-            pol = os.path.basename(xml_file).split('-')[4].lower()
+            pol = os.path.basename(xml_file).split('-')[4].upper()
             pols.append(pol)
             noise_lut_range_raw_ds = self.xml_parser.get_compound_var(xml_file, 'noise_lut_range_raw')
             for vari in noise_lut_range_raw_ds:

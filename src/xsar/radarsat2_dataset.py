@@ -14,7 +14,7 @@ import dask
 import datatree
 from .base_dataset import BaseDataset
 
-logger = logging.getLogger('xsar.sentinel1_dataset')
+logger = logging.getLogger('xsar.radarsat2_dataset')
 logger.addHandler(logging.NullHandler())
 
 # we know tiff as no geotransform : ignore warning
@@ -158,8 +158,8 @@ class RadarSat2Dataset(BaseDataset):
             )
         # self._dataset.attrs.update(self.rs2meta.to_dict("all"))
         # self.datatree.attrs.update(self.rs2meta.to_dict("all"))
-        self._luts = self.rs2meta.dt['lut'].ds.rename({'pixels': 'sample'})
-        #self._luts = self._lazy_load_luts()
+        #self._luts = self.rs2meta.dt['lut'].ds.rename({'pixels': 'sample'})
+        self._luts = self._lazy_load_luts()
         #print(self._get_lut('beta0'))
         self.apply_calibration_and_denoising()
         self._dataset = xr.merge([self._load_from_geoloc(geoloc_vars, lazy_loading=lazyloading), self._dataset])
@@ -185,6 +185,37 @@ class RadarSat2Dataset(BaseDataset):
         self.datatree.attrs.update(self.rs2meta.to_dict("all"))
 
         self.resampled = resolution is not None
+
+    def _lazy_load_luts(self):
+        """
+        Lazy load luts from the reader as delayed
+
+        Returns
+        -------
+        xarray.Dataset
+            Contains delayed dataArrays of luts
+        """
+        luts_ds = self.rs2meta.dt['lut'].ds.rename({'pixels': 'sample'})
+        merge_list = []
+        for lut_name in luts_ds:
+            lut_f_delayed = dask.delayed()(luts_ds[lut_name])
+            """lut = map_blocks_coords(
+                _da_tmpl.astype(luts_ds[lut_name].dtype),
+                lut_f_delayed,
+                name=lut_name
+            )"""
+            # lut_f_delayed.attrs = luts_ds[lut_name].attrs
+            #print(lut_f_delayed.data)
+            ar = dask.array.from_delayed(lut_f_delayed.data, (luts_ds[lut_name].data.size,), luts_ds[lut_name].dtype)
+            # print(ar)
+            da = xr.DataArray(data=ar, dims=['sample'], coords={'sample': luts_ds[lut_name].sample},
+                              attrs=luts_ds[lut_name].attrs)
+            #print(da)
+            ds_lut_f_delayed = da.to_dataset(name=lut_name)
+            # ds_lut_f_delayed.attrs = luts_ds[lut_name].attrs
+            # print(ds_lut_f_delayed.compute())
+            merge_list.append(ds_lut_f_delayed)
+        return xr.combine_by_coords(merge_list)
 
     @timing
     def _load_from_geoloc(self, varnames, lazy_loading=True):
@@ -275,6 +306,16 @@ class RadarSat2Dataset(BaseDataset):
 
     @timing
     def _load_incidence_from_lut(self):
+        """
+        load incidence thanks to lut. In the formula to have the incidence, we understand that it is calculated
+        thanks to lut. But we can ask ourselves if we consider the denoised ones or not. In this case we have chosen to
+        take the not denoised luts.
+
+        Returns
+        -------
+        xarray.DataArray
+            DataArray of incidence
+        """
         beta = self._dataset.beta0_raw[0]
         gamma = self._dataset.gamma0_raw[0]
         incidence_pre = gamma / beta
@@ -286,8 +327,8 @@ class RadarSat2Dataset(BaseDataset):
     @timing
     def _resample_lut_values(self, lut):
         lines = self.rs2meta.geoloc.line
-        samples = np.arange(lut.values.shape[0])
-        lut_values_2d = np.tile(lut.values, (lines.shape[0], 1))
+        samples = np.arange(lut.shape[0])
+        lut_values_2d = dask.delayed(np.tile)(lut, (lines.shape[0], 1))
         interp_func = dask.delayed(RectBivariateSpline)(x=lines, y=samples, z=lut_values_2d, kx=1, ky=1)
         """var = inter_func(self._dataset.digital_number.line, self._dataset.digital_number.sample)
         da_var = xr.DataArray(data=var, dims=['line', 'sample'],
@@ -301,6 +342,16 @@ class RadarSat2Dataset(BaseDataset):
 
     @timing
     def _load_elevation_from_lut(self):
+        """
+        Load elevation from lut.
+        Formula reference : `RSI-GS-026 RS-1 Data Products Specifications` 5.3.3.2.
+        this formula needs the orbit altitude. But 2 variables look like this one : `satelliteHeight` and `Altitude`.
+        We considered the satelliteHeight.
+
+        Returns
+        -------
+
+        """
         satellite_height = self.rs2meta.dt.attrs['satelliteHeight']
         earth_radius = 6.371e6
         incidence = self._load_incidence_from_lut()
@@ -355,8 +406,8 @@ class RadarSat2Dataset(BaseDataset):
         initial_lut = self._get_lut_noise(var_name)
         first_pix = initial_lut.attrs['pixelFirstNoiseValue']
         step = initial_lut.attrs['stepSize']
-        noise_values = (10 ** (initial_lut / 10)).values
-        lines = np.arange(self.rs2meta.geoloc.line.values[-1] + 1)
+        noise_values = (10 ** (initial_lut / 10))
+        lines = np.arange(self.rs2meta.geoloc.line[-1] + 1)
         noise_values_2d = np.tile(noise_values, (lines.shape[0], 1))
         indexes = [first_pix + step * i for i in range(0, noise_values.shape[0])]
         interp_func = dask.delayed(RectBivariateSpline)(x=lines, y=indexes, z=noise_values_2d, kx=1, ky=1)

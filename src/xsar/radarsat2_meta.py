@@ -31,7 +31,10 @@ class RadarSat2Meta(BaseMeta):
 
     @timing
     def __init__(self, name):
-        self.dt = rs2_reader(name)
+        if ':' in name:
+            self.dt = rs2_reader(name.split(':')[1])
+        else:
+            self.dt = rs2_reader(name)
         if not name.startswith('RADARSAT2_DS:'):
             name = 'RADARSAT2_DS:%s:' % name
         self.name = name

@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
-
 import logging
 import warnings
-
 import numpy as np
 import xarray
 import xarray as xr
@@ -10,16 +8,22 @@ import pandas as pd
 import geopandas as gpd
 import rasterio
 from rasterio.control import GroundControlPoint
-from scipy.interpolate import RectBivariateSpline
+from scipy.interpolate import RectBivariateSpline, interp1d
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
-from .utils import haversine, timing, class_or_instancemethod
+import shapely
+from shapely.geometry import box
+
+from .base_meta import BaseMeta
+from .utils import to_lon180, haversine, timing, class_or_instancemethod
 from .raster_readers import available_rasters
 from . import sentinel1_xml_mappings
 from .xml_parser import XmlParser
+from affine import Affine
 import os
+from datetime import datetime
+from collections import OrderedDict
 from .ipython_backends import repr_mimebundle
-from .base_meta import BaseMeta
 
 logger = logging.getLogger('xsar.sentinel1_meta')
 logger.addHandler(logging.NullHandler())
@@ -103,13 +107,14 @@ class Sentinel1Meta(BaseMeta):
                 self.subdatasets = gpd.GeoDataFrame(geometry=self.manifest_attrs['footprints'], index=datasets_names)
             except ValueError:
                 # not as many footprints than subdatasets count. (probably TOPS product)
-                self._submeta = [Sentinel1Meta(subds) for subds in datasets_names]
-                sub_footprints = [submeta.footprint for submeta in self._submeta]
+                self._submeta = [ Sentinel1Meta(subds) for subds in datasets_names ]
+                sub_footprints = [ submeta.footprint for submeta in self._submeta ]
                 self.subdatasets = gpd.GeoDataFrame(geometry=sub_footprints, index=datasets_names)
             self.multidataset = True
 
         self.platform = self.manifest_attrs['mission'] + self.manifest_attrs['satellite']
         """Mission platform"""
+        self._time_range = None
         for name, feature in self.__class__._mask_features_raw.items():
             self.set_mask_feature(name, feature)
         """pandas dataframe for rasters (see `xsar.Sentinel1Meta.set_raster`)"""
@@ -132,6 +137,7 @@ class Sentinel1Meta(BaseMeta):
         """
         return name == self.name or name in self.subdatasets.index
 
+
     def _get_time_range(self):
         if self.multidataset:
             time_range = [self.manifest_attrs['start_date'], self.manifest_attrs['stop_date']]
@@ -145,8 +151,7 @@ class Sentinel1Meta(BaseMeta):
             'minimal': ['ipf', 'platform', 'swath', 'product', 'pols']
         }
         info_keys['all'] = info_keys['minimal'] + ['name', 'start_date', 'stop_date', 'footprint', 'coverage',
-                                                   'orbit_pass',
-                                                   'platform_heading']  # 'pixel_line_m', 'pixel_sample_m',
+                                                   'orbit_pass', 'platform_heading'] #  'pixel_line_m', 'pixel_sample_m',
 
         if isinstance(keys, str):
             keys = info_keys[keys]
@@ -241,6 +246,9 @@ class Sentinel1Meta(BaseMeta):
         """
         return self.safe_files[self.safe_files['dsid'] == self.name]
 
+
+
+
     @property
     def footprint(self):
         """footprint, as a shapely polygon or multi polygon"""
@@ -252,33 +260,6 @@ class Sentinel1Meta(BaseMeta):
     def geometry(self):
         """alias for footprint"""
         return self.footprint
-
-    @property
-    def approx_transform(self):
-        """
-        Affine transfom from geoloc.
-
-        This is an inaccurate transform, with errors up to 600 meters.
-        But it's fast, and may fit some needs, because the error is stable localy.
-        See `xsar.Sentinel1Meta.coords2ll` `xsar.RdarSat2Dataset.ll2coords` for accurate methods.
-
-        Examples
-        --------
-            get `longitude` and `latitude` from tuple `(line, sample)`:
-
-            >>> longitude, latitude = self.approx_transform * (line, sample)
-
-            get `line` and `sample` from tuple `(longitude, latitude)`
-
-            >>> line, sample = ~self.approx_transform * (longitude, latitude)
-
-        See Also
-        --------
-        xsar.BaseDataset.coords2ll
-        xsar.BaseDataset.ll2coords`
-
-        """
-        return self.geoloc.attrs['approx_transform']
 
     @property
     def geoloc(self):
@@ -321,7 +302,7 @@ class Sentinel1Meta(BaseMeta):
             acq_line_meters, _ = haversine(*corners[1], *corners[2])
             self._geoloc.attrs['coverage'] = "%dkm * %dkm (line * sample )" % (
                 acq_line_meters / 1000, acq_sample_meters / 1000)
-
+            
             # compute self._geoloc.attrs['approx_transform'], from gcps
             # we need to convert self._geoloc to  a list of GroundControlPoint
             def _to_rio_gcp(pt_geoloc):
@@ -343,6 +324,7 @@ class Sentinel1Meta(BaseMeta):
             for vv in self._geoloc:
                 if vv in self.xsd_definitions:
                     self._geoloc[vv].attrs['definition'] = str(self.xsd_definitions[vv])
+
 
         return self._geoloc
 
@@ -461,68 +443,6 @@ class Sentinel1Meta(BaseMeta):
         return fmrates
 
     @property
-    def _bursts(self):
-        if self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.number_of_bursts') > 0:
-            bursts = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts')
-            for vv in bursts:
-                if vv in self.xsd_definitions:
-                    bursts[vv].attrs['definition'] = self.xsd_definitions[vv]
-            bursts.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts',
-                                                                       describe=True)
-            return bursts
-        else:
-            bursts = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts_grd')
-            bursts.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts_grd',
-                                                                       describe=True)
-            return bursts
-
-    def __repr__(self):
-        if self.multidataset:
-            meta_type = "multi (%d)" % len(self.subdatasets)
-        else:
-            meta_type = "single"
-        return "<Sentinel1Meta %s object>" % meta_type
-
-    def _repr_mimebundle_(self, include=None, exclude=None):
-        return repr_mimebundle(self, include=include, exclude=exclude)
-
-    @property
-    def _doppler_estimate(self):
-        """
-        xarray.Dataset
-            with Doppler Centroid Estimates from annotations such as geo_polynom,data_polynom or frequency
-        """
-        dce = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'doppler_estimate')
-        for vv in dce:
-            if vv in self.xsd_definitions:
-                dce[vv].attrs['definition'] = self.xsd_definitions[vv]
-        dce.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'doppler_estimate',
-                                                                describe=True)
-        return dce
-
-    def get_annotation_definitions(self):
-        """
-        
-        :return:
-        """
-        final_dict = {}
-        ds_path_xsd = self.xml_parser.get_compound_var(self.manifest, 'xsd_files')
-        full_path_xsd = os.path.join(self.path, ds_path_xsd['xsd_product'].values[0])
-        if os.path.exists(full_path_xsd):
-            rootxsd = self.xml_parser.getroot(full_path_xsd)
-            mypath = '/xsd:schema/xsd:complexType/xsd:sequence/xsd:element'
-
-            for lulu, uu in enumerate(rootxsd.xpath(mypath, namespaces=sentinel1_xml_mappings.namespaces)):
-                mykey = uu.values()[0]
-                if uu.getchildren() != []:
-                    myvalue = uu.getchildren()[0].getchildren()[0]
-                else:
-                    myvalue = None
-                final_dict[mykey] = myvalue
-
-        return final_dict
-
-    @property
     def _dict_coords2ll(self):
         """
         dict with keys ['longitude', 'latitude'] with interpolation function (RectBivariateSpline) as values.
@@ -551,8 +471,151 @@ class Sentinel1Meta(BaseMeta):
 
         return resdict
 
+
+    @property
+    def _bursts(self):
+        if self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.number_of_bursts') > 0:
+            bursts = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts')
+            for vv in bursts:
+                if vv in self.xsd_definitions:
+                    bursts[vv].attrs['definition'] = self.xsd_definitions[vv]
+            bursts.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts',
+                                                                       describe=True)
+            return bursts
+        else:
+            bursts = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts_grd')
+            bursts.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts_grd',
+                                                                       describe=True)
+            return bursts
+
+    @property
+    def approx_transform(self):
+        """
+        Affine transfom from geoloc.
+
+        This is an inaccurate transform, with errors up to 600 meters.
+        But it's fast, and may fit some needs, because the error is stable localy.
+        See `xsar.Sentinel1Meta.coords2ll` `xsar.Sentinel1Meta.ll2coords` for accurate methods.
+
+        Examples
+        --------
+            get `longitude` and `latitude` from tuple `(line, sample)`:
+
+            >>> longitude, latitude = self.approx_transform * (line, sample)
+
+            get `line` and `sample` from tuple `(longitude, latitude)`
+
+            >>> line, sample = ~self.approx_transform * (longitude, latitude)
+
+        See Also
+        --------
+        xsar.Sentinel1Meta.coords2ll
+        xsar.Sentinel1Meta.ll2coords`
+
+        """
+        return self.geoloc.attrs['approx_transform']
+
+    def __repr__(self):
+        if self.multidataset:
+            meta_type = "multi (%d)" % len(self.subdatasets)
+        else:
+            meta_type = "single"
+        return "<Sentinel1Meta %s object>" % meta_type
+
+    def _repr_mimebundle_(self, include=None, exclude=None):
+        return repr_mimebundle(self, include=include, exclude=exclude)
+
     def __reduce__(self):
         # make self serializable with pickle
         # https://docs.python.org/3/library/pickle.html#object.__reduce__
 
         return self.__class__, (self.name,), self.dict
+
+    @property
+    def _doppler_estimate(self):
+        """
+        xarray.Dataset
+            with Doppler Centroid Estimates from annotations such as geo_polynom,data_polynom or frequency
+        """
+        dce = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'doppler_estimate')
+        for vv in dce:
+            if vv in self.xsd_definitions:
+                dce[vv].attrs['definition'] = self.xsd_definitions[vv]
+        dce.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'doppler_estimate',
+                                                                describe=True)
+        return dce
+
+
+
+    def get_annotation_definitions(self):
+        """
+        
+        :return:
+        """
+        final_dict = {}
+        ds_path_xsd = self.xml_parser.get_compound_var(self.manifest, 'xsd_files')
+        full_path_xsd = os.path.join(self.path, ds_path_xsd['xsd_product'].values[0])
+        if os.path.exists(full_path_xsd):
+            rootxsd = self.xml_parser.getroot(full_path_xsd)
+            mypath = '/xsd:schema/xsd:complexType/xsd:sequence/xsd:element'
+
+            for lulu, uu in enumerate(rootxsd.xpath(mypath, namespaces=sentinel1_xml_mappings.namespaces)):
+                mykey = uu.values()[0]
+                if uu.getchildren() != []:
+                    myvalue = uu.getchildren()[0].getchildren()[0]
+                else:
+                    myvalue = None
+                final_dict[mykey] = myvalue
+
+        return final_dict
+
+    def get_calibration_luts(self):
+        """
+        """
+        #sigma0_lut = self.xml_parser.get_var(self.files['calibration'].iloc[0], 'calibration.sigma0_lut',describe=True)
+        luts = self.xml_parser.get_compound_var(self.files['calibration'].iloc[0],'luts_raw')
+        return luts
+
+    def get_noise_azi_raw(self):
+        tmp = []
+        pols = []
+        for pol_code, xml_file in self.files['noise'].items():
+            #pol = self.files['polarization'].cat.categories[pol_code-1]
+            pol = os.path.basename(xml_file).split('-')[4].lower()
+            pols.append(pol)
+            if self.product == 'SLC':
+                noise_lut_azi_raw_ds = self.xml_parser.get_compound_var(xml_file,'noise_lut_azi_raw_slc')
+            else:
+                noise_lut_azi_raw_ds = self.xml_parser.get_compound_var(xml_file, 'noise_lut_azi_raw_grd')
+            for vari in noise_lut_azi_raw_ds:
+                if 'noiseLut_' in vari:
+                    varitmp = 'noiseLut'
+                    hihi = self.xml_parser.get_var(self.files['noise'].iloc[0], 'noise.azi.%s' % varitmp,
+                                                   describe=True)
+                elif vari == 'noiseLut' and self.product=='WV': #WV case
+                    hihi = 'dummy variable, noise is not defined in azimuth for WV acquisitions'
+                else:
+                    varitmp = vari
+                    hihi = self.xml_parser.get_var(self.files['noise'].iloc[0], 'noise.azi.%s' % varitmp,
+                                                   describe=True)
+
+                noise_lut_azi_raw_ds[vari].attrs['description'] = hihi
+            tmp.append(noise_lut_azi_raw_ds)
+        ds = xr.concat(tmp,pd.Index(pols, name="pol"))
+        return ds
+
+    def get_noise_range_raw(self):
+        tmp = []
+        pols = []
+        for pol_code, xml_file in self.files['noise'].items():
+            #pol = self.files['polarization'].cat.categories[pol_code - 1]
+            pol = os.path.basename(xml_file).split('-')[4].lower()
+            pols.append(pol)
+            noise_lut_range_raw_ds = self.xml_parser.get_compound_var(xml_file, 'noise_lut_range_raw')
+            for vari in noise_lut_range_raw_ds:
+                hihi = self.xml_parser.get_var(self.files['noise'].iloc[0], 'noise.range.%s' % vari,
+                                               describe=True)
+                noise_lut_range_raw_ds[vari].attrs['description'] = hihi
+            tmp.append(noise_lut_range_raw_ds)
+        ds = xr.concat(tmp, pd.Index(pols, name="pol"))
+        return ds

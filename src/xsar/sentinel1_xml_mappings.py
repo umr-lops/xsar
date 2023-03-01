@@ -70,6 +70,7 @@ xpath_mappings = {
     "manifest": {
         'ipf_version': (scalar_float, '//xmlData/safe:processing/safe:facility/safe:software/@version'),
         'swath_type': (scalar, '//s1sarl1:instrumentMode/s1sarl1:mode'),
+       # 'product': (scalar, '/xfdu:XFDU/informationPackageMap/xfdu:contentUnit/@textInfo'),
         'polarizations': (
             ordered_category, '//s1sarl1:standAloneProductInformation/s1sarl1:transmitterReceiverPolarisation'),
         'footprints': (list_poly_from_list_string_coords, '//safe:frame/safe:footPrint/gml:coordinates'),
@@ -108,6 +109,7 @@ xpath_mappings = {
         'gamma0_lut': (float_2Darray_from_string_list, '//calibration/calibrationVectorList/calibrationVector/gamma')
     },
     'noise': {
+        'mode': (scalar, '/noise/adsHeader/mode'),
         'polarization': (scalar, '/noise/adsHeader/polarisation'),
         'range': {
             'line': (int_array, or_ipf28('/noise/noiseRangeVectorList/noiseRangeVector/line')),
@@ -232,6 +234,13 @@ def signal_lut(line, sample, lut):
     lut_f = RectBivariateSpline(line, sample, lut, kx=1, ky=1)
     return lut_f
 
+def signal_lut_raw(line,sample,lut_sigma0,lut_gamma0):
+    ds = xr.Dataset()
+    ds['sigma0_lut'] = xr.DataArray(lut_sigma0,dims=['line','sample'],coords={'line':line,'sample':sample},name='sigma0',attrs={'description':'look up table sigma0'})
+    ds['gamma0_lut'] = xr.DataArray(lut_gamma0,dims=['line','sample'],coords={'line':line,'sample':sample},name='gamma0',attrs={'description':'look up table gamma0'})
+    
+    return ds
+
 
 class _NoiseLut:
     """small internal class that return a lut function(lines, samples) defined on all the image, from blocks in the image"""
@@ -323,6 +332,87 @@ def noise_lut_range(lines, samples, noiseLuts):
     blocks = gpd.GeoDataFrame(blocks)
 
     return _NoiseLut(blocks)
+
+
+def noise_lut_range_raw(lines, samples, noiseLuts):
+    """
+
+        Parameters
+        ----------
+        lines: np.ndarray
+            1D array of lines. lut is defined at each line
+        samples: list of np.ndarray
+            arrays of samples. list length is same as samples. each array define samples where lut is defined
+        noiseLuts: list of np.ndarray
+            arrays of luts. Same structure as samples.
+
+        Returns
+        -------
+    """
+
+    ds = xr.Dataset()
+    # check that all the noiseLuts vector are the same size in range, in old IPF eg <=2017, there was one +/- 1 point over 634
+    minimum_pts = 100000
+    normalized_noise_luts = []
+    normalized_samples = []
+    for uu in range(len(noiseLuts)):
+        if len(noiseLuts[uu])<minimum_pts:
+            minimum_pts = len(noiseLuts[uu])
+    # reduce to the smaller number of points (knowing that it is quite often that last noise value is zero )
+    for uu in range(len(noiseLuts)):
+        normalized_noise_luts.append(noiseLuts[uu][0:minimum_pts])
+        normalized_samples.append(samples[uu][0:minimum_pts])
+    tmp_noise = np.stack(normalized_noise_luts)
+    ds['noiseLut'] = xr.DataArray(tmp_noise,
+                                  coords={'line': lines, 'sample': samples[0][0:minimum_pts]},
+                                  dims=['line', 'sample'])
+    # ds['sample'] = xr.DataArray(np.stack(normalized_samples), coords={'lines': lines, 'sample_index': np.arange(minimum_pts)},
+    #                             dims=['lines', 'sample_index'])
+
+    return ds
+
+
+def noise_lut_azi_raw_grd(line_azi,line_azi_start,line_azi_stop,
+                  sample_azi_start, sample_azi_stop, noise_azi_lut, swath):
+    ds = xr.Dataset()
+    for ii, swathi in enumerate(swath): # with 2018 data the noise vector are not the same size -> stacking impossible
+        ds['noiseLut_%s' % swathi] = xr.DataArray(noise_azi_lut[ii], coords={'line': line_azi[ii]}, dims=['line'])
+
+    # ds['noiseLut'] = xr.DataArray(np.stack(noise_azi_lut).T, coords={'line_index': np.arange(len(line_azi[0])), 'swath': swath},
+    #                               dims=['line_index', 'swath'])
+    # ds['line'] = xr.DataArray(np.stack(line_azi).T, coords={'line_index': np.arange(len(line_azi[0])), 'swath': swath},
+    #                           dims=['line_index', 'swath'])
+    ds['line_start'] = xr.DataArray(line_azi_start, coords={'swath': swath}, dims=['swath'])
+    ds['line_stop'] = xr.DataArray(line_azi_stop, coords={'swath': swath}, dims=['swath'])
+    ds['sample_start'] = xr.DataArray(sample_azi_start, coords={'swath': swath}, dims=['swath'])
+    ds['sample_stop'] = xr.DataArray(sample_azi_stop, coords={'swath': swath}, dims=['swath'])
+
+    return ds
+
+def noise_lut_azi_raw_slc(line_azi,line_azi_start,line_azi_stop,
+                  sample_azi_start, sample_azi_stop, noise_azi_lut, swath):
+    ds = xr.Dataset()
+    #if 'WV' in mode: # there is no noise in azimuth for WV acquisitions
+    if swath == []: #WV SLC case
+        ds['noiseLut'] = xr.DataArray(1.) # set noise_azimuth to one to make post steps like noise_azi*noise_range always possible
+        ds['line_start'] = xr.DataArray(line_azi_start, attrs={'swath': swath})
+        ds['line_stop'] = xr.DataArray(line_azi_stop, attrs={'swath': swath})
+        ds['sample_start'] = xr.DataArray(sample_azi_start, attrs={'swath': swath})
+        ds['sample_stop'] = xr.DataArray(sample_azi_stop, attrs={'swath': swath})
+    else:
+        ds['noiseLut'] = xr.DataArray(noise_azi_lut[0], coords={'line': line_azi[0]}, dims=['line']) # only on subswath opened
+        ds['line_start'] = xr.DataArray(line_azi_start[0], attrs={'swath': swath})
+        ds['line_stop'] = xr.DataArray(line_azi_stop[0], attrs={'swath': swath})
+        ds['sample_start'] = xr.DataArray(sample_azi_start[0], attrs={'swath': swath})
+        ds['sample_stop'] = xr.DataArray(sample_azi_stop[0], attrs={'swath': swath})
+    # ds['noiseLut'] = xr.DataArray(np.stack(noise_azi_lut).T, coords={'line_index': np.arange(len(line_azi[0])), 'swath': swath},
+    #                               dims=['line_index', 'swath'])
+    # ds['line'] = xr.DataArray(np.stack(line_azi).T, coords={'line_index': np.arange(len(line_azi[0])), 'swath': swath},
+    #                           dims=['line_index', 'swath'])
+
+
+    return ds
+
 
 
 def noise_lut_azi(line_azi, line_azi_start,
@@ -733,6 +823,10 @@ compounds_vars = {
         'func': signal_lut,
         'args': ('calibration.line', 'calibration.sample', 'calibration.sigma0_lut')
     },
+    'luts_raw': {
+        'func': signal_lut_raw,
+        'args': ('calibration.line', 'calibration.sample', 'calibration.sigma0_lut', 'calibration.gamma0_lut')
+    },
     'gamma0_lut': {
         'func': signal_lut,
         'args': ('calibration.line', 'calibration.sample', 'calibration.gamma0_lut')
@@ -741,8 +835,28 @@ compounds_vars = {
         'func': noise_lut_range,
         'args': ('noise.range.line', 'noise.range.sample', 'noise.range.noiseLut')
     },
+    'noise_lut_range_raw': {
+        'func': noise_lut_range_raw,
+        'args': ('noise.range.line', 'noise.range.sample', 'noise.range.noiseLut')
+    },
     'noise_lut_azi': {
         'func': noise_lut_azi,
+        'args': (
+            'noise.azi.line', 'noise.azi.line_start', 'noise.azi.line_stop',
+            'noise.azi.sample_start',
+            'noise.azi.sample_stop', 'noise.azi.noiseLut',
+            'noise.azi.swath')
+    },
+    'noise_lut_azi_raw_grd': {
+        'func': noise_lut_azi_raw_grd,
+        'args': (
+            'noise.azi.line', 'noise.azi.line_start', 'noise.azi.line_stop',
+            'noise.azi.sample_start',
+            'noise.azi.sample_stop', 'noise.azi.noiseLut',
+            'noise.azi.swath')
+    },
+    'noise_lut_azi_raw_slc': {
+        'func': noise_lut_azi_raw_slc,
         'args': (
             'noise.azi.line', 'noise.azi.line_start', 'noise.azi.line_stop',
             'noise.azi.sample_start',
@@ -780,13 +894,13 @@ compounds_vars = {
     },
     'bursts': {
         'func': bursts,
-        'args': ('annotation.linesPerBurst', 'annotation.samplesPerBurst', 'annotation. burst_azimuthTime',
-                 'annotation. burst_azimuthAnxTime', 'annotation. burst_sensingTime', 'annotation.burst_byteOffset',
-                 'annotation. burst_firstValidSample', 'annotation.burst_lastValidSample')
+        'args': ('annotation.linesPerBurst', 'annotation.samplesPerBurst', 'annotation.burst_azimuthTime',
+                 'annotation.burst_azimuthAnxTime', 'annotation.burst_sensingTime', 'annotation.burst_byteOffset',
+                 'annotation.burst_firstValidSample', 'annotation.burst_lastValidSample')
     },
     'bursts_grd': {
         'func': bursts_grd,
-        'args': ('annotation.linesPerBurst', 'annotation. samplesPerBurst',)
+        'args': ('annotation.linesPerBurst', 'annotation.samplesPerBurst',)
     },
 
     'orbit': {

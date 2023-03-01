@@ -143,17 +143,29 @@ class Sentinel1Dataset(BaseDataset):
         # doppler
         dop = self.s1meta._doppler_estimate
         dop.attrs['history'] = 'annotations'
+        
+        # calibration LUTs
+        ds_luts = self.s1meta.get_calibration_luts()
+        ds_luts.attrs['history'] = 'calibration'
+
+        # noise levels LUTs
+        ds_noise_range = self.s1meta.get_noise_range_raw()
+        ds_noise_range.attrs['history'] = 'noise'
+        ds_noise_azi = self.s1meta.get_noise_azi_raw()
+        if self.s1meta.swath=='WV':
+            ds_noise_azi['noiseLut'] = self._patch_lut(ds_noise_azi['noiseLut']) # patch applied here is distinct to same patch applied on interpolated noise LUT
+        ds_noise_azi.attrs['history'] = 'noise'
+
 
         self.datatree = datatree.DataTree.from_dict({'measurement': DN_tmp, 'geolocation_annotation': geoloc,
                                                      'bursts': bu, 'FMrate': FM, 'doppler_estimate': dop,
                                                      # 'image_information':
                                                      'orbit': self.s1meta.orbit,
-                                                     'image': self.s1meta.image
+                                                     'image': self.s1meta.image,
+                                                     'calibration':ds_luts,
+                                                     'noise_range':ds_noise_range,
+                                                     'noise_azimuth':ds_noise_azi
                                                      })
-
-        # self.datatree.attrs = xr.Dataset(self.s1meta.image)
-        # self.datatree.assign_attrs(self.s1meta.image) #non
-        # self.datatree['image'] = self.s1meta.image
 
         # self.datatree['measurement'].ds = .from_dict({'measurement':self._load_digital_number(resolution=resolution, resampling=resampling, chunks=chunks)
         # self._dataset = self.datatree['measurement'].ds #the two variables should be linked then.
@@ -228,7 +240,7 @@ class Sentinel1Dataset(BaseDataset):
         if 'GRD' in str(self.datatree.attrs['product']):  # load land_mask by default for GRD products
             self.add_high_resolution_variables(patch_variable=patch_variable, luts=luts, lazy_loading=lazyloading)
             self.apply_calibration_and_denoising()
-
+        self.datatree['measurement'].attrs = self.datatree.attrs # added 6 fev 23, to fill  empty attrs
         self.sliced = False
         """True if dataset is a slice of original L1 dataset"""
 
@@ -323,7 +335,8 @@ class Sentinel1Dataset(BaseDataset):
             if skip_variables is None:
                 skip_variables = []
             # variables not returned to the user (unless luts=True)
-            self._hidden_vars = ['sigma0_lut', 'gamma0_lut', 'noise_lut', 'noise_lut_range', 'noise_lut_azi']
+            #self._hidden_vars = ['sigma0_lut', 'gamma0_lut', 'noise_lut', 'noise_lut_range', 'noise_lut_azi']
+            self._hidden_vars = []
             # attribute to activate correction on variables, if available
             self._patch_variable = patch_variable
             if load_luts:
@@ -414,7 +427,7 @@ class Sentinel1Dataset(BaseDataset):
         # self._dataset = self.datatree[
         #     'measurement'].to_dataset()  # test oct 22 to see if then I can modify variables of the dt
         return
-
+        
     def __del__(self):
         logger.debug('__del__')
 
@@ -458,9 +471,9 @@ class Sentinel1Dataset(BaseDataset):
 
     def _patch_lut(self, lut):
         """
-        patch proposed by MPC Sentinel-1 : https://jira-projects.cls.fr/browse/MPCS-2007 for noise vectors of WV SLC IPF2.9X products
-        adjustement proposed by BAE are the same for HH and VV, and suppose to work for both old and new WV2 EAP
-        they were estimated using WV image with very low NRCS (black images) and computing std(sigma0).
+        patch proposed by MPC Sentinel-1 : https://jira-projects.cls.fr/browse/MPCS-2007 for noise vectors of WV SLC
+        IPF2.9X products adjustment proposed by BAE are the same for HH and VV, and suppose to work for both old and
+        new WV2 EAP they were estimated using WV image with very low NRCS (black images) and computing std(sigma0).
         Parameters
         ----------
         lut xarray.Dataset
@@ -470,7 +483,7 @@ class Sentinel1Dataset(BaseDataset):
         lut xarray.Dataset
         """
         if self.s1meta.swath == 'WV':
-            if lut.name in ['noise_lut_azi'] and self.s1meta.ipf in [2.9, 2.91] and \
+            if lut.name in ['noise_lut_azi','noiseLut'] and self.s1meta.ipf in [2.9, 2.91] and \
                     self.s1meta.platform in ['SENTINEL-1A', 'SENTINEL-1B']:
                 noise_calibration_cst_pp1 = {
                     'SENTINEL-1A':
@@ -482,7 +495,8 @@ class Sentinel1Dataset(BaseDataset):
                          'WV2': -37.44,
                          }
                 }
-                cst_db = noise_calibration_cst_pp1[self.s1meta.platform][self.s1meta.image['swath_subswath']]
+                subswath = str(self.s1meta.image['swath_subswath'].values)
+                cst_db = noise_calibration_cst_pp1[self.s1meta.platform][subswath]
                 cst_lin = 10 ** (cst_db / 10)
                 lut = lut * cst_lin
                 lut.attrs['comment'] = 'patch on the noise_lut_azi : %s dB' % cst_db
@@ -509,7 +523,7 @@ class Sentinel1Dataset(BaseDataset):
             xml_type = self._map_lut_files[lut_name]
             xml_files = self.s1meta.files.copy()
             # polarization is a category. we use codes (ie index),
-            # to have well ordered polarizations in latter combine_by_coords
+            # to have well-ordered polarizations in latter combine_by_coords
             xml_files['pol_code'] = xml_files['polarization'].cat.codes
             xml_files = xml_files.set_index('pol_code')[xml_type]
 
@@ -758,6 +772,7 @@ class Sentinel1Dataset(BaseDataset):
             # the following take much cpu and memory, so we want to use dask
             # interp_func(self._dataset.line, self.dataset.sample)
             typee = self.s1meta.geoloc[varname_in_geoloc].dtype
+
             if self.s1meta._bursts['burst'].size != 0:
                 datemplate = self._da_tmpl.astype(typee).copy()
                 # replace the line coordinates by line_time coordinates
@@ -1286,7 +1301,7 @@ class Sentinel1Dataset(BaseDataset):
             geoloc_line = self.s1meta.geoloc['line'].values
             finterp = interp1d(geoloc_line, geoloc_azitime.astype(float))
             azitime = finterp(line)
-            azitime = azitime.astype('<m8[ns]')
+            azitime = azitime.astype('<M8[ns]')
         azitime = xr.DataArray(azitime, coords={'line': line}, dims=['line'],
                                attrs={
                                    'description': 'azimuth times interpolated along line dimension at the middle of range dimension'})

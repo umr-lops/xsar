@@ -1447,14 +1447,14 @@ class Sentinel1Dataset:
             kwargs = {
                 's1meta': self,
                 'date': datetime.datetime.strptime(self.s1meta.start_date, '%Y-%m-%d %H:%M:%S.%f'),
-                'footprint': self.s1meta.footprint
-            }
+                'footprint': self.s1meta.footprint  
+                }
 
             logger.debug('adding raster "%s" from resource "%s"' % (name, str(resource)))
             if get_function is not None:
                 try:
                     resource_dec = get_function(resource, **kwargs)
-                except TypeError:
+                except TypeError:   
                     resource_dec = get_function(resource)
 
             if read_function is None:

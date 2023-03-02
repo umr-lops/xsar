@@ -12,7 +12,7 @@ def resource_strftime(resource, **kwargs):
     returns a string like '/2018/286/myfile_201810130600.nc'
 
     If ressource string is an url (ie 'ftp://ecmwf/%Y/%j/myfile_%Y%m%d%H%M.nc'), fsspec will be used to retreive the file locally.
-
+   
     Parameters
     ----------
     resource: str

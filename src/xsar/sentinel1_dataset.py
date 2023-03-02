@@ -28,6 +28,7 @@ import datatree
 import pandas as pd
 import geopandas as gpd
 from scipy.spatial import KDTree
+import datetime 
 
 logger = logging.getLogger('xsar.sentinel1_dataset')
 logger.addHandler(logging.NullHandler())
@@ -1445,7 +1446,7 @@ class Sentinel1Dataset:
 
             kwargs = {
                 's1meta': self,
-                'date': self.s1meta.start_date,
+                'date': datetime.datetime.strptime(s1meta.start_date, '%Y-%m-%d %H:%M:%S.%f'),
                 'footprint': self.s1meta.footprint
             }
 

@@ -310,11 +310,14 @@ class RadarSat2Dataset(BaseDataset):
         load incidence thanks to lut. In the formula to have the incidence, we understand that it is calculated
         thanks to lut. But we can ask ourselves if we consider the denoised ones or not. In this case we have chosen to
         take the not denoised luts.
+        Usually look up tables depends on luts, but we already have information about look up tables, so we determine
+        incidence thanks to these.
+        Reference : `Radarsat2 product format definition` 7.2
 
         Returns
         -------
         xarray.DataArray
-            DataArray of incidence
+            DataArray of incidence (expressed in degrees)
         """
         beta = self._dataset.beta0_raw[0]
         gamma = self._dataset.gamma0_raw[0]

@@ -1446,7 +1446,7 @@ class Sentinel1Dataset:
 
             kwargs = {
                 's1meta': self,
-                'date': datetime.datetime.strptime(s1meta.start_date, '%Y-%m-%d %H:%M:%S.%f'),
+                'date': datetime.datetime.strptime(self.s1meta.start_date, '%Y-%m-%d %H:%M:%S.%f'),
                 'footprint': self.s1meta.footprint
             }
 

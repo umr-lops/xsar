@@ -152,7 +152,7 @@ class Sentinel1Dataset(BaseDataset):
         ds_noise_range.attrs['history'] = 'noise'
         ds_noise_azi = self.s1meta.get_noise_azi_raw()
         if self.s1meta.swath=='WV':
-            ds_noise_azi['noiseLut'] = self._patch_lut(ds_noise_azi['noiseLut']) # patch applied here is distinct to same patch applied on interpolated noise LUT
+            ds_noise_azi['noise_lut'] = self._patch_lut(ds_noise_azi['noise_lut']) # patch applied here is distinct to same patch applied on interpolated noise LUT
         ds_noise_azi.attrs['history'] = 'noise'
 
 
@@ -482,7 +482,7 @@ class Sentinel1Dataset(BaseDataset):
         lut xarray.Dataset
         """
         if self.s1meta.swath == 'WV':
-            if lut.name in ['noise_lut_azi','noiseLut'] and self.s1meta.ipf in [2.9, 2.91] and \
+            if lut.name in ['noise_lut_azi','noise_lut'] and self.s1meta.ipf in [2.9, 2.91] and \
                     self.s1meta.platform in ['SENTINEL-1A', 'SENTINEL-1B']:
                 noise_calibration_cst_pp1 = {
                     'SENTINEL-1A':

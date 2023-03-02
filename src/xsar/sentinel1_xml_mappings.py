@@ -363,7 +363,7 @@ def noise_lut_range_raw(lines, samples, noiseLuts):
         normalized_noise_luts.append(noiseLuts[uu][0:minimum_pts])
         normalized_samples.append(samples[uu][0:minimum_pts])
     tmp_noise = np.stack(normalized_noise_luts)
-    ds['noiseLut'] = xr.DataArray(tmp_noise,
+    ds['noise_lut'] = xr.DataArray(tmp_noise,
                                   coords={'line': lines, 'sample': samples[0][0:minimum_pts]},
                                   dims=['line', 'sample'])
     # ds['sample'] = xr.DataArray(np.stack(normalized_samples), coords={'lines': lines, 'sample_index': np.arange(minimum_pts)},
@@ -376,12 +376,7 @@ def noise_lut_azi_raw_grd(line_azi,line_azi_start,line_azi_stop,
                   sample_azi_start, sample_azi_stop, noise_azi_lut, swath):
     ds = xr.Dataset()
     for ii, swathi in enumerate(swath): # with 2018 data the noise vector are not the same size -> stacking impossible
-        ds['noiseLut_%s' % swathi] = xr.DataArray(noise_azi_lut[ii], coords={'line': line_azi[ii]}, dims=['line'])
-
-    # ds['noiseLut'] = xr.DataArray(np.stack(noise_azi_lut).T, coords={'line_index': np.arange(len(line_azi[0])), 'swath': swath},
-    #                               dims=['line_index', 'swath'])
-    # ds['line'] = xr.DataArray(np.stack(line_azi).T, coords={'line_index': np.arange(len(line_azi[0])), 'swath': swath},
-    #                           dims=['line_index', 'swath'])
+        ds['noise_lut_%s' % swathi] = xr.DataArray(noise_azi_lut[ii], coords={'line': line_azi[ii]}, dims=['line'])
     ds['line_start'] = xr.DataArray(line_azi_start, coords={'swath': swath}, dims=['swath'])
     ds['line_stop'] = xr.DataArray(line_azi_stop, coords={'swath': swath}, dims=['swath'])
     ds['sample_start'] = xr.DataArray(sample_azi_start, coords={'swath': swath}, dims=['swath'])
@@ -394,18 +389,18 @@ def noise_lut_azi_raw_slc(line_azi,line_azi_start,line_azi_stop,
     ds = xr.Dataset()
     #if 'WV' in mode: # there is no noise in azimuth for WV acquisitions
     if swath == []: #WV SLC case
-        ds['noiseLut'] = xr.DataArray(1.) # set noise_azimuth to one to make post steps like noise_azi*noise_range always possible
+        ds['noise_lut'] = xr.DataArray(1.) # set noise_azimuth to one to make post steps like noise_azi*noise_range always possible
         ds['line_start'] = xr.DataArray(line_azi_start, attrs={'swath': swath})
         ds['line_stop'] = xr.DataArray(line_azi_stop, attrs={'swath': swath})
         ds['sample_start'] = xr.DataArray(sample_azi_start, attrs={'swath': swath})
         ds['sample_stop'] = xr.DataArray(sample_azi_stop, attrs={'swath': swath})
     else:
-        ds['noiseLut'] = xr.DataArray(noise_azi_lut[0], coords={'line': line_azi[0]}, dims=['line']) # only on subswath opened
+        ds['noise_lut'] = xr.DataArray(noise_azi_lut[0], coords={'line': line_azi[0]}, dims=['line']) # only on subswath opened
         ds['line_start'] = xr.DataArray(line_azi_start[0], attrs={'swath': swath})
         ds['line_stop'] = xr.DataArray(line_azi_stop[0], attrs={'swath': swath})
         ds['sample_start'] = xr.DataArray(sample_azi_start[0], attrs={'swath': swath})
         ds['sample_stop'] = xr.DataArray(sample_azi_stop[0], attrs={'swath': swath})
-    # ds['noiseLut'] = xr.DataArray(np.stack(noise_azi_lut).T, coords={'line_index': np.arange(len(line_azi[0])), 'swath': swath},
+    # ds['noise_lut'] = xr.DataArray(np.stack(noise_azi_lut).T, coords={'line_index': np.arange(len(line_azi[0])), 'swath': swath},
     #                               dims=['line_index', 'swath'])
     # ds['line'] = xr.DataArray(np.stack(line_azi).T, coords={'line_index': np.arange(len(line_azi[0])), 'swath': swath},
     #                           dims=['line_index', 'swath'])

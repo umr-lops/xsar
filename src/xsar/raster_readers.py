@@ -9,7 +9,7 @@ import pandas as pd
 def resource_strftime(resource, **kwargs):
     """
     From a resource string like '%Y/%j/myfile_%Y%m%d%H%M.nc' and a date like 'Timestamp('2018-10-13 06:23:22.317102')',
-    returns a string like '/2018/286/myfile_201810130600.nc'
+    returns a tuple composed of the closer available date and string like '/2018/286/myfile_201810130600.nc'
 
     If ressource string is an url (ie 'ftp://ecmwf/%Y/%j/myfile_%Y%m%d%H%M.nc'), fsspec will be used to retreive the file locally.
    
@@ -30,7 +30,7 @@ def resource_strftime(resource, **kwargs):
 
     Returns
     -------
-    str
+    tuple : (datetime,str)
 
     """
 
@@ -47,7 +47,7 @@ def resource_strftime(resource, **kwargs):
         second=0,
         microsecond=0
     )
-    return url_get(date.strftime(resource))
+    return date, url_get(date.strftime(resource))
 
 
 
@@ -101,6 +101,28 @@ def ecmwf_0125_1h(fname):
 
     return ecmwf_ds
 
+def hwrf_0015_3h(fname,**kwargs):
+    """hwrf 0.015 deg 3h reader ()"""
+    hwrf_ds = xr.open_dataset(fname)
+    try : 
+        hwrf_ds = hwrf_ds.sel(dim_0=kwargs['date'])[['u','v','elon','nlat']]
+    except Exception as e: 
+        raise ValueError("date '%s' can't be find in %s " % (kwargs['date'], fname))
+
+    hwrf_ds.attrs['time'] = datetime.datetime.fromtimestamp(hwrf_ds.dim_0.item() // 1000000000)
+    hwrf_ds = hwrf_ds.assign_coords({"x":hwrf_ds.elon.values[0,:],"y":hwrf_ds.nlat.values[:,0]}).drop_vars(['dim_0','elon','nlat']).rename(
+            {
+                'u': 'U10',
+                'v': 'V10'
+            }
+        )
+
+    hwrf_ds.attrs = {k: hwrf_ds.attrs[k] for k in ['institution', 'time']}
+    hwrf_ds = _to_lon180(hwrf_ds)
+    hwrf_ds.rio.write_crs("EPSG:4326", inplace=True)
+
+    return hwrf_ds
+
 def gebco(gebco_files):
     """gebco file reader (geotiff from https://www.gebco.net/data_and_products/gridded_bathymetry_data)"""
     return xr.combine_by_coords(
@@ -116,3 +138,4 @@ available_rasters = pd.DataFrame(columns=['resource', 'read_function', 'get_func
 available_rasters.loc['gebco'] = [None, gebco, glob.glob]
 available_rasters.loc['ecmwf_0100_1h'] = [None, ecmwf_0100_1h, bind(resource_strftime, ..., step=1)]
 available_rasters.loc['ecmwf_0125_1h'] = [None, ecmwf_0125_1h, bind(resource_strftime, ..., step=1)]
+available_rasters.loc['hwrf_0015_3h'] = [None, hwrf_0015_3h, bind(resource_strftime, ..., step=3)]

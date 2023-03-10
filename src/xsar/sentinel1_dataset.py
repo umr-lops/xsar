@@ -387,10 +387,10 @@ class Sentinel1Dataset:
             self._rasterized_masks = self._load_rasterized_masks()
             ds_merge_list.append(self._rasterized_masks)
             # self.add_rasterized_masks() #this method update the datatree while in this part of the code, the dataset is updated
-            
+
             if luts:
                 ds_merge_list.append(self._luts[self._hidden_vars])
-            attrs = self._dataset.attrs
+            attrs = self._dataset.attrs 
             self._dataset = xr.merge(ds_merge_list)
             self._dataset.attrs = attrs
             geoloc_vars = ['altitude', 'azimuth_time', 'slant_range_time',
@@ -1467,7 +1467,7 @@ class Sentinel1Dataset:
                 # read_function should return a chunked dataset (so it's fast)
                 raster_ds = read_function(resource_dec[1],**kwargs_read)
 
-            # add globals raster attrs to globals dataset attrs
+            # add globals raster attrs to globals dataset attrs 
             hist_res = {'resource': resource_dec[1] }
             if get_function is not None:
                 hist_res.update({'resource_decoded': resource_dec[1]})

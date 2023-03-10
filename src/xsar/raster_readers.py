@@ -108,8 +108,10 @@ def hwrf_0015_3h(fname,**kwargs):
         hwrf_ds = hwrf_ds.sel(dim_0=kwargs['date'])[['u','v','elon','nlat']]
     except Exception as e: 
         raise ValueError("date '%s' can't be find in %s " % (kwargs['date'], fname))
+    
+    time_datetime = datetime.datetime.utcfromtimestamp(hwrf_ds.dim_0.values.astype(int) * 1e-9)
+    hwrf_ds.attrs['time'] = (time_datetime.strftime("%Y/%m/%d %H:%M:%S"))
 
-    hwrf_ds.attrs['time'] = datetime.datetime.fromtimestamp(hwrf_ds.dim_0.item() // 1000000000)
     hwrf_ds = hwrf_ds.assign_coords({"x":hwrf_ds.elon.values[0,:],"y":hwrf_ds.nlat.values[:,0]}).drop_vars(['dim_0','elon','nlat']).rename(
             {
                 'u': 'U10',

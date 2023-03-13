@@ -59,7 +59,19 @@ def _to_lon180(ds):
 
 
 def ecmwf_0100_1h(fname):
-    """ecmwf 0.1 deg 1h reader (ECMWF_FORECAST_0100_202109091300_10U_10V.nc)"""
+    """
+    ecmwf 0.1 deg 1h reader (ECMWF_FORECAST_0100_202109091300_10U_10V.nc)
+    
+    Parameters
+    ----------
+    fname: str
+        
+        hwrf filename
+
+    Returns
+    -------
+    xarray.Dataset
+    """
     ecmwf_ds = xr.open_dataset(fname, chunks={'Longitude': 1000, 'Latitude': 1000}).isel(time=0)
     ecmwf_ds.attrs['time'] = datetime.datetime.fromtimestamp(ecmwf_ds.time.item() // 1000000000)
     ecmwf_ds = ecmwf_ds.drop_vars('time').rename(
@@ -80,8 +92,20 @@ def ecmwf_0100_1h(fname):
     return ecmwf_ds
 
 def ecmwf_0125_1h(fname):
-    """ecmwf 0.125 deg 1h reader (ecmwf_201709071100.nc)"""
-    ecmwf_ds = xr.open_dataset(fname, chunks={'longitude': 1000, 'atitude': 1000})
+    """
+    ecmwf 0.125 deg 1h reader (ecmwf_201709071100.nc)
+    
+    Parameters
+    ----------
+    fname: str
+        
+        hwrf filename
+
+    Returns
+    -------
+    xarray.Dataset
+    """
+    ecmwf_ds = xr.open_dataset(fname, chunks={'longitude': 1000, 'latitude': 1000})
 
     ecmwf_ds = ecmwf_ds.rename(
         {'longitude': 'x', 'latitude': 'y'}
@@ -102,7 +126,20 @@ def ecmwf_0125_1h(fname):
     return ecmwf_ds
 
 def hwrf_0015_3h(fname,**kwargs):
-    """hwrf 0.015 deg 3h reader ()"""
+    """
+    hwrf 0.015 deg 3h reader ()
+    
+    
+    Parameters
+    ----------
+    fname: str
+        
+        hwrf filename
+
+    Returns
+    -------
+    xarray.Dataset
+    """
     hwrf_ds = xr.open_dataset(fname)
     try : 
         hwrf_ds = hwrf_ds.sel(dim_0=kwargs['date'])[['u','v','elon','nlat']]

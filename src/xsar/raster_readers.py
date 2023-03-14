@@ -58,7 +58,7 @@ def _to_lon180(ds):
     return ds
 
 
-def ecmwf_0100_1h(fname):
+def ecmwf_0100_1h(fname,**kwargs):
     """
     ecmwf 0.1 deg 1h reader (ECMWF_FORECAST_0100_202109091300_10U_10V.nc)
     
@@ -91,7 +91,7 @@ def ecmwf_0100_1h(fname):
 
     return ecmwf_ds
 
-def ecmwf_0125_1h(fname):
+def ecmwf_0125_1h(fname,**kwargs):
     """
     ecmwf 0.125 deg 1h reader (ecmwf_201709071100.nc)
     

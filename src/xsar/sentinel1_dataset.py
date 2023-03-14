@@ -28,6 +28,7 @@ import datatree
 import pandas as pd
 import geopandas as gpd
 from scipy.spatial import KDTree
+import datetime 
 
 logger = logging.getLogger('xsar.sentinel1_dataset')
 logger.addHandler(logging.NullHandler())
@@ -389,7 +390,7 @@ class Sentinel1Dataset:
 
             if luts:
                 ds_merge_list.append(self._luts[self._hidden_vars])
-            attrs = self._dataset.attrs
+            attrs = self._dataset.attrs 
             self._dataset = xr.merge(ds_merge_list)
             self._dataset.attrs = attrs
             geoloc_vars = ['altitude', 'azimuth_time', 'slant_range_time',
@@ -1443,29 +1444,33 @@ class Sentinel1Dataset:
             get_function = infos['get_function']
             resource = infos['resource']
 
-            kwargs = {
-                's1meta': self,
-                'date': self.s1meta.start_date,
+            kwargs_get = {
+                's1meta': self.s1meta,
+                'date': datetime.datetime.strptime(self.s1meta.start_date, '%Y-%m-%d %H:%M:%S.%f'),
                 'footprint': self.s1meta.footprint
-            }
+                }
 
             logger.debug('adding raster "%s" from resource "%s"' % (name, str(resource)))
             if get_function is not None:
                 try:
-                    resource_dec = get_function(resource, **kwargs)
-                except TypeError:
+                    resource_dec = get_function(resource, **kwargs_get)
+                except TypeError:   
                     resource_dec = get_function(resource)
+            
+            kwargs_read= {
+                'date' : np.datetime64(resource_dec[0])
+            }
 
             if read_function is None:
-                raster_ds = xr.open_dataset(resource_dec, chunk=1000)
+                raster_ds = xr.open_dataset(resource_dec[1], chunk=1000)
             else:
                 # read_function should return a chunked dataset (so it's fast)
-                raster_ds = read_function(resource_dec)
+                raster_ds = read_function(resource_dec[1],**kwargs_read)
 
-            # add globals raster attrs to globals dataset attrs
-            hist_res = {'resource': resource}
+            # add globals raster attrs to globals dataset attrs 
+            hist_res = {'resource': resource_dec[1] }
             if get_function is not None:
-                hist_res.update({'resource_decoded': resource_dec})
+                hist_res.update({'resource_decoded': resource_dec[1]})
 
             reprojected_ds = self.map_raster(raster_ds).rename({v: '%s_%s' % (name, v) for v in raster_ds})
 
@@ -1488,7 +1493,7 @@ class Sentinel1Dataset:
         xarray.Dataarray
             lut for `var_name`
         """
-        try:
+        try:    
             lut_name = self._map_var_lut[var_name]
         except KeyError:
             raise ValueError("can't find lut name for var '%s'" % var_name)

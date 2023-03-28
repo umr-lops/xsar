@@ -36,7 +36,7 @@ setup(
         'pytz',
         'psutil',
         'requests',
-        'xradarSat2>=1.0.12'
+        'xradarsat2'
     ],
     entry_points={
         "xarray.backends": ["xsar=xsar.xarray_backends:XsarXarrayBackend"]

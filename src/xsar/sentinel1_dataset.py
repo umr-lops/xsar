@@ -1048,29 +1048,6 @@ class Sentinel1Dataset(BaseDataset):
             da_var_list.append(reprojected_ds)
         return xr.merge(da_var_list)
 
-    def _get_lut(self, var_name):
-        """
-        Get lut for `var_name`
-
-        Parameters
-        ----------
-        var_name: str
-
-        Returns
-        -------
-        xarray.Dataarray
-            lut for `var_name`
-        """
-        try:    
-            lut_name = self._map_var_lut[var_name]
-        except KeyError:
-            raise ValueError("can't find lut name for var '%s'" % var_name)
-        try:
-            lut = self._luts[lut_name]
-        except KeyError:
-            raise ValueError("can't find lut from name '%s' for variable '%s' " % (lut_name, var_name))
-        return lut
-
     def _apply_calibration_lut(self, var_name):
         """
         Apply calibration lut to `digital_number` to compute `var_name`.

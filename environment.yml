@@ -18,4 +18,3 @@ dependencies:
   - rioxarray >=0.10
   - pandoc
   - python >=3.8
-  - xradarsat2

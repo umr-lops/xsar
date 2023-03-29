@@ -490,7 +490,7 @@ class Sentinel1Meta(BaseMeta):
 
         This is an inaccurate transform, with errors up to 600 meters.
         But it's fast, and may fit some needs, because the error is stable localy.
-        See `xsar.Sentinel1Meta.coords2ll` `xsar.Sentinel1Meta.ll2coords` for accurate methods.
+        See `xsar.BaseMeta.coords2ll` `xsar.BaseMeta.ll2coords` for accurate methods.
 
         Examples
         --------
@@ -504,8 +504,10 @@ class Sentinel1Meta(BaseMeta):
 
         See Also
         --------
-        xsar.Sentinel1Meta.coords2ll
-        xsar.Sentinel1Meta.ll2coords`
+        xsar.BaseMeta.coords2ll
+        xsar.BaseMeta.ll2coords
+        xsar.BaseMeta.coords2ll
+        xsar.BaseMeta.ll2coords
 
         """
         return self.geoloc.attrs['approx_transform']

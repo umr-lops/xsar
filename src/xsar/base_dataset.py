@@ -30,6 +30,11 @@ np.errstate(invalid='ignore')
 
 
 class BaseDataset(ABC):
+    """
+    Abstract class that defines necessary common functions for the computation of different SAR dataset variables
+    (Radarsat2, Sentinel1, RCM...).
+    This also permit a better maintenance, because these functions aren't redefined many times.
+    """
 
     datatree = None
     _dataset = None
@@ -177,7 +182,7 @@ class BaseDataset(ABC):
     def ll2coords(self, *args):
         """
         Get `(lines, samples)` from `(lon, lat)`,
-        or convert a lon/lat shapely shapely object to line/sample coordinates.
+        or convert a lon/lat shapely object to line/sample coordinates.
 
         Parameters
         ----------
@@ -191,11 +196,11 @@ class BaseDataset(ABC):
 
         Notes
         -----
-        The difference with `xsar.Sentinel1Meta.ll2coords` is that coordinates are rounded to the nearest dataset coordinates.
+        The difference with `xsar.BaseMeta.ll2coords` is that coordinates are rounded to the nearest dataset coordinates.
 
         See Also
         --------
-        xsar.Sentinel1Meta.ll2coords
+        xsar.BaseMeta.ll2coords
 
         """
         if isinstance(args[0], shapely.geometry.base.BaseGeometry):
@@ -645,7 +650,7 @@ class BaseDataset(ABC):
 
         Returns
         -------
-        xarray.Dataarray
+        xarray.DataArray
             lut for `var_name`
         """
         try:

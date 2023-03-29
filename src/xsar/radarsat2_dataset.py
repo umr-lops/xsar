@@ -26,11 +26,47 @@ np.errstate(invalid='ignore')
 
 
 class RadarSat2Dataset(BaseDataset):
+    """
+        Handle a SAFE subdataset.
+        A dataset might contain several tiff files (multiples polarizations), but all tiff files must share the same footprint.
 
+        The main attribute useful to the end-user is `self.dataset` (`xarray.Dataset` , with all variables parsed from xml and tiff files.)
+
+        Parameters
+        ----------
+        dataset_id: str or RadarSat2Meta object
+
+            if str, it can be a path, or a gdal dataset identifier)
+
+        resolution: dict, number or string, optional
+            resampling dict like `{'line': 20, 'sample': 20}` where 20 is in pixels.
+
+            if a number, dict will be constructed from `{'line': number, 'sample': number}`
+
+            if str, it must end with 'm' (meters), like '100m'. dict will be computed from sensor pixel size.
+
+        resampling: rasterio.enums.Resampling or str, optional
+
+            Only used if `resolution` is not None.
+
+            ` rasterio.enums.Resampling.rms` by default. `rasterio.enums.Resampling.nearest` (decimation) is fastest.
+
+        chunks: dict, optional
+
+            dict with keys ['pol','line','sample'] (dask chunks).
+
+        dtypes: None or dict, optional
+
+            Specify the data type for each variable.
+
+        lazyloading: bool, optional
+            activate or not the lazy loading of the high resolution fields
+
+    """
     def __init__(self, dataset_id, resolution=None,
                  resampling=rasterio.enums.Resampling.rms,
-                 luts=False, chunks={'line': 5000, 'sample': 5000},
-                 dtypes=None, patch_variable=True, lazyloading=True, skip_variables=None):
+                 chunks={'line': 5000, 'sample': 5000},
+                 dtypes=None, lazyloading=True, skip_variables=None):
         if skip_variables is None:
             skip_variables = []
         # default dtypes
@@ -41,9 +77,7 @@ class RadarSat2Dataset(BaseDataset):
         # as asarray is imported from numpy, it's a numpy array.
         # but if later we decide to import asarray from cupy, il will be a cupy.array (gpu)
         self.rs2meta = None
-        """True if dataset is a slice of original L1 dataset"""
         self.resolution = resolution
-        """`xsar.RadarSat2Meta` object"""
 
         if not isinstance(dataset_id, RadarSat2Meta):
             self.rs2meta = BlockingActorProxy(RadarSat2Meta, dataset_id)
@@ -156,11 +190,7 @@ class RadarSat2Dataset(BaseDataset):
                 coords={'line': self._dataset.digital_number.line,
                         'sample': self._dataset.digital_number.sample}
             )
-        # self._dataset.attrs.update(self.rs2meta.to_dict("all"))
-        # self.datatree.attrs.update(self.rs2meta.to_dict("all"))
-        #self._luts = self.rs2meta.dt['lut'].ds.rename({'pixels': 'sample'})
         self._luts = self._lazy_load_luts()
-        #print(self._get_lut('beta0'))
         self.apply_calibration_and_denoising()
         self._dataset = xr.merge([self._load_from_geoloc(geoloc_vars, lazy_loading=lazyloading), self._dataset])
         self._dataset = xr.merge([self.interpolate_times, self._dataset])
@@ -199,28 +229,17 @@ class RadarSat2Dataset(BaseDataset):
         merge_list = []
         for lut_name in luts_ds:
             lut_f_delayed = dask.delayed()(luts_ds[lut_name])
-            """lut = map_blocks_coords(
-                _da_tmpl.astype(luts_ds[lut_name].dtype),
-                lut_f_delayed,
-                name=lut_name
-            )"""
-            # lut_f_delayed.attrs = luts_ds[lut_name].attrs
-            #print(lut_f_delayed.data)
             ar = dask.array.from_delayed(lut_f_delayed.data, (luts_ds[lut_name].data.size,), luts_ds[lut_name].dtype)
-            # print(ar)
             da = xr.DataArray(data=ar, dims=['sample'], coords={'sample': luts_ds[lut_name].sample},
                               attrs=luts_ds[lut_name].attrs)
-            #print(da)
             ds_lut_f_delayed = da.to_dataset(name=lut_name)
-            # ds_lut_f_delayed.attrs = luts_ds[lut_name].attrs
-            # print(ds_lut_f_delayed.compute())
             merge_list.append(ds_lut_f_delayed)
         return xr.combine_by_coords(merge_list)
 
     @timing
     def _load_from_geoloc(self, varnames, lazy_loading=True):
         """
-        Interpolate (with RectBiVariateSpline) variables from `self.s1meta.geoloc` to `self._dataset`
+        Interpolate (with RectBiVariateSpline) variables from `self.rs2meta.geoloc` to `self._dataset`
 
         Parameters
         ----------
@@ -230,7 +249,7 @@ class RadarSat2Dataset(BaseDataset):
         Returns
         -------
         xarray.Dataset
-            With interpolated vaiables
+            With interpolated variables
 
         """
         mapping_dataset_geoloc = {'latitude': 'latitude',
@@ -240,17 +259,6 @@ class RadarSat2Dataset(BaseDataset):
                                   'altitude': 'height',
                                   }
         da_list = []
-
-        def interp_func_agnostic_satellite(vect1line, vect1pixel, **kwargs):
-
-            # exterieur de boucle
-            rbs = kwargs['rbs']
-
-            def wrapperfunc(*args, **kwargs):
-                rbs2 = args[2]
-                return rbs2(args[0], args[1], grid=False)
-
-            return wrapperfunc(vect1line[:, np.newaxis], vect1pixel[np.newaxis, :], rbs)
 
         for varname in varnames:
             varname_in_geoloc = mapping_dataset_geoloc[varname]
@@ -270,7 +278,6 @@ class RadarSat2Dataset(BaseDataset):
                         z_values = z_values % 360
                 else:
                     z_values = self.rs2meta.geoloc[varname_in_geoloc]
-                # interp_func = interp_func_agnostic_satellite
                 interp_func = RectBivariateSpline(
                     self.rs2meta.geoloc.line,
                     self.rs2meta.geoloc.pixel,
@@ -414,10 +421,6 @@ class RadarSat2Dataset(BaseDataset):
         noise_values_2d = np.tile(noise_values, (lines.shape[0], 1))
         indexes = [first_pix + step * i for i in range(0, noise_values.shape[0])]
         interp_func = dask.delayed(RectBivariateSpline)(x=lines, y=indexes, z=noise_values_2d, kx=1, ky=1)
-        """var = inter_func(self._dataset.digital_number.line, self._dataset.digital_number.sample)
-        da_var = xr.DataArray(data=var, dims=['line', 'sample'],
-                              coords={'line': self._dataset.digital_number.line,
-                                      'sample': self._dataset.digital_number.sample})"""
         da_var = map_blocks_coords(
             self._da_tmpl.astype(self._dtypes['noise_lut']),
             interp_func
@@ -592,6 +595,14 @@ class RadarSat2Dataset(BaseDataset):
 
     @property
     def interpolate_times(self):
+        """
+        Apply interpolation with RectBivariateSpline to the azimuth time extracted from `self.rs2meta.geoloc`
+
+        Returns
+        -------
+        xarray.Dataset
+            Contains the time as delayed at the good resolution and expressed as type datetime64[ns]
+        """
         times = self.rs2meta.get_azitime
         lines = self.rs2meta.geoloc.line
         samples = self.rs2meta.geoloc.pixel

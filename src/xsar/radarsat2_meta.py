@@ -21,7 +21,7 @@ class RadarSat2Meta(BaseMeta):
         Parameters
         ----------
         name: str
-            path or gdal identifier like `'SENTINEL1_DS:%s:WV_001' % path`
+            path or gdal identifier
 
     """
     # class attributes are needed to fetch instance attribute (ie self.name) with dask actors
@@ -128,7 +128,7 @@ class RadarSat2Meta(BaseMeta):
 
         This is an inaccurate transform, with errors up to 600 meters.
         But it's fast, and may fit some needs, because the error is stable localy.
-        See `xsar.Sentinel1Meta.coords2ll` `xsar.RdarSat2Dataset.ll2coords` for accurate methods.
+        See `xsar.BaseMeta.coords2ll` `xsar.BaseMeta.ll2coords` for accurate methods.
 
         Examples
         --------
@@ -143,7 +143,9 @@ class RadarSat2Meta(BaseMeta):
         See Also
         --------
         xsar.BaseDataset.coords2ll
-        xsar.BaseDataset.ll2coords`
+        xsar.BaseDataset.ll2coords
+        xsar.BaseMeta.coords2ll
+        xsar.BaseMeta.ll2coords
 
         """
         return self.manifest_attrs['approx_transform']

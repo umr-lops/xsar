@@ -29,6 +29,8 @@ from .sentinel1_meta import Sentinel1Meta
 from .sentinel1_dataset import Sentinel1Dataset
 from .radarsat2_meta import RadarSat2Meta
 from .radarsat2_dataset import RadarSat2Dataset
+from .base_dataset import BaseDataset
+from .base_meta import BaseMeta
 
 logger = logging.getLogger('xsar')
 """
@@ -58,10 +60,12 @@ def open_dataset(*args, **kwargs):
     xsar.open_dataset` is a simple wrapper to `xsar.SentinelDataset` that directly returns the `xarray.Dataset` object.
 
     >>> xsar.Sentinel1Dataset(*args, **kwargs).dataset
+    >>> xsar.RadarSat2Dataset(*args, **kwargs).dataset
 
     See Also
     --------
     xsar.Sentinel1Dataset
+    xsar.RadarSat2Dataset
     """
     dataset_id = args[0]
     # TODO: check product type (S1, RS2), and call specific reader
@@ -93,13 +97,15 @@ def open_datatree(*args, **kwargs):
     xsar.open_dataset` is a simple wrapper to `xsar.SentinelDataset` that directly returns the `xarray.Dataset` object.
 
     >>> xsar.Sentinel1Dataset(*args, **kwargs).dataset
+    >>> xsar.RadarSat2Dataset(*args, **kwargs).dataset
 
     See Also
     --------
     xsar.Sentinel1Dataset
+    xsar.RadarSat2Dataset
     """
     dataset_id = args[0]
-    # TODO: check product type (S1, RS2), and call specific reader
+    # Check product type (S1, RS2), and call specific reader
     if isinstance(dataset_id, Sentinel1Meta) or isinstance(dataset_id, str) and ".SAFE" in dataset_id:
         sar_obj = Sentinel1Dataset(*args, **kwargs)
     elif isinstance(dataset_id, RadarSat2Meta) or isinstance(dataset_id, str) and "RS2" in dataset_id:

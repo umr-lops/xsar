@@ -29,6 +29,11 @@ np.errstate(invalid='ignore')
 
 
 class BaseMeta(BaseDataset):
+    """
+        Abstract class that defines necessary common functions for the computation of different SAR metadata
+        (Radarsat2, Sentinel1, RCM...).
+        This also permit a better maintenance, because these functions aren't redefined many times.
+    """
 
     # default mask feature (see self.set_mask_feature and cls.set_mask_feature)
     _mask_features_raw = {
@@ -108,11 +113,13 @@ class BaseMeta(BaseDataset):
             Add an 'ocean' mask at class level (ie as default mask):
             ```
             >>> xsar.RadarSat2Meta.set_mask_feature('ocean', cartopy.feature.OCEAN)
+            >>> xsar.Sentinel1Meta.set_mask_feature('ocean', cartopy.feature.OCEAN)
             ```
 
-            Add an 'ocean' mask at instance level (ie only for this self Sentinel1Meta instance):
+            Add an 'ocean' mask at instance level (ie only for this self Sentinel1Meta (or RadarSat2Meta instance):
             ```
             >>> xsar.RadarSat2Meta.set_mask_feature('ocean', cartopy.feature.OCEAN)
+            >>> xsar.Sentinel1Meta.set_mask_feature('ocean', cartopy.feature.OCEAN)
             ```
 
 

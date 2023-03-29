@@ -58,6 +58,13 @@ Examples
 
 * :doc:`examples/xsar_tops_slc`
 
+* :doc:`examples/radarsat2`
+
+UML Description
+...............
+
+* :doc:`uml`
+
 Reference
 .........
 
@@ -92,6 +99,14 @@ Last documentation build: |today|
    examples/xsar_multiple
    examples/xsar_batch_datarmor
    examples/xsar_tops_slc
+   examples/radarsat2
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+   :caption: UML Description
+
+   uml
 
 .. toctree::
    :maxdepth: 1

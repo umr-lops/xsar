@@ -142,7 +142,7 @@ def hwrf_0015_3h(fname,**kwargs):
     """
     hwrf_ds = xr.open_dataset(fname)
     try : 
-        hwrf_ds = hwrf_ds.sel(dim_0=kwargs['date'])[['u','v','elon','nlat']]
+        hwrf_ds = hwrf_ds.sel(t=kwargs['date'])[['U','V','LON','LAT']]
     except Exception as e: 
         raise ValueError("date '%s' can't be find in %s " % (kwargs['date'], fname))
     
@@ -151,8 +151,8 @@ def hwrf_0015_3h(fname,**kwargs):
 
     hwrf_ds = hwrf_ds.assign_coords({"x":hwrf_ds.elon.values[0,:],"y":hwrf_ds.nlat.values[:,0]}).drop_vars(['dim_0','elon','nlat']).rename(
             {
-                'u': 'U10',
-                'v': 'V10'
+                'U': 'U10',
+                'V': 'V10'
             }
         )
 

@@ -156,7 +156,7 @@ def hwrf_0015_3h(fname,**kwargs):
             }
         )
 
-    hwrf_ds.attrs = {k: hwrf_ds.attrs[k] for k in ['institution', 'time']}
+    #hwrf_ds.attrs = {k: hwrf_ds.attrs[k] for k in ['institution', 'time']}
     hwrf_ds = _to_lon180(hwrf_ds)
     hwrf_ds.rio.write_crs("EPSG:4326", inplace=True)
 

@@ -190,15 +190,15 @@ class RadarSat2Dataset(BaseDataset):
                 coords={'line': self._dataset.digital_number.line,
                         'sample': self._dataset.digital_number.sample}
             )
-        self._luts = self._lazy_load_luts()
+        self._luts = self.lazy_load_luts()
         self.apply_calibration_and_denoising()
-        self._dataset = xr.merge([self._load_from_geoloc(geoloc_vars, lazy_loading=lazyloading), self._dataset])
+        self._dataset = xr.merge([self.load_from_geoloc(geoloc_vars, lazy_loading=lazyloading), self._dataset])
         self._dataset = xr.merge([self.interpolate_times, self._dataset])
         if 'ground_heading' not in skip_variables:
-            self._dataset = xr.merge([self._load_ground_heading(), self._dataset])
+            self._dataset = xr.merge([self.load_ground_heading(), self._dataset])
         if 'velocity' not in skip_variables:
-            self._dataset = xr.merge([self._get_sensor_velocity(), self._dataset])
-        self._rasterized_masks = self._load_rasterized_masks()
+            self._dataset = xr.merge([self.get_sensor_velocity(), self._dataset])
+        self._rasterized_masks = self.load_rasterized_masks()
         self._dataset = xr.merge([self._rasterized_masks, self._dataset])
         a = self._dataset.copy()
         self._dataset = self.flip_sample_da(a)
@@ -216,7 +216,7 @@ class RadarSat2Dataset(BaseDataset):
 
         self.resampled = resolution is not None
 
-    def _lazy_load_luts(self):
+    def lazy_load_luts(self):
         """
         Lazy load luts from the reader as delayed
 
@@ -237,7 +237,7 @@ class RadarSat2Dataset(BaseDataset):
         return xr.combine_by_coords(merge_list)
 
     @timing
-    def _load_from_geoloc(self, varnames, lazy_loading=True):
+    def load_from_geoloc(self, varnames, lazy_loading=True):
         """
         Interpolate (with RectBiVariateSpline) variables from `self.rs2meta.geoloc` to `self._dataset`
 
@@ -614,7 +614,7 @@ class RadarSat2Dataset(BaseDataset):
         )
         return da_var.isel(sample=0).to_dataset(name='time')
 
-    def _get_sensor_velocity(self):
+    def get_sensor_velocity(self):
         """
         Interpolated sensor velocity
         Returns

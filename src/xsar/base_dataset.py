@@ -112,9 +112,17 @@ class BaseDataset(ABC):
         """
         return Polygon(zip(*self._bbox_ll))
 
-    def _load_ground_heading(self):
+    def load_ground_heading(self):
+        """
+        Load ground heading as delayed thanks to `BaseMeta.coords2heading`.
+
+        Returns
+        -------
+        xarray.Dataset
+            Contains the ground heading
+        """
         def coords2heading(lines, samples):
-            return self.s1meta.coords2heading(lines, samples, to_grid=True, approx=True)
+            return self.objet_meta.coords2heading(lines, samples, to_grid=True, approx=True)
 
         gh = map_blocks_coords(
             self._da_tmpl.astype(self._dtypes['ground_heading']),
@@ -130,10 +138,10 @@ class BaseDataset(ABC):
 
     def add_rasterized_masks(self):
         """
-        add rasterized masks only (included in add_high_resolution_variables() )
+        add rasterized masks only (included in add_high_resolution_variables() for Sentinel-1)
         :return:
         """
-        self._rasterized_masks = self.objet_meta._load_rasterized_masks()
+        self._rasterized_masks = self.load_rasterized_masks()
         # self.datatree['measurement'].ds = xr.merge([self.datatree['measurement'].ds,self._rasterized_masks])
         self.datatree['measurement'] = self.datatree['measurement'].assign(
             xr.merge([self.datatree['measurement'].ds, self._rasterized_masks]))
@@ -434,8 +442,15 @@ class BaseDataset(ABC):
         return ind, geoloc_azitime, geoloc_iburst, geoloc_line
 
     @timing
-    def _load_rasterized_masks(self):
+    def load_rasterized_masks(self):
+        """
+        Load rasterized masks
 
+        Returns
+        -------
+        xarray.Dataset
+            Contains rasterized masks dataset
+        """
         def _rasterize_mask_by_chunks(line, sample, mask='land'):
             chunk_coords = bbox_coords(line, sample, pad=None)
             # chunk footprint polygon, in dataset coordinates (with buffer, to enlarge a little the footprint)
@@ -506,7 +521,7 @@ class BaseDataset(ABC):
 
         def _rasterize_mask_by_chunks(line, sample, mask='land'):
             """
-            copy/pasted from _load_rasterized_masks()
+            copy/pasted from load_rasterized_masks()
             :param line:
             :param sample:
             :param mask:

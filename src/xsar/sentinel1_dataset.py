@@ -350,14 +350,14 @@ class Sentinel1Dataset(BaseDataset):
                         section='noise_lut'
                     )
 
-                ds_merge_list = [self._dataset,  # self._load_ground_heading(),  # lon_lat
+                ds_merge_list = [self._dataset,  # self.load_ground_heading(),  # lon_lat
                                  self._luts.drop_vars(self._hidden_vars, errors='ignore')]
             else:
                 ds_merge_list = [self._dataset]
 
             if 'ground_heading' not in skip_variables:
-                ds_merge_list.append(self._load_ground_heading())
-            self._rasterized_masks = self._load_rasterized_masks()
+                ds_merge_list.append(self.load_ground_heading())
+            self._rasterized_masks = self.load_rasterized_masks()
             ds_merge_list.append(self._rasterized_masks)
             # self.add_rasterized_masks() #this method update the datatree while in this part of the code, the dataset is updated
 
@@ -379,7 +379,7 @@ class Sentinel1Dataset(BaseDataset):
             if rasters is not None:
                 self._dataset = xr.merge([self._dataset, rasters])
             if 'velocity' not in skip_variables:
-                self._dataset = self._dataset.merge(self._get_sensor_velocity())
+                self._dataset = self._dataset.merge(self.get_sensor_velocity())
             if 'range_ground_spacing' not in skip_variables:
                 self._dataset = self._dataset.merge(self._range_ground_spacing())
 
@@ -1214,7 +1214,7 @@ class Sentinel1Dataset(BaseDataset):
         azitime = azitime.assign_coords({"line": self._dataset.line})
         return azitime
 
-    def _get_sensor_velocity(self):
+    def get_sensor_velocity(self):
         """
         Interpolated sensor velocity
         Returns

@@ -149,7 +149,7 @@ def hwrf_0015_3h(fname,**kwargs):
     time_datetime = datetime.datetime.utcfromtimestamp(hwrf_ds.t.values.astype(int) * 1e-9)
     hwrf_ds.attrs['time'] = (time_datetime.strftime("%Y/%m/%d %H:%M:%S"))
 
-    hwrf_ds = hwrf_ds.assign_coords({"x":hwrf_ds.elon.values[0,:],"y":hwrf_ds.nlat.values[:,0]}).drop_vars(['t','LON','LAT']).rename(
+    hwrf_ds = hwrf_ds.assign_coords({"x":hwrf_ds.LON.values[0,:],"y":hwrf_ds.LAT.values[:,0]}).drop_vars(['t','LON','LAT']).rename(
             {
                 'U': 'U10',
                 'V': 'V10'

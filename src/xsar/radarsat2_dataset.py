@@ -95,11 +95,16 @@ class RadarSat2Dataset(BaseDataset):
             raise IndexError(
                 """Can't open an multi-dataset. Use `xsar.RadarSat2Meta('%s').subdatasets` to show availables ones""" % self.rs2.path
             )
-        self.DN_without_res = load_digital_number(self.rs2meta.dt, resampling=resampling, chunks=chunks)[
-            'digital_numbers'].ds
+
         # build datatree
         DN_tmp = load_digital_number(self.rs2meta.dt, resolution=resolution,
                                      resampling=resampling, chunks=chunks)['digital_numbers'].ds
+        ### In order to respect xsar convention, lines and samples have been flipped in the metadata when necessary.
+        ### `load_digital_number` uses these metadata but rio creates new coords without keeping the flipping done.
+        ### So we have to flip again a time digital numbers to respect xsar convention
+        DN_tmp = self.flip_sample_da(DN_tmp)
+        DN_tmp = self.flip_line_da(DN_tmp)
+
         ### geoloc
         geoloc = self.rs2meta.geoloc
         geoloc.attrs['history'] = 'annotations'
@@ -190,6 +195,23 @@ class RadarSat2Dataset(BaseDataset):
                 coords={'line': self._dataset.digital_number.line,
                         'sample': self._dataset.digital_number.sample}
             )
+        # Add vars to define if lines or samples have been flipped to respect xsar convention
+        self._dataset = xr.merge([
+            xr.DataArray(data=self.rs2meta.samples_flipped,
+                         attrs={'meaning':
+                                    'xsar convention : increasing incidence values along samples axis'}
+                         ).to_dataset(name='samples_flipped'),
+            self._dataset
+        ])
+        self._dataset = xr.merge([
+            xr.DataArray(data=self.rs2meta.lines_flipped,
+                         attrs={'meaning':
+                                    'xsar convention : increasing time along line axis '
+                                    '(whatever ascending or descending pass direction)'}
+                         ).to_dataset(name='lines_flipped'),
+            self._dataset
+        ])
+
         self._luts = self.lazy_load_luts()
         self.apply_calibration_and_denoising()
         self._dataset = xr.merge([self.load_from_geoloc(geoloc_vars, lazy_loading=lazyloading), self._dataset])
@@ -200,11 +222,11 @@ class RadarSat2Dataset(BaseDataset):
             self._dataset = xr.merge([self.get_sensor_velocity(), self._dataset])
         self._rasterized_masks = self.load_rasterized_masks()
         self._dataset = xr.merge([self._rasterized_masks, self._dataset])
-        a = self._dataset.copy()
+        """a = self._dataset.copy()
         self._dataset = self.flip_sample_da(a)
         self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
         a = self._dataset.copy()
-        self._dataset = self.flip_line_da(a)
+        self._dataset = self.flip_line_da(a)"""
         self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
         """self.datatree = datatree.DataTree.from_dict(
             {'measurement': self.datatree['measurement'],
@@ -225,7 +247,7 @@ class RadarSat2Dataset(BaseDataset):
         xarray.Dataset
             Contains delayed dataArrays of luts
         """
-        luts_ds = self.rs2meta.dt['lut'].ds.rename({'pixels': 'sample'})
+        luts_ds = self.rs2meta.dt['lut'].ds.rename({'pixel': 'sample'})
         merge_list = []
         for lut_name in luts_ds:
             lut_f_delayed = dask.delayed()(luts_ds[lut_name])
@@ -545,18 +567,11 @@ class RadarSat2Dataset(BaseDataset):
         """
         antenna_pointing = self.rs2meta.dt['radarParameters'].attrs['antennaPointing']
         pass_direction = self.rs2meta.dt.attrs['passDirection']
-        val_samples_flipped = False
         flipped_cases = [('Left', 'Ascending'), ('Right', 'Descending')]
         if (antenna_pointing, pass_direction) in flipped_cases:
-            new_ds = ds.isel(sample=slice(None, None, -1)).assign_coords(sample=ds.sample)
-            val_samples_flipped = True
+            new_ds = ds.copy().isel(sample=slice(None, None, -1)).assign_coords(sample=ds.sample)
         else:
             new_ds = ds
-        ds_samples_flipped = xr.DataArray(data=val_samples_flipped,
-                                          attrs={'meaning':
-                                                 'xsar convention : increasing incidence values along samples axis'}
-                                          ).to_dataset(name='samples_flipped')
-        new_ds = xr.merge([ds_samples_flipped, new_ds])
         return new_ds
 
     @timing
@@ -579,18 +594,10 @@ class RadarSat2Dataset(BaseDataset):
             Flipped back, respecting the xsar convention
         """
         pass_direction = self.rs2meta.dt.attrs['passDirection']
-        val_lines_flipped = False
         if pass_direction == 'Ascending':
             new_ds = ds.copy().isel(line=slice(None, None, -1)).assign_coords(line=ds.line)
-            val_lines_flipped = True
         else:
             new_ds = ds.copy()
-        ds_lines_flipped = xr.DataArray(data=val_lines_flipped,
-                                        attrs={'meaning':
-                                               'xsar convention : increasing time along line axis '
-                                               '(whatever ascending or descending pass direction)'}
-                                        ).to_dataset(name='lines_flipped')
-        new_ds = xr.merge([ds_lines_flipped, new_ds])
         return new_ds
 
     @property

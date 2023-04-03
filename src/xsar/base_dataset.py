@@ -131,7 +131,9 @@ class BaseDataset(ABC):
         )
 
         gh.attrs = {
-            'comment': 'at ground level, computed from lon/lat in line direction'
+            'comment': 'at ground level, computed from lon/lat in azimuth direction',
+            'long_name': 'Platform heading (azimuth from North)',
+            'units': 'Degrees'
         }
 
         return gh.to_dataset(name='ground_heading')

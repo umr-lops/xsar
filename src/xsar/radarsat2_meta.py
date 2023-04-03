@@ -58,7 +58,11 @@ class RadarSat2Meta(BaseMeta):
             self.product = "XXX"
         """Product type, like 'GRDH', 'SLC', etc .."""
 
-        # self.manifest = os.path.join(self.path, 'manifest.safe')
+        # Respect xsar convention flipping lines and samples from the reader when necessary
+        self.samples_flipped = False
+        self.lines_flipped = False
+        self.flip_line_da()
+        self.flip_sample_da()
 
         self._safe_files = None
         self.multidataset = False
@@ -268,6 +272,39 @@ class RadarSat2Meta(BaseMeta):
             resdict[ll] = RectBivariateSpline(idx_line, idx_sample, np.asarray(geoloc[ll]), kx=1, ky=1)
 
         return resdict
+
+    def flip_sample_da(self):
+        """
+        When a product is flipped, flip back data arrays (from the reader datatree) sample dimensions to respect the xsar
+        convention (increasing incidence values)
+        """
+        antenna_pointing = self.dt['radarParameters'].attrs['antennaPointing']
+        pass_direction = self.dt.attrs['passDirection']
+        flipped_cases = [('Left', 'Ascending'), ('Right', 'Descending')]
+        samples_depending_ds = ['geolocationGrid', 'lut']
+        if (antenna_pointing, pass_direction) in flipped_cases:
+            for ds_name in samples_depending_ds:
+                self.dt[ds_name] = self.dt[ds_name].copy().isel(pixel=slice(None, None, -1))\
+                    .assign_coords(pixel=self.dt[ds_name].ds.pixel)
+            self.samples_flipped = True
+        return
+
+    def flip_line_da(self):
+        """
+        Flip dataArrays (from the reader datatree) that depend on line dimension when a product is ascending, in order to
+        respect the xsar convention (increasing time along line axis, whatever ascending or descending product).
+        Reference : `schemas/rs2prod_burstAttributes.xsd:This corresponds to the top-left pixel in a coordinate
+        system where the range increases to the right and the zero-Doppler time increases downward. Note that this is
+        not necessarily the top-left pixel of the image block in the final product.`
+        """
+        pass_direction = self.dt.attrs['passDirection']
+        samples_depending_ds = ['geolocationGrid']
+        if pass_direction == 'Ascending':
+            for ds_name in samples_depending_ds:
+                self.dt[ds_name] = self.dt[ds_name].copy().isel(line=slice(None, None, -1))\
+                    .assign_coords(line=self.dt[ds_name].ds.line)
+            self.lines_flipped = True
+        return
 
 
 

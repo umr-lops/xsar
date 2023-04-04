@@ -3,6 +3,8 @@ import warnings
 from functools import wraps
 import time
 import os
+
+import cartopy
 import numpy as np
 import logging
 from scipy.interpolate import griddata
@@ -23,6 +25,8 @@ from importlib_resources import files
 from pathlib import Path
 import fsspec
 import aiohttp
+from shapely.geometry import Polygon
+import geopandas as gpd
 
 logger = logging.getLogger('xsar.utils')
 logger.addHandler(logging.NullHandler())
@@ -34,6 +38,7 @@ try:
 except ImportError:
     logger.warning("psutil module not found. Disabling memory monitor")
     mem_monitor = False
+
 
 def _load_config():
     """
@@ -58,7 +63,6 @@ def _load_config():
 
 global config
 config = _load_config()
-
 
 
 class bind(partial):
@@ -449,6 +453,7 @@ def merge_yaml(yaml_strings_list,section=None):
 
     return yaml.safe_dump(dict_like)
 
+
 def get_glob(strlist):
     # from list of str, replace diff by '?'
     def _get_glob(st):
@@ -551,6 +556,7 @@ def safe_dir(filename, path='.', only_exists=False):
                 break
     return filepath
 
+
 def url_get(url, cache_dir=os.path.join(config['data_dir'], 'fsspec_cache')):
     """
     Get fil from url, using caching.
@@ -586,3 +592,5 @@ def url_get(url, cache_dir=os.path.join(config['data_dir'], 'fsspec_cache')):
         fname = url
 
     return fname
+
+

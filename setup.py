@@ -35,7 +35,8 @@ setup(
         'aiohttp',
         'pytz',
         'psutil',
-        'requests'
+        'requests',
+        'xradarsat2'
     ],
     entry_points={
         "xarray.backends": ["xsar=xsar.xarray_backends:XsarXarrayBackend"]

@@ -4,7 +4,7 @@ xsar: efficient level 1 sar reader for xarray/dask
 
 **xsar** is a distributed level 1 SAR file reader designed to write efficient distributed processing algorhitm with `xarray`_ and `dask`_.
 
-It currently handles Level-1 Sentinel-1 data in `SAFE format`_, as found on `scihub`_ or `PEPS`_.
+It currently handles Level-1 Sentinel-1 and Radarsat-2 data in `SAFE format`_, as found on `scihub`_ or `PEPS`_.
 
 **xsar** is as simple to use as the well known `xarray.open_dataset`_ : simply give the dataset path, and :meth:`xsar.open_dataset` will return an `datatree.DataTree`:
 
@@ -48,6 +48,8 @@ Examples
 
 * :doc:`examples/xsar_advanced`
 
+* :doc:`examples/radarsat2`
+
 * :doc:`examples/projections`
 
 * :doc:`examples/mask`
@@ -57,6 +59,11 @@ Examples
 * :doc:`examples/xsar_batch_datarmor`
 
 * :doc:`examples/xsar_tops_slc`
+
+UML Description
+...............
+
+* :doc:`uml`
 
 Reference
 .........
@@ -92,6 +99,14 @@ Last documentation build: |today|
    examples/xsar_multiple
    examples/xsar_batch_datarmor
    examples/xsar_tops_slc
+   examples/radarsat2
+
+.. toctree::
+   :maxdepth: 1
+   :hidden:
+   :caption: UML Description
+
+   uml
 
 .. toctree::
    :maxdepth: 1

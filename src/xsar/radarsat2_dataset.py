@@ -93,7 +93,7 @@ class RadarSat2Dataset(BaseDataset):
 
         if self.rs2meta.multidataset:
             raise IndexError(
-                """Can't open an multi-dataset. Use `xsar.RadarSat2Meta('%s').subdatasets` to show availables ones""" % self.rs2.path
+                """Can't open an multi-dataset. Use `xsar.RadarSat2Meta('%s').subdatasets` to show availables ones""" % self.rs2meta.path
             )
 
         # build datatree

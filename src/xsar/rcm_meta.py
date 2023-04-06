@@ -54,19 +54,75 @@ class RcmMeta(BaseMeta):
         except:
             self.product = "XXX"
         """Product type, like 'GRDH', 'SLC', etc .."""
+
+        # define important xpath to easier access some dataset of the reader's datatree
+        self._xpath = {
+            'geolocationGrid': 'imageReferenceAttributes/geographicInformation/geolocationGrid',
+            'lut': 'lookupTables/lookupTables',
+            'noise_lut': 'lookupTables/noiseLevels/referenceNoiseLevel',
+            'incidence': 'lookupTables/incidenceAngles',
+            'attitude': 'sourceAttributes/orbitAndAttitude/attitudeInformation',
+            'orbit': 'sourceAttributes/orbitAndAttitude/orbitInformation'
+        }
+
+        # replace `coefficients` dim by `pixel` in the datatree
+        var_with_coeff = ['noise_lut', 'lut', 'incidence']
+        for var in var_with_coeff:
+            self.dt[self._xpath[var]] = self.dt[self._xpath[var]].rename({'coefficients': 'pixel'})
+
+        self.samples_flipped = False
+        self.lines_flipped = False
+        self.flip_sample_da()
+        self.flip_line_da()
+
         self._safe_files = None
         self.multidataset = False
         """True if multi dataset"""
         self.subdatasets = gpd.GeoDataFrame(geometry=[], index=[])
         """Subdatasets as GeodataFrame (empty if single dataset)"""
-        self.geoloc = self.dt['imageReferenceAttributes/geographicInformation/geolocationGrid'].to_dataset()
+        self.geoloc = self.dt[self._xpath['geolocationGrid']].to_dataset()
 
-        self.orbit = self.dt['sourceAttributes/orbitAndAttitude/orbitInformation'].ds
-        self.attitude = self.dt['sourceAttributes/orbitAndAttitude/attitudeInformation']
-        self.lut = self.dt['lookupTables/lookupTables'].ds
+        self.orbit = self.dt[self._xpath['orbit']].ds
+        self.attitude = self.dt[self._xpath['attitude']].ds
+        self.lut = self.dt[self._xpath['lut']].ds
+        self.noise_lut = self.dt[self._xpath['noise_lut']].ds
+        self.incidence = self.dt[self._xpath['incidence']].ds
         self.manifest_attrs = self._create_manifest_attrs()
         for name, feature in self.__class__._mask_features_raw.items():
             self.set_mask_feature(name, feature)
+
+    def flip_sample_da(self):
+        """
+        When a product is flipped, flip back data arrays (from the reader datatree) sample dimensions to respect the xsar
+        convention (increasing incidence values)
+        """
+        antenna_pointing = self.dt['sourceAttributes/radarParameters'].attrs['antennaPointing']
+        pass_direction = self.dt['sourceAttributes/orbitAndAttitude/orbitInformation'].attrs['passDirection']
+        flipped_cases = [('Left', 'Ascending'), ('Right', 'Descending')]
+        samples_depending_ds = ['geolocationGrid', 'lut']
+        if (antenna_pointing, pass_direction) in flipped_cases:
+            for ds_name in samples_depending_ds:
+                self.dt[self._xpath[ds_name]] = self.dt[self._xpath[ds_name]].copy().isel(pixel=slice(None, None, -1))\
+                    .assign_coords(pixel=self.dt[self._xpath[ds_name]].ds.pixel)
+            self.samples_flipped = True
+        return
+
+    def flip_line_da(self):
+        """
+        Flip dataArrays (from the reader datatree) that depend on line dimension when a product is ascending, in order to
+        respect the xsar convention (increasing time along line axis, whatever ascending or descending product).
+        Reference : `schemas/rs2prod_burstAttributes.xsd:This corresponds to the top-left pixel in a coordinate
+        system where the range increases to the right and the zero-Doppler time increases downward. Note that this is
+        not necessarily the top-left pixel of the image block in the final product.`
+        """
+        pass_direction = self.dt['sourceAttributes/orbitAndAttitude/orbitInformation'].attrs['passDirection']
+        samples_depending_ds = ['geolocationGrid']
+        if pass_direction == 'Ascending':
+            for ds_name in samples_depending_ds:
+                self.dt[self._xpath[ds_name]] = self.dt[self._xpath[ds_name]].copy().isel(line=slice(None, None, -1))\
+                    .assign_coords(line=self.dt[self._xpath[ds_name]].ds.line)
+            self.lines_flipped = True
+        return
 
     def _create_manifest_attrs(self):
         dic = dict()

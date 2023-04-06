@@ -67,6 +67,7 @@ class RcmDataset(BaseDataset):
             activate or not the lazy loading of the high resolution fields
 
     """
+
     def __init__(self, dataset_id, resolution=None,
                  resampling=rasterio.enums.Resampling.rms,
                  chunks={'line': 5000, 'sample': 5000},
@@ -80,35 +81,34 @@ class RcmDataset(BaseDataset):
         # default meta for map_blocks output.
         # as asarray is imported from numpy, it's a numpy array.
         # but if later we decide to import asarray from cupy, il will be a cupy.array (gpu)
-        self.rcmeta = None
+        self.objet_meta = None
         self.resolution = resolution
 
         if not isinstance(dataset_id, RcmMeta):
-            self.rcmeta = BlockingActorProxy(RcmMeta, dataset_id)
+            self.objet_meta = BlockingActorProxy(RcmMeta, dataset_id)
             # check serializable
             # import pickle
             # s1meta = pickle.loads(pickle.dumps(self.s1meta))
             # assert isinstance(rs2meta.coords2ll(100, 100),tuple)
         else:
             # we want self.rs2meta to be a dask actor on a worker
-            self.rcmeta = BlockingActorProxy(RcmMeta.from_dict, dataset_id.dict)
+            self.objet_meta = BlockingActorProxy(RcmMeta.from_dict, dataset_id.dict)
         del dataset_id
-        self.objet_meta = self.rcmeta
 
-        if self.rcmeta.multidataset:
+        if self.objet_meta.multidataset:
             raise IndexError(
-                """Can't open an multi-dataset. Use `xsar.RadarSat2Meta('%s').subdatasets` to show availables ones""" % self.rcmeta.path
+                """Can't open an multi-dataset. Use `xsar.RadarSat2Meta('%s').subdatasets` to show availables ones""" % self.objet_meta.path
             )
 
         # build datatree
         DN_tmp = self._load_digital_number(resolution=resolution, resampling=resampling, chunks=chunks)
 
         ### geoloc
-        geoloc = self.rcmeta.geoloc
+        geoloc = self.objet_meta.geoloc
         geoloc.attrs['history'] = 'annotations'
 
         ### orbitInformation
-        orbit = self.rcmeta.orbit
+        orbit = self.objet_meta.orbit
         orbit.attrs['history'] = 'annotations'
 
         self.datatree = datatree.DataTree.from_dict({'measurement': DN_tmp, 'geolocation_annotation': geoloc
@@ -116,43 +116,483 @@ class RcmDataset(BaseDataset):
 
         self._dataset = self.datatree['measurement'].to_dataset()
 
-    def _list_tiff_files(self):
+        # dict mapping for calibration type in the reader
+        self._map_calibration_type = {
+            'sigma0': 'Sigma Nought',
+            'gamma0': 'Gamma',
+            'beta0': 'Beta Nought',
+        }
+
+        self._map_var_lut = {
+            'sigma0': 'sigma0',
+            'gamma0': 'gamma0',
+            'beta0': 'beta0',
+        }
+
+        geoloc_vars = ['latitude', 'longitude', 'altitude',
+                       'incidence', 'elevation'
+                       ]
+        for vv in skip_variables:
+            if vv in geoloc_vars:
+                geoloc_vars.remove(vv)
+
+        for att in ['name', 'short_name', 'product', 'safe', 'swath', 'multidataset']:
+            if att not in self.datatree.attrs:
+                # tmp = xr.DataArray(self.s1meta.__getattr__(att),attrs={'source':'filename decoding'})
+                self.datatree.attrs[att] = self.objet_meta.__getattr__(att)
+                self._dataset.attrs[att] = self.objet_meta.__getattr__(att)
+
+        value_res_line = self.objet_meta.pixel_line_m
+        value_res_sample = self.objet_meta.pixel_sample_m
+        # self._load_incidence_from_lut()
+        refe_spacing = 'slant'
+        if resolution is not None:
+            refe_spacing = 'ground'  # if the data sampling changed it means that the quantities are projected on ground
+            if isinstance(resolution, str):
+                value_res_sample = float(resolution.replace('m', ''))
+                value_res_line = value_res_sample
+            elif isinstance(resolution, dict):
+                value_res_sample = self.objet_meta.pixel_sample_m * resolution['sample']
+                value_res_line = self.objet_meta.pixel_line_m * resolution['line']
+            else:
+                logger.warning('resolution type not handle (%s) should be str or dict -> sampleSpacing'
+                               ' and lineSpacing are not correct', type(resolution))
+        self._dataset['sampleSpacing'] = \
+            xr.DataArray(value_res_sample,
+                         attrs={'referential': refe_spacing} |
+                               self.objet_meta
+                                        .dt['imageReferenceAttributes/rasterAttributes']['sampledPixelSpacing'].attrs
+                         )
+        self._dataset['lineSpacing'] = \
+            xr.DataArray(value_res_line,
+                         attrs=self.objet_meta
+                                        .dt['imageReferenceAttributes/rasterAttributes']['sampledLineSpacing'].attrs
+                         )
+
+        # dataset no-pol template for function evaluation on coordinates (*no* values used)
+        # what's matter here is the shape of the image, not the values.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", np.ComplexWarning)
+            self._da_tmpl = xr.DataArray(
+                dask.array.empty_like(
+                    self._dataset.digital_number.isel(pol=0).drop('pol'),
+                    dtype=np.int8, name="empty_var_tmpl-%s" % dask.base.tokenize(self.objet_meta.name)),
+                dims=('line', 'sample'),
+                coords={'line': self._dataset.digital_number.line,
+                        'sample': self._dataset.digital_number.sample}
+            )
+
+            # Add vars to define if lines or samples have been flipped to respect xsar convention
+            self._dataset = xr.merge([
+                xr.DataArray(data=self.objet_meta.samples_flipped,
+                             attrs={'meaning':
+                                        'xsar convention : increasing incidence values along samples axis'}
+                             ).to_dataset(name='samples_flipped'),
+                self._dataset
+            ])
+            self._dataset = xr.merge([
+                xr.DataArray(data=self.objet_meta.lines_flipped,
+                             attrs={'meaning':
+                                        'xsar convention : increasing time along line axis '
+                                        '(whatever ascending or descending pass direction)'}
+                             ).to_dataset(name='lines_flipped'),
+                self._dataset
+            ])
+
+        self._luts = self.lazy_load_luts()
+        self._noise_luts = self.lazy_load_noise_luts()
+        self.apply_calibration_and_denoising()
+        self._dataset = xr.merge([self.load_from_geoloc(geoloc_vars, lazy_loading=lazyloading), self._dataset])
+        if 'ground_heading' not in skip_variables:
+            self._dataset = xr.merge([self.load_ground_heading(), self._dataset])
+        if 'velocity' not in skip_variables:
+            self._dataset = xr.merge([self.get_sensor_velocity(), self._dataset])
+        self._rasterized_masks = self.load_rasterized_masks()
+        self._dataset = xr.merge([self._rasterized_masks, self._dataset])
+        self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
+
+    def lazy_load_luts(self):
         """
-        Return a list that contains all tiff files paths
+        Lazy load luts from the reader as delayed
 
         Returns
         -------
-        List[str]
-            List of Tiff file paths located in a folder
+        xarray.Dataset
+            Contains delayed dataArrays of luts
         """
+        merge_list = []
+        for key, value in self._map_calibration_type.items():
+            list_da = []
+            for pola in self.objet_meta.lut.lookup_tables.pole:
+                lut = self.objet_meta.lut.lookup_tables.sel(sarCalibrationType=value, pole=pola)\
+                    .rename({
+                        'pixel': 'sample',
+                        }
+                    )
+                first_pix = lut.attrs['pixelFirstLutValue']
+                step = lut.attrs['stepSize']
+                values_nb = lut.attrs['numberOfValues']
+                lut_f_delayed = dask.delayed()(lut)
+                ar = dask.array.from_delayed(lut_f_delayed.data, (values_nb,), lut.dtype)
+                da = xr.DataArray(data=ar, dims=['sample'], coords={'sample': lut.sample},
+                                  attrs=lut.attrs)
+                da = self._interpolate_lut(da, first_pix, step).assign_coords(pole=pola).rename({'pole': 'pol'})
+                list_da.append(da)
+            full_da = xr.concat(list_da, dim='pol')
+            full_da.attrs = lut.attrs
+            ds_lut_f_delayed = full_da.to_dataset(name=key)
+            merge_list.append(ds_lut_f_delayed)
+        return xr.merge(merge_list)
 
-        return glob.glob(os.path.join(self.rcmeta.path, "imagery", "*"))
-
-    def _sort_list_files_and_get_pols(self, list_tiff):
+    def lazy_load_noise_luts(self):
         """
-        From a list of tiff files, sort it to get the co polarization tiff file as the first element, and extract pols
+        Lazy load noise luts from the reader as delayed
+
+        Returns
+        -------
+        xarray.Dataset
+            Contains delayed dataArrays of luts
+        """
+        merge_list = []
+        for key, value in self._map_calibration_type.items():
+            list_da = []
+            values_nb = self.objet_meta.noise_lut.attrs['numberOfValues']
+            for pola in self.objet_meta.noise_lut.noiseLevelValues.pole:
+                lut = self.objet_meta.noise_lut.noiseLevelValues.sel(sarCalibrationType=value, pole=pola)\
+                    .rename({
+                        'pixel': 'sample',
+                        }
+                    )
+                first_pix = lut.pixelFirstNoiseValue
+                step = lut.stepSize
+                lut_f_delayed = dask.delayed()(lut)
+                ar = dask.array.from_delayed(lut_f_delayed.data, (values_nb,), lut.dtype)
+                da = xr.DataArray(data=ar, dims=['sample'], coords={'sample': lut.sample},
+                                  attrs=lut.attrs)
+                da = self._interpolate_lut(da, first_pix, step, type='noise').assign_coords(pole=pola)\
+                    .rename({'pole': 'pol'})
+                list_da.append(da)
+            full_da = xr.concat(list_da, dim='pol')
+            ds_lut_f_delayed = full_da.to_dataset(name=key)
+            merge_list.append(ds_lut_f_delayed)
+        return xr.merge(merge_list)
+
+    @timing
+    def _interpolate_lut(self, var, first_pixel, step, type="lut"):
+        """
+        Interpolate look up table (from the reader) or another variable and resample it.
+        Initial values are at low resolution, and the high resolution range is made from the pixel first noise
+        level value and the step. Then, an interpolation with RectBivariateSpline permit having a full resolution
+        and extrapolate the first pixels; getting by the end resampled look up tables.
 
         Parameters
         ----------
-        list_tiff: List[str]
-            List of tiff files
+        var: xarray.DataArray
+            variable we want to interpolate (lut extracted from the reader :noise or calibration ; incidence; elevation)
+
+        first_pixel: int
+            pixelFirstValue
+
+        step: int
+            stepSize to apply
+
+        type: str
+            type of variable we want to interpolate. Can be "lut", "noise", "incidence", "elevation"
 
         Returns
         -------
-        (List[str], List[str])
-            Tuple that contains the tiff files list sorted and the polarizations
+        xarray.DataArray
+            Variable interpolated and resampled
         """
-        pols = []
-        if len(list_tiff) > 1:
-            first_base = os.path.basename(list_tiff[0]).split(".")[0]
-            first_pol = first_base[-2:]
-            if first_pol[0] != first_pol[1]:
-                list_tiff.reverse()
-        for file in list_tiff:
-            base = os.path.basename(file).split(".")[0]
-            pol = base[-2:]
-            pols.append(pol)
-        return list_tiff, pols
+        accepted_types = ["lut", "noise", "incidence", "elevation"]
+        if type not in accepted_types:
+            raise ValueError("Please enter a type accepted ('lut', 'noise', 'incidence', 'elevation')")
+        lines = np.arange(self.objet_meta.geoloc.line[-1] + 1)
+        var_type = None
+        if type == 'noise':
+            # Give the good saving type and convert the noise values to linear
+            var_type = self._dtypes['noise_lut']
+            var = (10 ** (var / 10))
+        elif type == 'lut':
+            var_type = self._dtypes['sigma0_lut']
+        elif (type == 'incidence') or (type == 'elevation'):
+            var_type = self._dtypes[type]
+        var_2d = np.tile(var, (lines.shape[0], 1))
+        indexes = [first_pixel + step * i for i in range(0, var_2d.shape[1])]
+        # indexes are decreasing ? => we flip indexes and the lut samples ( RectBivariateSpline needs increasing dims )
+        if step < 0:
+            indexes = indexes[::-1]
+            var_2d = np.fliplr(var_2d)
+        interp_func = dask.delayed(RectBivariateSpline)(x=lines, y=indexes, z=var_2d, kx=1, ky=1)
+        da_var = map_blocks_coords(
+            self._da_tmpl.astype(var_type),
+            interp_func
+        )
+        return da_var
+
+    @timing
+    def _apply_calibration_lut(self, var_name):
+        """
+            Apply calibration lut to `digital_number` to compute `var_name`.
+
+            Parameters
+            ----------
+            var_name: str
+                Variable name to compute by applying lut. Must exist in `self._map_var_lut` to be able to get the corresponding lut.
+
+            Returns
+            -------
+            xarray.Dataset
+                with one variable named by `var_name`
+        """
+        lut = self._get_lut(var_name)
+        offset = lut.attrs['offset']
+        res = ((self._dataset.digital_number ** 2.) + offset) / lut
+        res = res.where(res > 0)
+        res.attrs.update(lut.attrs)
+        return res.to_dataset(name=var_name + '_raw')
+
+    @timing
+    def _get_noise(self, var_name):
+        """
+            Get noise equivalent for  `var_name`.
+
+            Parameters
+            ----------
+            var_name: str Variable name to compute. Must exist in `self._map_var_lut` and
+            `self._map_var_lut_noise` to be able to get the corresponding lut.
+
+            Returns
+            -------
+            xarray.Dataset
+                with one variable named by `'ne%sz' % var_name[0]` (ie 'nesz' for 'sigma0', 'nebz' for 'beta0', etc...)
+        """
+        name = 'ne%sz' % var_name[0]
+        try:
+            lut_name = self._map_var_lut[var_name]
+        except KeyError:
+            raise ValueError("can't find lut name for var '%s'" % var_name)
+        try:
+            lut = self._noise_luts[lut_name]
+        except KeyError:
+            raise ValueError("can't find noise lut from name '%s' for variable '%s' " % (lut_name, var_name))
+        return lut.to_dataset(name=name)
+
+    def apply_calibration_and_denoising(self):
+        """
+        apply calibration and denoising functions to get high resolution sigma0 , beta0 and gamma0 + variables *_raw
+
+        Returns:
+        --------
+
+        """
+        for var_name, lut_name in self._map_var_lut.items():
+            if lut_name in self._luts:
+                # merge var_name into dataset (not denoised)
+                self._dataset = self._dataset.merge(self._apply_calibration_lut(var_name))
+                # merge noise equivalent for var_name (named 'ne%sz' % var_name[0)
+                self._dataset = self._dataset.merge(self._get_noise(var_name))
+            else:
+                logger.debug("Skipping variable '%s' ('%s' lut is missing)" % (var_name, lut_name))
+        self._dataset = self._add_denoised(self._dataset)
+        self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
+        # self._dataset = self.datatree[
+        #     'measurement'].to_dataset()  # test oct 22 to see if then I can modify variables of the dt
+        return
+
+    def _add_denoised(self, ds, clip=False, vars=None):
+        """add denoised vars to dataset
+
+        Parameters
+        ----------
+        ds : xarray.DataSet
+            dataset with non denoised vars, named `%s_raw`.
+        clip : bool, optional
+            If True, negative signal will be clipped to 0. (default to False )
+        vars : list, optional
+            variables names to add, by default `['sigma0' , 'beta0' , 'gamma0']`
+
+        Returns
+        -------
+        xarray.DataSet
+            dataset with denoised vars
+        """
+        if vars is None:
+            vars = ['sigma0', 'beta0', 'gamma0']
+        for varname in vars:
+            varname_raw = varname + '_raw'
+            noise = 'ne%sz' % varname[0]
+            if varname_raw not in ds:
+                continue
+            else:
+                denoised = ds[varname_raw] - ds[noise]
+
+                if clip:
+                    denoised = denoised.clip(min=0)
+                    denoised.attrs['comment'] = 'clipped, no values <0'
+                else:
+                    denoised.attrs['comment'] = 'not clipped, some values can be <0'
+                ds[varname] = denoised
+        return ds
+
+    def _load_incidence_from_lut(self):
+        """
+        Load incidence from the reader as delayed
+
+        Returns
+        -------
+        xarray.Dataset
+            Contains delayed dataArrays of incidence
+        """
+        incidence = self.objet_meta.incidence.rename({'pixel': 'sample'})
+        angles = incidence.angles
+        first_pix = incidence.attrs['pixelFirstAnglesValue']
+        step = incidence.attrs['stepSize']
+        values_nb = incidence.attrs['numberOfValues']
+        lut_f_delayed = dask.delayed()(angles)
+        ar = dask.array.from_delayed(lut_f_delayed.data, (values_nb,), self._dtypes['incidence'])
+        da = xr.DataArray(data=ar, dims=['sample'], coords={'sample': angles.sample},
+                          attrs=angles.attrs)
+        da = self._interpolate_lut(da, first_pix, step, type='incidence')
+        # ds_lut_f_delayed = da.to_dataset(name='incidence')
+        # ds_lut_f_delayed.attrs = incidence.attrs
+        return da
+
+    @timing
+    def _load_elevation_from_lut(self):
+        """
+        Load elevation from lut.
+        Formula reference : `RSI-GS-026 RS-1 Data Products Specifications` 5.3.3.2.
+        this formula needs the orbit altitude. But 2 variables look like this one : `satelliteHeight` and `Altitude`.
+        We considered the satelliteHeight.
+
+        Returns
+        -------
+
+        """
+        # TODO : use the satellite height from the reader (when included in it)
+        satellite_height = 5.967789807991143e+05
+        earth_radius = 6.371e6
+        incidence = self._load_incidence_from_lut()
+        angle_rad = np.sin(np.radians(incidence))
+        inside = angle_rad * earth_radius / (earth_radius + satellite_height)
+        return np.degrees(np.arcsin(inside))
+
+    @timing
+    def load_from_geoloc(self, varnames, lazy_loading=True):
+        """
+        Interpolate (with RectBiVariateSpline) variables from `self.objet_meta.geoloc` to `self._dataset`
+
+        Parameters
+        ----------
+        varnames: list of str
+            subset of variables names in `self.objet_meta.geoloc`
+
+        Returns
+        -------
+        xarray.Dataset
+            With interpolated variables
+
+        """
+        mapping_dataset_geoloc = {'latitude': 'latitude',
+                                  'longitude': 'longitude',
+                                  'incidence': 'incidenceAngle',
+                                  'elevation': 'elevationAngle',
+                                  'altitude': 'height',
+                                  }
+        da_list = []
+
+        for varname in varnames:
+            varname_in_geoloc = mapping_dataset_geoloc[varname]
+
+            if varname == 'incidence':
+                da = self._load_incidence_from_lut()
+                da.name = varname
+                da_list.append(da)
+            elif varname == 'elevation':
+                da = self._load_elevation_from_lut()
+                da.name = varname
+                da_list.append(da)
+            else:
+                if varname == 'longitude':
+                    z_values = self.objet_meta.geoloc[varname]
+                    if self.objet_meta.cross_antemeridian:
+                        logger.debug('translate longitudes between 0 and 360')
+                        z_values = z_values % 360
+                else:
+                    z_values = self.objet_meta.geoloc[varname_in_geoloc]
+                interp_func = RectBivariateSpline(
+                    self.objet_meta.geoloc.line,
+                    self.objet_meta.geoloc.pixel,
+                    z_values,
+                    kx=1, ky=1
+                )
+                typee = self.objet_meta.geoloc[varname_in_geoloc].dtype
+                if lazy_loading:
+                    da_var = map_blocks_coords(
+                        self._da_tmpl.astype(typee),
+                        interp_func
+                    )
+                else:
+                    da_val = interp_func(self._dataset.digital_number.line, self._dataset.digital_number.sample)
+                    da_var = xr.DataArray(data=da_val, dims=['line', 'sample'],
+                                          coords={'line': self._dataset.digital_number.line,
+                                                  'sample': self._dataset.digital_number.sample})
+                if varname == 'longitude':
+                    if self.objet_meta.cross_antemeridian:
+                        da_var.data = da_var.data.map_blocks(to_lon180)
+
+                da_var.name = varname
+
+                # copy history
+                try:
+                    da_var.attrs['history'] = self.objet_meta.geoloc[varname_in_geoloc].attrs['xpath']
+                except KeyError:
+                    pass
+
+                da_list.append(da_var)
+        ds = xr.merge(da_list)
+        return ds
+
+    @property
+    def interpolate_times(self):
+        """
+        Apply interpolation with RectBivariateSpline to the azimuth time extracted from `self.objet_meta.geoloc`
+
+        Returns
+        -------
+        xarray.Dataset
+            Contains the time as delayed at the good resolution and expressed as type datetime64[ns]
+        """
+        times = self.objet_meta.get_azitime
+        lines = self.objet_meta.geoloc.line
+        samples = self.objet_meta.geoloc.pixel
+        time_values_2d = np.tile(times, (samples.shape[0], 1)).transpose()
+        print(f"times : {times.shape} \n lines : {lines.shape} \n samples : {samples.shape} \n z : {time_values_2d.shape}")
+        interp_func = RectBivariateSpline(x=lines, y=samples, z=time_values_2d.astype(float), kx=1, ky=1)
+        da_var = map_blocks_coords(
+            self._da_tmpl.astype('datetime64[ns]'),
+            interp_func
+        )
+        return da_var.isel(sample=0).to_dataset(name='time')
+
+    def get_sensor_velocity(self):
+        """
+        Interpolated sensor velocity
+        Returns
+        -------
+        xarray.Dataset()
+            containing a single variable velocity
+        """
+        azimuth_times = self.objet_meta.get_azitime
+        orbstatevect = self.objet_meta.orbit
+        velos = np.array(
+            [orbstatevect['xVelocity'] ** 2., orbstatevect['yVelocity'] ** 2., orbstatevect['zVelocity'] ** 2.])
+        vels = np.sqrt(np.sum(velos, axis=0))
+        interp_f = interp1d(azimuth_times.astype(float), vels)
+        _vels = interp_f(self.interpolate_times['time'].astype(float))
+        res = xr.DataArray(_vels, dims=['line'], coords={'line': self.dataset.line})
+        return xr.Dataset({'velocity': res})
 
     @timing
     def _load_digital_number(self, resolution=None, chunks=None, resampling=rasterio.enums.Resampling.rms):
@@ -172,13 +612,51 @@ class RcmDataset(BaseDataset):
             dataset (possibly dual-pol), with basic coords/dims naming convention
         """
 
+        def _list_tiff_files():
+            """
+            Return a list that contains all tiff files paths
+
+            Returns
+            -------
+            List[str]
+                List of Tiff file paths located in a folder
+            """
+
+            return glob.glob(os.path.join(self.objet_meta.path, "imagery", "*"))
+
+        def _sort_list_files_and_get_pols(list_tiff):
+            """
+            From a list of tiff files, sort it to get the co polarization tiff file as the first element, and extract pols
+
+            Parameters
+            ----------
+            list_tiff: List[str]
+                List of tiff files
+
+            Returns
+            -------
+            (List[str], List[str])
+                Tuple that contains the tiff files list sorted and the polarizations
+            """
+            pols = []
+            if len(list_tiff) > 1:
+                first_base = os.path.basename(list_tiff[0]).split(".")[0]
+                first_pol = first_base[-2:]
+                if first_pol[0] != first_pol[1]:
+                    list_tiff.reverse()
+            for file in list_tiff:
+                base = os.path.basename(file).split(".")[0]
+                pol = base[-2:]
+                pols.append(pol)
+            return list_tiff, pols
+
         map_dims = {
             'pol': 'band',
             'line': 'y',
             'sample': 'x'
         }
-        tiff_files = self._list_tiff_files()
-        tiff_files, pols = self._sort_list_files_and_get_pols(tiff_files)
+        tiff_files = _list_tiff_files()
+        tiff_files, pols = _sort_list_files_and_get_pols(tiff_files)
         if resolution is not None:
             comment = 'resampled at "%s" with %s.%s.%s' % (
                 resolution, resampling.__module__, resampling.__class__.__name__, resampling.name)
@@ -216,8 +694,8 @@ class RcmDataset(BaseDataset):
                 if isinstance(resolution, str) and resolution.endswith('m'):
                     resolution = float(resolution[:-1])
                     self.resolution = resolution
-                resolution = dict(line=resolution / self.rcmeta.pixel_line_m,
-                                  sample=resolution / self.rcmeta.pixel_sample_m)
+                resolution = dict(line=resolution / self.objet_meta.pixel_line_m,
+                                  sample=resolution / self.objet_meta.pixel_sample_m)
                 # resolution = dict(line=resolution / self.dataset['sampleSpacing'].values,
                 #                   sample=resolution / self.dataset['lineSpacing'].values)
 
@@ -276,7 +754,7 @@ class RcmDataset(BaseDataset):
             'history': yaml.safe_dump(
                 {
                     var_name: get_glob(
-                        [p.replace(self.rcmeta.path + '/', '') for p in tiff_files])
+                        [p.replace(self.objet_meta.path + '/', '') for p in tiff_files])
                 }
             )
         }
@@ -286,3 +764,38 @@ class RcmDataset(BaseDataset):
             ds = ds.astype(self._dtypes[var_name])
 
         return ds
+
+    def __repr__(self):
+        if self.sliced:
+            intro = "sliced"
+        else:
+            intro = "full coverage"
+        return "<RadarSat2Dataset %s object>" % intro
+
+    @property
+    def dataset(self):
+        """
+        `xarray.Dataset` representation of this `xsar.RcmDataset` object.
+        This property can be set with a new dataset, if the dataset was computed from the original dataset.
+        """
+        # return self._dataset
+        res = self.datatree['measurement'].to_dataset()
+        res.attrs = self.datatree.attrs
+        return res
+
+    @dataset.setter
+    def dataset(self, ds):
+        if self.objet_meta.name == ds.attrs['name']:
+            # check if new ds has changed coordinates
+            if not self.sliced:
+                self.sliced = any(
+                    [list(ds[d].values) != list(self._dataset[d].values) for d in ['line', 'sample']])
+            self._dataset = ds
+            # self._dataset = self.datatree['measurement'].ds
+            self.recompute_attrs()
+        else:
+            raise ValueError("dataset must be same kind as original one.")
+
+    @dataset.deleter
+    def dataset(self):
+        logger.debug('deleter dataset')

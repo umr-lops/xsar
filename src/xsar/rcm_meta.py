@@ -69,7 +69,10 @@ class RcmMeta(BaseMeta):
         var_with_coeff = ['noise_lut', 'lut', 'incidence']
         for var in var_with_coeff:
             self.dt[self._xpath[var]] = self.dt[self._xpath[var]].rename({'coefficients': 'pixel'})
+        # build pixels coords
+        self.assign_index(var_with_coeff)
 
+        # flip line and samples when necessary to respect `xsar` convention
         self.samples_flipped = False
         self.lines_flipped = False
         self.flip_sample_da()
@@ -122,6 +125,70 @@ class RcmMeta(BaseMeta):
                 self.dt[self._xpath[ds_name]] = self.dt[self._xpath[ds_name]].copy().isel(line=slice(None, None, -1))\
                     .assign_coords(line=self.dt[self._xpath[ds_name]].ds.line)
             self.lines_flipped = True
+        return
+
+    def assign_index(self, ds_list):
+        """
+        Generate a list of increasing indexes as a dataset coord. The change is made directly in the reader's datatree
+        to all the datasets given in ds_list.
+        The list of indexes is built thanks to a firstPixelValue, a step and a number of values.
+
+        Parameters
+        ----------
+        ds_list : List[str]
+            List of dataset that don't have the samples list built. The list can contain these values :
+            ['lut', 'noise_lut', 'incidence'].
+
+        Returns
+        -------
+        """
+        def _assign_index_lut():
+            xpath = self._xpath['lut']
+            lut = self.dt[xpath].ds.lookup_tables
+            first_pix = lut.attrs['pixelFirstLutValue']
+            step = lut.attrs['stepSize']
+            values_nb = lut.attrs['numberOfValues']
+            indexes = [first_pix + step * i for i in range(0, values_nb)]
+            # we want increasing indexes
+            if step < 0:
+                indexes = indexes[::-1]
+            self.dt[xpath] = self.dt[xpath].assign_coords(pixel=indexes)
+            return
+
+        def _assign_index_noise_lut():
+            xpath = self._xpath['noise_lut']
+            noise_lut = self.dt[xpath].ds
+            first_pix = noise_lut.pixelFirstNoiseValue
+            step = noise_lut.stepSize
+            values_nb = noise_lut.attrs['numberOfValues']
+            indexes = [first_pix + step * i for i in range(0, values_nb)]
+            # we want increasing indexes
+            if step < 0:
+                indexes = indexes[::-1]
+            self.dt[xpath] = self.dt[xpath].assign_coords(pixel=indexes)
+            return
+
+        def _assign_index_incidence():
+            xpath = self._xpath['incidence']
+            incidence = self.dt[xpath].ds
+            first_pix = incidence.attrs['pixelFirstAnglesValue']
+            step = incidence.attrs['stepSize']
+            values_nb = incidence.attrs['numberOfValues']
+            indexes = [first_pix + step * i for i in range(0, values_nb)]
+            # we want increasing indexes
+            if step < 0:
+                indexes = indexes[::-1]
+            self.dt[xpath] = self.dt[xpath].assign_coords(pixel=indexes)
+            return
+
+        if not all(item in ['lut', 'noise_lut', 'incidence'] for item in ds_list):
+            raise ValueError("Please enter accepted dataset names ('lut', 'noise_lut', 'incidence')")
+        if 'lut' in ds_list:
+            _assign_index_lut()
+        if 'noise_lut' in ds_list:
+            _assign_index_noise_lut()
+        if 'incidence' in ds_list:
+            _assign_index_incidence()
         return
 
     def _create_manifest_attrs(self):

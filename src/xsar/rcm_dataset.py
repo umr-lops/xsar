@@ -102,6 +102,8 @@ class RcmDataset(BaseDataset):
 
         # build datatree
         DN_tmp = self._load_digital_number(resolution=resolution, resampling=resampling, chunks=chunks)
+        DN_tmp = self.flip_sample_da(DN_tmp)
+        DN_tmp = self.flip_line_da(DN_tmp)
 
         ### geoloc
         geoloc = self.objet_meta.geoloc
@@ -229,14 +231,12 @@ class RcmDataset(BaseDataset):
                         'pixel': 'sample',
                         }
                     )
-                first_pix = lut.attrs['pixelFirstLutValue']
-                step = lut.attrs['stepSize']
                 values_nb = lut.attrs['numberOfValues']
                 lut_f_delayed = dask.delayed()(lut)
                 ar = dask.array.from_delayed(lut_f_delayed.data, (values_nb,), lut.dtype)
                 da = xr.DataArray(data=ar, dims=['sample'], coords={'sample': lut.sample},
                                   attrs=lut.attrs)
-                da = self._interpolate_lut(da, first_pix, step).assign_coords(pole=pola).rename({'pole': 'pol'})
+                da = self._interpolate_var(da).assign_coords(pole=pola).rename({'pole': 'pol'})
                 list_da.append(da)
             full_da = xr.concat(list_da, dim='pol')
             full_da.attrs = lut.attrs
@@ -263,13 +263,11 @@ class RcmDataset(BaseDataset):
                         'pixel': 'sample',
                         }
                     )
-                first_pix = lut.pixelFirstNoiseValue
-                step = lut.stepSize
                 lut_f_delayed = dask.delayed()(lut)
                 ar = dask.array.from_delayed(lut_f_delayed.data, (values_nb,), lut.dtype)
                 da = xr.DataArray(data=ar, dims=['sample'], coords={'sample': lut.sample},
                                   attrs=lut.attrs)
-                da = self._interpolate_lut(da, first_pix, step, type='noise').assign_coords(pole=pola)\
+                da = self._interpolate_var(da, type='noise').assign_coords(pole=pola)\
                     .rename({'pole': 'pol'})
                 list_da.append(da)
             full_da = xr.concat(list_da, dim='pol')
@@ -278,7 +276,7 @@ class RcmDataset(BaseDataset):
         return xr.merge(merge_list)
 
     @timing
-    def _interpolate_lut(self, var, first_pixel, step, type="lut"):
+    def _interpolate_var(self, var, type="lut"):
         """
         Interpolate look up table (from the reader) or another variable and resample it.
         Initial values are at low resolution, and the high resolution range is made from the pixel first noise
@@ -289,12 +287,6 @@ class RcmDataset(BaseDataset):
         ----------
         var: xarray.DataArray
             variable we want to interpolate (lut extracted from the reader :noise or calibration ; incidence; elevation)
-
-        first_pixel: int
-            pixelFirstValue
-
-        step: int
-            stepSize to apply
 
         type: str
             type of variable we want to interpolate. Can be "lut", "noise", "incidence", "elevation"
@@ -307,7 +299,8 @@ class RcmDataset(BaseDataset):
         accepted_types = ["lut", "noise", "incidence", "elevation"]
         if type not in accepted_types:
             raise ValueError("Please enter a type accepted ('lut', 'noise', 'incidence', 'elevation')")
-        lines = np.arange(self.objet_meta.geoloc.line[-1] + 1)
+        lines = self.objet_meta.geoloc.line
+        samples = var.sample
         var_type = None
         if type == 'noise':
             # Give the good saving type and convert the noise values to linear
@@ -318,12 +311,7 @@ class RcmDataset(BaseDataset):
         elif (type == 'incidence') or (type == 'elevation'):
             var_type = self._dtypes[type]
         var_2d = np.tile(var, (lines.shape[0], 1))
-        indexes = [first_pixel + step * i for i in range(0, var_2d.shape[1])]
-        # indexes are decreasing ? => we flip indexes and the lut samples ( RectBivariateSpline needs increasing dims )
-        if step < 0:
-            indexes = indexes[::-1]
-            var_2d = np.fliplr(var_2d)
-        interp_func = dask.delayed(RectBivariateSpline)(x=lines, y=indexes, z=var_2d, kx=1, ky=1)
+        interp_func = dask.delayed(RectBivariateSpline)(x=lines, y=samples, z=var_2d, kx=1, ky=1)
         da_var = map_blocks_coords(
             self._da_tmpl.astype(var_type),
             interp_func
@@ -446,14 +434,12 @@ class RcmDataset(BaseDataset):
         """
         incidence = self.objet_meta.incidence.rename({'pixel': 'sample'})
         angles = incidence.angles
-        first_pix = incidence.attrs['pixelFirstAnglesValue']
-        step = incidence.attrs['stepSize']
         values_nb = incidence.attrs['numberOfValues']
         lut_f_delayed = dask.delayed()(angles)
         ar = dask.array.from_delayed(lut_f_delayed.data, (values_nb,), self._dtypes['incidence'])
         da = xr.DataArray(data=ar, dims=['sample'], coords={'sample': angles.sample},
                           attrs=angles.attrs)
-        da = self._interpolate_lut(da, first_pix, step, type='incidence')
+        da = self._interpolate_var(da, type='incidence')
         # ds_lut_f_delayed = da.to_dataset(name='incidence')
         # ds_lut_f_delayed.attrs = incidence.attrs
         return da
@@ -770,7 +756,58 @@ class RcmDataset(BaseDataset):
             intro = "sliced"
         else:
             intro = "full coverage"
-        return "<RadarSat2Dataset %s object>" % intro
+        return "<RcmDataset %s object>" % intro
+
+    @timing
+    def flip_sample_da(self, ds):
+        """
+        When a product is flipped, flip back data arrays (from a dataset) sample dimensions to respect the xsar
+        convention (increasing incidence values)
+
+        Parameters
+        ----------
+        ds : xarray.Dataset
+            Contains dataArrays which depends on `sample` dimension
+
+        Returns
+        -------
+        xarray.Dataset
+            Flipped back, respecting the xsar convention
+        """
+        antenna_pointing = self.objet_meta.dt['sourceAttributes/radarParameters'].attrs['antennaPointing']
+        pass_direction = self.objet_meta.dt['sourceAttributes/orbitAndAttitude/orbitInformation'].attrs['passDirection']
+        flipped_cases = [('Left', 'Ascending'), ('Right', 'Descending')]
+        if (antenna_pointing, pass_direction) in flipped_cases:
+            new_ds = ds.copy().isel(sample=slice(None, None, -1)).assign_coords(sample=ds.sample)
+        else:
+            new_ds = ds
+        return new_ds
+
+    @timing
+    def flip_line_da(self, ds):
+        """
+        Flip dataArrays (from a dataset) that depend on line dimension when a product is ascending, in order to
+        respect the xsar convention (increasing time along line axis, whatever ascending or descending product).
+        Reference : `schemas/rs2prod_burstAttributes.xsd:This corresponds to the top-left pixel in a coordinate
+        system where the range increases to the right and the zero-Doppler time increases downward. Note that this is
+        not necessarily the top-left pixel of the image block in the final product.`
+
+        Parameters
+        ----------
+        ds : xarray.Dataset
+            Contains dataArrays which depends on `line` dimension
+
+        Returns
+        -------
+        xarray.Dataset
+            Flipped back, respecting the xsar convention
+        """
+        pass_direction = self.objet_meta.dt['sourceAttributes/orbitAndAttitude/orbitInformation'].attrs['passDirection']
+        if pass_direction == 'Ascending':
+            new_ds = ds.copy().isel(line=slice(None, None, -1)).assign_coords(line=ds.line)
+        else:
+            new_ds = ds.copy()
+        return new_ds
 
     @property
     def dataset(self):

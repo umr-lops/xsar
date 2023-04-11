@@ -73,7 +73,9 @@ class RcmDataset(BaseDataset):
                  chunks={'line': 5000, 'sample': 5000},
                  dtypes=None, lazyloading=True, skip_variables=None):
         if skip_variables is None:
-            skip_variables = []
+            # TODO : Remove `velocity` from the skip_variable when the problem is resolved
+            #  (must understand link between time and lines)
+            skip_variables = ['velocity']
         # default dtypes
         if dtypes is not None:
             self._dtypes.update(dtypes)
@@ -101,7 +103,7 @@ class RcmDataset(BaseDataset):
             )
 
         # build datatree
-        DN_tmp = self._load_digital_number(resolution=resolution, resampling=resampling, chunks=chunks)
+        DN_tmp = self.load_digital_number(resolution=resolution, resampling=resampling, chunks=chunks)
         DN_tmp = self.flip_sample_da(DN_tmp)
         DN_tmp = self.flip_line_da(DN_tmp)
 
@@ -289,16 +291,16 @@ class RcmDataset(BaseDataset):
             variable we want to interpolate (lut extracted from the reader :noise or calibration ; incidence; elevation)
 
         type: str
-            type of variable we want to interpolate. Can be "lut", "noise", "incidence", "elevation"
+            type of variable we want to interpolate. Can be "lut", "noise", "incidence"
 
         Returns
         -------
         xarray.DataArray
             Variable interpolated and resampled
         """
-        accepted_types = ["lut", "noise", "incidence", "elevation"]
+        accepted_types = ["lut", "noise", "incidence"]
         if type not in accepted_types:
-            raise ValueError("Please enter a type accepted ('lut', 'noise', 'incidence', 'elevation')")
+            raise ValueError("Please enter a type accepted ('lut', 'noise', 'incidence')")
         lines = self.objet_meta.geoloc.line
         samples = var.sample
         var_type = None
@@ -308,7 +310,7 @@ class RcmDataset(BaseDataset):
             var = (10 ** (var / 10))
         elif type == 'lut':
             var_type = self._dtypes['sigma0_lut']
-        elif (type == 'incidence') or (type == 'elevation'):
+        elif type == 'incidence':
             var_type = self._dtypes[type]
         var_2d = np.tile(var, (lines.shape[0], 1))
         interp_func = dask.delayed(RectBivariateSpline)(x=lines, y=samples, z=var_2d, kx=1, ky=1)
@@ -580,7 +582,7 @@ class RcmDataset(BaseDataset):
         return xr.Dataset({'velocity': res})
 
     @timing
-    def _load_digital_number(self, resolution=None, chunks=None, resampling=rasterio.enums.Resampling.rms):
+    def load_digital_number(self, resolution=None, chunks=None, resampling=rasterio.enums.Resampling.rms):
         """
         load digital_number from tiff files, as an `xarray.Dataset`.
 

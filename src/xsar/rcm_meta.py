@@ -131,6 +131,7 @@ class RcmMeta(BaseMeta):
         Generate a list of increasing indexes as a dataset coord. The change is made directly in the reader's datatree
         to all the datasets given in ds_list.
         The list of indexes is built thanks to a firstPixelValue, a step and a number of values.
+        Documentation reference : RCM Image Product Format Definition (7.5.1)
 
         Parameters
         ----------

@@ -448,7 +448,6 @@ class RcmDataset(BaseDataset):
     def _load_elevation_from_lut(self):
         """
         Load elevation from lut.
-        Formula reference : `RSI-GS-026 RS-1 Data Products Specifications` 5.3.3.2.
         this formula needs the orbit altitude. But 2 variables look like this one : `satelliteHeight` and `Altitude`.
         We considered the satelliteHeight.
 
@@ -456,7 +455,8 @@ class RcmDataset(BaseDataset):
         -------
 
         """
-        # TODO : use the satellite height from the reader (when included in it)
+        # TODO : use the satellite height from the reader (when included in it).
+        #  Issue : https://github.com/umr-lops/xarray-safe-rcm/issues/17
         satellite_height = 5.967789807991143e+05
         earth_radius = 6.371e6
         incidence = self._load_incidence_from_lut()
@@ -554,7 +554,6 @@ class RcmDataset(BaseDataset):
         lines = self.objet_meta.geoloc.line
         samples = self.objet_meta.geoloc.pixel
         time_values_2d = np.tile(times, (samples.shape[0], 1)).transpose()
-        print(f"times : {times.shape} \n lines : {lines.shape} \n samples : {samples.shape} \n z : {time_values_2d.shape}")
         interp_func = RectBivariateSpline(x=lines, y=samples, z=time_values_2d.astype(float), kx=1, ky=1)
         da_var = map_blocks_coords(
             self._da_tmpl.astype('datetime64[ns]'),

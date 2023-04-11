@@ -97,7 +97,8 @@ class RcmMeta(BaseMeta):
     def flip_sample_da(self):
         """
         When a product is flipped, flip back data arrays (from the reader datatree) sample dimensions to respect the xsar
-        convention (increasing incidence values)
+        convention (increasing incidence values).
+        Documentation reference : RCM Image Product Format Definition (4.2.1)
         """
         antenna_pointing = self.dt['sourceAttributes/radarParameters'].attrs['antennaPointing']
         pass_direction = self.dt['sourceAttributes/orbitAndAttitude/orbitInformation'].attrs['passDirection']
@@ -114,9 +115,7 @@ class RcmMeta(BaseMeta):
         """
         Flip dataArrays (from the reader datatree) that depend on line dimension when a product is ascending, in order to
         respect the xsar convention (increasing time along line axis, whatever ascending or descending product).
-        Reference : `schemas/rs2prod_burstAttributes.xsd:This corresponds to the top-left pixel in a coordinate
-        system where the range increases to the right and the zero-Doppler time increases downward. Note that this is
-        not necessarily the top-left pixel of the image block in the final product.`
+        Documentation reference : RCM Image Product Format Definition (4.2.1)
         """
         pass_direction = self.dt['sourceAttributes/orbitAndAttitude/orbitInformation'].attrs['passDirection']
         samples_depending_ds = ['geolocationGrid']

@@ -47,14 +47,14 @@ pip install xsar[RS2]
 
 ```
 pip install git+https://github.com/umr-lops/xarray-safe-rcm.git
-pip install xsar[RCM]
+pip install xsar
 ```
 
 - Install xsar including Radarsat2 and RCM:
 
 ```
 pip install git+https://github.com/umr-lops/xarray-safe-rcm.git
-pip install xsar[RS2,RCM]
+pip install xsar[RS2]
 ```
 
 

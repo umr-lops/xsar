@@ -11,12 +11,66 @@ So insallation in a conda_ environement is recommended.
 conda install
 #############
 
+1) Install xsar (this will only permit to use Sentinel1)
 
 .. code-block::
 
     conda create -n xsar
     conda activate xsar
     conda install -c conda-forge xsar
+
+
+2) Add optional dependencies
+
+- Add use of Radarsat2 :
+
+.. code-block::
+
+    conda install -c conda-forge xradarsat2
+
+
+- Add use of RCM
+
+.. code-block::
+
+    pip install git+https://github.com/umr-lops/xarray-safe-rcm.git
+
+
+pip install
+###########
+
+1) Install xsar (this will only permit to use Sentinel1)
+
+.. code-block::
+
+    conda create -n xsar
+    conda activate xsar
+    pip install xsar
+
+
+2) install xsar with optional dependencies (to use Radarsat2, RCM...)
+
+- Install xsar including Radarsat2 :
+
+.. code-block::
+
+    pip install xsar[RS2]
+
+
+- Install xsar including RCM :
+
+.. code-block::
+
+    pip install git+https://github.com/umr-lops/xarray-safe-rcm.git
+    pip install xsar[RCM]
+
+
+- Install xsar including Radarsat2 and RCM:
+
+.. code-block::
+
+    pip install git+https://github.com/umr-lops/xarray-safe-rcm.git
+    pip install xsar[RS2,RCM]
 
 
 recommended packages

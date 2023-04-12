@@ -36,8 +36,11 @@ setup(
         'pytz',
         'psutil',
         'requests',
-        'xradarsat2'
     ],
+    extras_require={
+        "RS2": ["xradarsat2"],
+        "RCM": ["xarray-safe-rcm"],
+    },
     entry_points={
         "xarray.backends": ["xsar=xsar.xarray_backends:XsarXarrayBackend"]
     },

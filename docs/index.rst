@@ -90,8 +90,7 @@ Last documentation build: |today|
 
 
 .. toctree::
-   :maxdepth: 9
-   :hidden:
+   :maxdepth: 1
    :caption: Examples
 
    examples/xsar

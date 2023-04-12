@@ -7,10 +7,56 @@ Sentinel1 Level 1 python reader for efficient xarray/dask based processor
 
 # Install
 
+## Conda
+
+1) Install xsar (this will only permit to use Sentinel1)
 
 ```
 conda install -c conda-forge xsar
 ```
+2) Add optional dependencies
+
+- Add use of Radarsat2 :
+
+```
+conda install -c conda-forge xradarsat2
+```
+
+- Add use of RCM
+
+```
+pip install git+https://github.com/umr-lops/xarray-safe-rcm.git
+```
+
+## Pypi
+
+1) Install xsar (this will only permit to use Sentinel1)
+
+```
+pip install xsar
+```
+2) install xsar with optional dependencies (to use Radarsat2, RCM...)
+
+- Install xsar including Radarsat2 :
+
+```
+pip install xsar[RS2]
+```
+
+- Install xsar including RCM :
+
+```
+pip install git+https://github.com/umr-lops/xarray-safe-rcm.git
+pip install xsar[RCM]
+```
+
+- Install xsar including Radarsat2 and RCM:
+
+```
+pip install git+https://github.com/umr-lops/xarray-safe-rcm.git
+pip install xsar[RS2,RCM]
+```
+
 
 ```python
 >>> import xsar

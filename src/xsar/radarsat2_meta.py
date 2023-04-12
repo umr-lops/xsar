@@ -5,7 +5,6 @@ from scipy.interpolate import RectBivariateSpline
 from shapely.geometry import Polygon
 
 from .utils import haversine, timing
-from xradarsat2 import rs2_reader
 import os
 import geopandas as gpd
 import numpy as np
@@ -31,6 +30,7 @@ class RadarSat2Meta(BaseMeta):
 
     @timing
     def __init__(self, name):
+        from xradarsat2 import rs2_reader
         if ':' in name:
             self.dt = rs2_reader(name.split(':')[1])
         else:

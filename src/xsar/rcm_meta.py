@@ -7,7 +7,6 @@ from .utils import haversine, timing
 from .base_meta import BaseMeta
 import os
 import numpy as np
-from safe_rcm import api
 import pandas as pd
 import geopandas as gpd
 
@@ -28,6 +27,7 @@ class RcmMeta(BaseMeta):
 
     @timing
     def __init__(self, name):
+        from safe_rcm import api
         if ':' in name:
             self.dt = api.open_rcm(name.split(':')[1])
         else:

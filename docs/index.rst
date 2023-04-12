@@ -50,6 +50,8 @@ Examples
 
 * :doc:`examples/radarsat2`
 
+* :doc:`examples/rcm`
+
 * :doc:`examples/projections`
 
 * :doc:`examples/mask`
@@ -88,18 +90,19 @@ Last documentation build: |today|
 
 
 .. toctree::
-   :maxdepth: 3
+   :maxdepth: 9
    :hidden:
    :caption: Examples
 
    examples/xsar
    examples/xsar_advanced
+   examples/radarsat2
+   examples/rcm
    examples/projections
    examples/mask
    examples/xsar_multiple
    examples/xsar_batch_datarmor
    examples/xsar_tops_slc
-   examples/radarsat2
 
 .. toctree::
    :maxdepth: 1

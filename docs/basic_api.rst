@@ -16,11 +16,11 @@ Base classes
 XSAR Meta classes
 =================
 .. automodule:: xsar
-    :members: Sentinel1Meta, RadarSat2Meta
+    :members: Sentinel1Meta, RadarSat2Meta, RcmMeta
 
 XSAR Dataset classes
 ====================
 .. automodule:: xsar
-    :members: Sentinel1Dataset, RadarSat2Dataset
+    :members: Sentinel1Dataset, RadarSat2Dataset, RcmDataset
 
 

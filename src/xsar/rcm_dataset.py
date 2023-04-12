@@ -205,6 +205,7 @@ class RcmDataset(BaseDataset):
 
         self._luts = self.lazy_load_luts()
         self._noise_luts = self.lazy_load_noise_luts()
+        self._noise_luts = self._noise_luts.drop(['pixelFirstNoiseValue', 'stepSize'])
         self.apply_calibration_and_denoising()
         self._dataset = xr.merge([self.load_from_geoloc(geoloc_vars, lazy_loading=lazyloading), self._dataset])
         if 'ground_heading' not in skip_variables:

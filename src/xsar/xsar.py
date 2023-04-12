@@ -73,7 +73,7 @@ def open_dataset(*args, **kwargs):
     """
     dataset_id = args[0]
     # TODO: check product type (S1, RS2), and call specific reader
-    if isinstance(dataset_id, Sentinel1Meta) or isinstance(dataset_id, str) and ".SAFE" in dataset_id:
+    if isinstance(dataset_id, Sentinel1Meta) or isinstance(dataset_id, str) and "S1" in dataset_id:
         sar_obj = Sentinel1Dataset(*args, **kwargs)
     elif isinstance(dataset_id, RadarSat2Meta) or isinstance(dataset_id, str) and "RS2" in dataset_id:
         sar_obj = RadarSat2Dataset(*args, **kwargs)
@@ -114,7 +114,7 @@ def open_datatree(*args, **kwargs):
     """
     dataset_id = args[0]
     # Check product type (S1, RS2), and call specific reader
-    if isinstance(dataset_id, Sentinel1Meta) or isinstance(dataset_id, str) and ".SAFE" in dataset_id:
+    if isinstance(dataset_id, Sentinel1Meta) or isinstance(dataset_id, str) and "S1" in dataset_id:
         sar_obj = Sentinel1Dataset(*args, **kwargs)
     elif isinstance(dataset_id, RadarSat2Meta) or isinstance(dataset_id, str) and "RS2" in dataset_id:
         sar_obj = RadarSat2Dataset(*args, **kwargs)

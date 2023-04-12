@@ -215,6 +215,8 @@ class RcmDataset(BaseDataset):
         self._rasterized_masks = self.load_rasterized_masks()
         self._dataset = xr.merge([self._rasterized_masks, self._dataset])
         self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
+        # merge the datatree with the reader
+        self.reconfigure_reader_datatree()
 
     def lazy_load_luts(self):
         """
@@ -809,6 +811,16 @@ class RcmDataset(BaseDataset):
         else:
             new_ds = ds.copy()
         return new_ds
+
+    def reconfigure_reader_datatree(self):
+        """
+        Merge self.datatree with the reader's one.
+        Merge attributes of the reader's datatree in the attributes of self.datatree
+        """
+        for group in self.objet_meta.dt:
+            self.datatree[group] = self.objet_meta.dt[group]
+        self.datatree.attrs |= self.objet_meta.dt.attrs
+        return
 
     @property
     def dataset(self):

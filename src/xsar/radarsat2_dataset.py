@@ -94,7 +94,7 @@ class RadarSat2Dataset(BaseDataset):
             raise IndexError(
                 """Can't open an multi-dataset. Use `xsar.RadarSat2Meta('%s').subdatasets` to show availables ones""" % self.rs2meta.path
             )
-        
+
         from xradarsat2 import load_digital_number
         # build datatree
         DN_tmp = load_digital_number(self.rs2meta.dt, resolution=resolution,

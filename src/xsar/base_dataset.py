@@ -796,8 +796,6 @@ class BaseDataset(ABC):
                 raster_ds = xr.open_dataset(resource_dec[1], chunk=1000)
             else:
                 # read_function should return a chunked dataset (so it's fast)
-                print(resource_dec[1])
-                print(infos['read_function'])
                 raster_ds = read_function(resource_dec[1], **kwargs_read)
 
             # add globals raster attrs to globals dataset attrs

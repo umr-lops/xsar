@@ -208,6 +208,9 @@ class RcmDataset(BaseDataset):
         self._noise_luts = self._noise_luts.drop(['pixelFirstNoiseValue', 'stepSize'])
         self.apply_calibration_and_denoising()
         self._dataset = xr.merge([self.load_from_geoloc(geoloc_vars, lazy_loading=lazyloading), self._dataset])
+        rasters = self._load_rasters_vars()
+        if rasters is not None:
+            self._dataset = xr.merge([self._dataset, rasters])
         if 'ground_heading' not in skip_variables:
             self._dataset = xr.merge([self.load_ground_heading(), self._dataset])
         if 'velocity' not in skip_variables:

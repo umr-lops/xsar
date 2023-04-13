@@ -215,6 +215,9 @@ class RadarSat2Dataset(BaseDataset):
         self._luts = self.lazy_load_luts()
         self.apply_calibration_and_denoising()
         self._dataset = xr.merge([self.load_from_geoloc(geoloc_vars, lazy_loading=lazyloading), self._dataset])
+        rasters = self._load_rasters_vars()
+        if rasters is not None:
+            self._dataset = xr.merge([self._dataset, rasters])
         self._dataset = xr.merge([self.interpolate_times, self._dataset])
         if 'ground_heading' not in skip_variables:
             self._dataset = xr.merge([self.load_ground_heading(), self._dataset])

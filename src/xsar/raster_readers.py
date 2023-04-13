@@ -50,7 +50,6 @@ def resource_strftime(resource, **kwargs):
     return date, url_get(date.strftime(resource))
 
 
-
 def _to_lon180(ds):
     # roll [0, 360] to [-180, 180] on dim x
     ds = ds.roll(x=-np.searchsorted(ds.x, 180), roll_coords=True)
@@ -91,6 +90,7 @@ def ecmwf_0100_1h(fname):
 
     return ecmwf_ds
 
+
 def ecmwf_0125_1h(fname):
     """
     ecmwf 0.125 deg 1h reader (ecmwf_201709071100.nc)
@@ -124,6 +124,7 @@ def ecmwf_0125_1h(fname):
     ecmwf_ds.rio.write_crs("EPSG:4326", inplace=True)
 
     return ecmwf_ds
+
 
 def hwrf_0015_3h(fname,**kwargs):
     """
@@ -161,6 +162,7 @@ def hwrf_0015_3h(fname,**kwargs):
     hwrf_ds.rio.write_crs("EPSG:4326", inplace=True)
 
     return hwrf_ds
+
 
 def gebco(gebco_files):
     """gebco file reader (geotiff from https://www.gebco.net/data_and_products/gridded_bathymetry_data)"""

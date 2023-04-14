@@ -1,5 +1,6 @@
 import pandas as pd
 import rasterio
+import xradarsat2
 from rasterio.control import GroundControlPoint
 from scipy.interpolate import RectBivariateSpline
 from shapely.geometry import Polygon
@@ -32,9 +33,9 @@ class RadarSat2Meta(BaseMeta):
     def __init__(self, name):
         from xradarsat2 import rs2_reader
         if ':' in name:
-            self.dt = rs2_reader(name.split(':')[1])
+            self.dt = xradarsat2.rs2_reader(name.split(':')[1])
         else:
-            self.dt = rs2_reader(name)
+            self.dt = xradarsat2.rs2_reader(name)
         if not name.startswith('RADARSAT2_DS:'):
             name = 'RADARSAT2_DS:%s:' % name
         self.name = name
@@ -281,9 +282,11 @@ class RadarSat2Meta(BaseMeta):
         antenna_pointing = self.dt['radarParameters'].attrs['antennaPointing']
         pass_direction = self.dt.attrs['passDirection']
         flipped_cases = [('Left', 'Ascending'), ('Right', 'Descending')]
-        samples_depending_ds = ['geolocationGrid', 'lut']
+        samples_depending_ds = ['geolocationGrid', 'lut', 'radarParameters']
         if (antenna_pointing, pass_direction) in flipped_cases:
             for ds_name in samples_depending_ds:
+                if 'radar' in ds_name:
+                    self.dt[ds_name] = self.dt[ds_name].rename({'NbOfNoiseLevelValues': 'pixel'})
                 self.dt[ds_name] = self.dt[ds_name].copy().isel(pixel=slice(None, None, -1))\
                     .assign_coords(pixel=self.dt[ds_name].ds.pixel)
             self.samples_flipped = True

@@ -103,7 +103,7 @@ class RcmMeta(BaseMeta):
         antenna_pointing = self.dt['sourceAttributes/radarParameters'].attrs['antennaPointing']
         pass_direction = self.dt['sourceAttributes/orbitAndAttitude/orbitInformation'].attrs['passDirection']
         flipped_cases = [('Left', 'Ascending'), ('Right', 'Descending')]
-        samples_depending_ds = ['geolocationGrid', 'lut']
+        samples_depending_ds = ['geolocationGrid', 'lut', 'noise_lut']
         if (antenna_pointing, pass_direction) in flipped_cases:
             for ds_name in samples_depending_ds:
                 self.dt[self._xpath[ds_name]] = self.dt[self._xpath[ds_name]].copy().isel(pixel=slice(None, None, -1))\

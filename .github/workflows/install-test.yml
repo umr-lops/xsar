@@ -24,7 +24,7 @@ jobs:
 # from https://michaelheap.com/dynamic-matrix-generation-github-actions/
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - id: get-matrix
         run: |
           echo "get matrix for event ${{ github.event_name }}"
@@ -47,7 +47,7 @@ jobs:
         shell: bash -l {0}
     name: python ${{ matrix.python-version }} on ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
 
       # cache conda from https://dev.to/epassaro/caching-anaconda-environments-in-github-actions-5hde
       # and https://github.com/conda-incubator/setup-miniconda#caching

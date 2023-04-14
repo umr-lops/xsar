@@ -58,7 +58,7 @@ def _to_lon180(ds):
     return ds
 
 
-def ecmwf_0100_1h(fname):
+def ecmwf_0100_1h(fname,**kwargs):
     """
     ecmwf 0.1 deg 1h reader (ECMWF_FORECAST_0100_202109091300_10U_10V.nc)
     
@@ -91,7 +91,7 @@ def ecmwf_0100_1h(fname):
 
     return ecmwf_ds
 
-def ecmwf_0125_1h(fname):
+def ecmwf_0125_1h(fname,**kwargs):
     """
     ecmwf 0.125 deg 1h reader (ecmwf_201709071100.nc)
     
@@ -142,21 +142,21 @@ def hwrf_0015_3h(fname,**kwargs):
     """
     hwrf_ds = xr.open_dataset(fname)
     try : 
-        hwrf_ds = hwrf_ds.sel(dim_0=kwargs['date'])[['u','v','elon','nlat']]
+        hwrf_ds = hwrf_ds.sel(t=kwargs['date'])[['U','V','LON','LAT']]
     except Exception as e: 
         raise ValueError("date '%s' can't be find in %s " % (kwargs['date'], fname))
     
-    time_datetime = datetime.datetime.utcfromtimestamp(hwrf_ds.dim_0.values.astype(int) * 1e-9)
+    time_datetime = datetime.datetime.utcfromtimestamp(hwrf_ds.t.values.astype(int) * 1e-9)
     hwrf_ds.attrs['time'] = (time_datetime.strftime("%Y/%m/%d %H:%M:%S"))
 
-    hwrf_ds = hwrf_ds.assign_coords({"x":hwrf_ds.elon.values[0,:],"y":hwrf_ds.nlat.values[:,0]}).drop_vars(['dim_0','elon','nlat']).rename(
+    hwrf_ds = hwrf_ds.assign_coords({"x":hwrf_ds.LON.values[0,:],"y":hwrf_ds.LAT.values[:,0]}).drop_vars(['t','LON','LAT']).rename(
             {
-                'u': 'U10',
-                'v': 'V10'
+                'U': 'U10',
+                'V': 'V10'
             }
         )
 
-    hwrf_ds.attrs = {k: hwrf_ds.attrs[k] for k in ['institution', 'time']}
+    #hwrf_ds.attrs = {k: hwrf_ds.attrs[k] for k in ['institution', 'time']}
     hwrf_ds = _to_lon180(hwrf_ds)
     hwrf_ds.rio.write_crs("EPSG:4326", inplace=True)
 

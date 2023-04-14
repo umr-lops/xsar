@@ -1,6 +1,5 @@
 import pandas as pd
 import rasterio
-import xradarsat2
 from rasterio.control import GroundControlPoint
 from scipy.interpolate import RectBivariateSpline
 from shapely.geometry import Polygon
@@ -33,9 +32,9 @@ class RadarSat2Meta(BaseMeta):
     def __init__(self, name):
         from xradarsat2 import rs2_reader
         if ':' in name:
-            self.dt = xradarsat2.rs2_reader(name.split(':')[1])
+            self.dt = rs2_reader(name.split(':')[1])
         else:
-            self.dt = xradarsat2.rs2_reader(name)
+            self.dt = rs2_reader(name)
         if not name.startswith('RADARSAT2_DS:'):
             name = 'RADARSAT2_DS:%s:' % name
         self.name = name

@@ -220,6 +220,8 @@ class RcmDataset(BaseDataset):
         self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
         # merge the datatree with the reader
         self.reconfigure_reader_datatree()
+        self._dataset.attrs.update(self.objet_meta.to_dict("all"))
+        self.datatree.attrs.update(self.objet_meta.to_dict("all"))
 
     def lazy_load_luts(self):
         """

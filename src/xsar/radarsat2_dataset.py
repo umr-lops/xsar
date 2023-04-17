@@ -468,8 +468,12 @@ class RadarSat2Dataset(BaseDataset):
                 with one variable named by `'ne%sz' % var_name[0]` (ie 'nesz' for 'sigma0', 'nebz' for 'beta0', etc...)
         """
         name = 'ne%sz' % var_name[0]
-        lut_noise = self._interpolate_for_noise_lut(var_name)
-        return lut_noise.to_dataset(name=name)
+        concat_list = []
+        # add pol dim
+        for pol in self._dataset.pol:
+            lut_noise = self._interpolate_for_noise_lut(var_name).assign_coords(pol=pol).expand_dims('pol')
+            concat_list.append(lut_noise)
+        return xr.concat(concat_list, dim='pol').to_dataset(name=name)
 
     def apply_calibration_and_denoising(self):
         """

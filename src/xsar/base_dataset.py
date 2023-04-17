@@ -42,7 +42,7 @@ class BaseDataset(ABC):
     _dataset = None
     name = None
     sliced = False
-    objet_meta = None
+    sar_meta = None
     _rasterized_masks = None
     resolution = None
     _da_tmpl = None
@@ -97,7 +97,7 @@ class BaseDataset(ABC):
     @property
     def _bbox_ll(self):
         """Dataset bounding box, lon/lat"""
-        return self.objet_meta.coords2ll(*zip(*self._bbox_coords))
+        return self.sar_meta.coords2ll(*zip(*self._bbox_coords))
 
     @property
     def _bbox_coords(self):
@@ -124,7 +124,7 @@ class BaseDataset(ABC):
             Contains the ground heading
         """
         def coords2heading(lines, samples):
-            return self.objet_meta.coords2heading(lines, samples, to_grid=True, approx=True)
+            return self.sar_meta.coords2heading(lines, samples, to_grid=True, approx=True)
 
         gh = map_blocks_coords(
             self._da_tmpl.astype(self._dtypes['ground_heading']),
@@ -189,7 +189,7 @@ class BaseDataset(ABC):
          --------
          xsar.BaseMeta.coords2ll
         """
-        return self.objet_meta.coords2ll(*args, **kwargs)
+        return self.sar_meta.coords2ll(*args, **kwargs)
 
     def ll2coords(self, *args):
         """
@@ -216,9 +216,9 @@ class BaseDataset(ABC):
 
         """
         if isinstance(args[0], shapely.geometry.base.BaseGeometry):
-            return self.objet_meta._ll2coords_shapely(args[0].intersection(self.geometry))
+            return self.sar_meta._ll2coords_shapely(args[0].intersection(self.geometry))
 
-        line, sample = self.objet_meta.ll2coords(*args)
+        line, sample = self.sar_meta.ll2coords(*args)
 
         if hasattr(args[0], '__iter__'):
             scalar = False
@@ -281,7 +281,7 @@ class BaseDataset(ABC):
         line_decimated = self.dataset.line.values[::int(self.dataset.line.size / 20) + 1]
         sample_decimated = self.dataset.sample.values[::int(self.dataset.sample.size / 20) + 1]
         XX, YY = np.meshgrid(line_decimated, sample_decimated)
-        if self.objet_meta.product == 'SLC':
+        if self.sar_meta.product == 'SLC':
             logger.debug(
                 'GCPs computed from affine transformations on SLC products can be strongly shifted in position, we advise against ds.rio.reproject()')
         #     lon_s,lat_s = self.coords2ll_SLC(XX.ravel(order='F'),YY.ravel(order='F'))
@@ -301,7 +301,7 @@ class BaseDataset(ABC):
                 #         print('lon',lon)
                 #         print('lat',lat)
                 # else:
-                lon, lat = self.objet_meta.coords2ll(line, sample)
+                lon, lat = self.sar_meta.coords2ll(line, sample)
                 gcp = GroundControlPoint(
                     x=lon,
                     y=lat,
@@ -368,10 +368,10 @@ class BaseDataset(ABC):
             factor_range = 1
             factor_azimuth = 1
         # compute resolution factor if any
-        if self.objet_meta.multidataset:
+        if self.sar_meta.multidataset:
             blocks_list = []
             # for subswath in self.subdatasets.index:
-            for submeta in self.objet_meta._submeta:
+            for submeta in self.sar_meta._submeta:
                 block = submeta.bursts(only_valid_location=only_valid_location)
                 block['subswath'] = submeta.dsid
                 block = block.set_index('subswath', append=True).reorder_levels(['subswath', 'burst'])
@@ -423,23 +423,23 @@ class BaseDataset(ABC):
         geoloc_azitime = None
         geoloc_iburst = None
         geoloc_line = None
-        if self.objet_meta.product == 'SLC' and 'WV' not in self.objet_meta.swath:
+        if self.sar_meta.product == 'SLC' and 'WV' not in self.sar_meta.swath:
             # if self.datatree.attrs['product'] == 'SLC' and 'WV' not in self.datatree.attrs['swath']:
-            burst_nlines = int(self.objet_meta._bursts['linesPerBurst'])
+            burst_nlines = int(self.sar_meta._bursts['linesPerBurst'])
             # burst_nlines = self.datatree['bursts'].ds['line'].size
 
-            geoloc_line = self.objet_meta.geoloc['line'].values
+            geoloc_line = self.sar_meta.geoloc['line'].values
             # geoloc_line = self.datatree['geolocation_annotation'].ds['line'].values
             # find the indice of the bursts in the geolocation grid
             geoloc_iburst = np.floor(geoloc_line / float(burst_nlines)).astype('int32')
             # find the indices of the bursts in the high resolution grid
-            line = np.arange(0, self.objet_meta.image['numberOfLines'])
+            line = np.arange(0, self.sar_meta.image['numberOfLines'])
             # line = np.arange(0, self.datatree.attrs['numberOfLines'])
             iburst = np.floor(line / float(burst_nlines)).astype('int32')
             # find the indices of the burst transitions
             ind = np.searchsorted(geoloc_iburst, iburst, side='left')
-            n_pixels = int((len(self.objet_meta.geoloc['sample']) - 1) / 2)
-            geoloc_azitime = self.objet_meta.geoloc['azimuthTime'].values[:, n_pixels]
+            n_pixels = int((len(self.sar_meta.geoloc['sample']) - 1) / 2)
+            geoloc_azitime = self.sar_meta.geoloc['azimuthTime'].values[:, n_pixels]
             # security check for unrealistic line_values exceeding the image extent
             if ind.max() >= len(geoloc_azitime):
                 ind[ind >= len(geoloc_azitime)] = len(geoloc_azitime) - 1
@@ -460,10 +460,10 @@ class BaseDataset(ABC):
             # chunk footprint polygon, in dataset coordinates (with buffer, to enlarge a little the footprint)
             chunk_footprint_coords = Polygon(chunk_coords).buffer(10)
             # chunk footprint polygon, in lon/lat
-            chunk_footprint_ll = self.objet_meta.coords2ll(chunk_footprint_coords)
+            chunk_footprint_ll = self.sar_meta.coords2ll(chunk_footprint_coords)
 
             # get vector mask over chunk, in lon/lat
-            vector_mask_ll = self.objet_meta.get_mask(mask).intersection(chunk_footprint_ll)
+            vector_mask_ll = self.sar_meta.get_mask(mask).intersection(chunk_footprint_ll)
 
             if vector_mask_ll.is_empty:
                 # no intersection with mask, return zeros
@@ -491,14 +491,14 @@ class BaseDataset(ABC):
             return raster_mask
 
         da_list = []
-        for mask in self.objet_meta.mask_names:
+        for mask in self.sar_meta.mask_names:
             da_mask = map_blocks_coords(
                 self._da_tmpl,
                 _rasterize_mask_by_chunks,
                 func_kwargs={'mask': mask}
             )
             name = '%s_mask' % mask
-            da_mask.attrs['history'] = yaml.safe_dump({name: self.objet_meta.get_mask(mask, describe=True)})
+            da_mask.attrs['history'] = yaml.safe_dump({name: self.sar_meta.get_mask(mask, describe=True)})
             da_mask.attrs['meaning'] = '0: ocean , 1: land'
             da_list.append(da_mask.to_dataset(name=name))
 
@@ -540,12 +540,12 @@ class BaseDataset(ABC):
             lines = np.clip(lines, a_min=0, a_max=self.dataset['line'].max().values)
             samples = np.array([hh for hh in samples]).astype(int)
             samples = np.clip(samples, a_min=0, a_max=self.dataset['sample'].max().values)
-            chunk_footprint_lon, chunk_footprint_lat = self.objet_meta.coords2ll_SLC(lines, samples)
+            chunk_footprint_lon, chunk_footprint_lat = self.sar_meta.coords2ll_SLC(lines, samples)
             chunk_footprint_ll = Polygon(np.vstack([chunk_footprint_lon, chunk_footprint_lat]).T)
             if chunk_footprint_ll.is_valid is False:
                 chunk_footprint_ll = make_valid(chunk_footprint_ll)
             # get vector mask over chunk, in lon/lat
-            vector_mask_ll = self.objet_meta.get_mask(mask).intersection(chunk_footprint_ll)
+            vector_mask_ll = self.sar_meta.get_mask(mask).intersection(chunk_footprint_ll)
             if vector_mask_ll.is_empty:
                 # no intersection with mask, return zeros
                 return np.zeros((line.size, sample.size))
@@ -555,7 +555,7 @@ class BaseDataset(ABC):
                 lons_ma, lats_ma = vector_mask_ll.exterior.xy
                 lons = np.array([hh for hh in lons_ma])
                 lats = np.array([hh for hh in lats_ma])
-                vector_mask_coords_lines, vector_mask_coords_samples = self.objet_meta.ll2coords_SLC(lons, lats)
+                vector_mask_coords_lines, vector_mask_coords_samples = self.sar_meta.ll2coords_SLC(lons, lats)
                 vector_mask_coords = [Polygon(np.vstack([vector_mask_coords_lines, vector_mask_coords_samples]).T)]
             else:  # multipolygon
                 vector_mask_coords = []  # to store polygons in image coordinates
@@ -563,7 +563,7 @@ class BaseDataset(ABC):
                     lons_ma, lats_ma = onepoly.exterior.xy
                     lons = np.array([hh for hh in lons_ma])
                     lats = np.array([hh for hh in lats_ma])
-                    vector_mask_coords_lines, vector_mask_coords_samples = self.objet_meta.ll2coords_SLC(lons, lats)
+                    vector_mask_coords_lines, vector_mask_coords_samples = self.sar_meta.ll2coords_SLC(lons, lats)
                     vector_mask_coords.append(
                         Polygon(np.vstack([vector_mask_coords_lines, vector_mask_coords_samples]).T))
 
@@ -602,7 +602,7 @@ class BaseDataset(ABC):
             da_tmpl = xr.DataArray(
                 dask.array.empty_like(
                     np.empty((len(a_burst_subset.digital_number.line), len(a_burst_subset.digital_number.sample))),
-                    dtype=np.int8, name="empty_var_tmpl-%s" % dask.base.tokenize(self.objet_meta.name)),
+                    dtype=np.int8, name="empty_var_tmpl-%s" % dask.base.tokenize(self.sar_meta.name)),
                 dims=('line', 'sample'),
                 coords={
                     'line': a_burst_subset.digital_number.line,
@@ -610,7 +610,7 @@ class BaseDataset(ABC):
                     # 'line_time': line_time.astype(float),
                 }, )
 
-            for mask in self.objet_meta.mask_names:
+            for mask in self.sar_meta.mask_names:
                 logger.debug('mask: %s', mask)
                 if lazy_loading:
                     da_mask = map_blocks_coords(
@@ -626,7 +626,7 @@ class BaseDataset(ABC):
                                                'line': a_burst_subset.digital_number.line,
                                                'sample': a_burst_subset.digital_number.sample, })
                 name = '%s_maskv2' % mask
-                da_mask.attrs['history'] = yaml.safe_dump({name: self.objet_meta.get_mask(mask, describe=True)})
+                da_mask.attrs['history'] = yaml.safe_dump({name: self.sar_meta.get_mask(mask, describe=True)})
                 da_mask.attrs['meaning'] = '0: ocean , 1: land'
                 da_mask = da_mask.fillna(0)  # zero -> ocean
                 da_mask = da_mask.astype(np.int8)
@@ -679,11 +679,11 @@ class BaseDataset(ABC):
         if not raster_ds.rio.crs.is_geographic:
             raster_ds = raster_ds.rio.reproject(4326)
 
-        if self.objet_meta.cross_antemeridian:
+        if self.sar_meta.cross_antemeridian:
             raise NotImplementedError('Antimeridian crossing not yet checked')
 
         # get lon/lat box for xsar dataset
-        lon1, lat1, lon2, lat2 = self.objet_meta.footprint.exterior.bounds
+        lon1, lat1, lon2, lat2 = self.sar_meta.footprint.exterior.bounds
         lon_range = [lon1, lon2]
         lat_range = [lat1, lat2]
 
@@ -759,26 +759,26 @@ class BaseDataset(ABC):
     @timing
     def _load_rasters_vars(self):
         # load and map variables from rasterfile (like ecmwf) on dataset
-        if self.objet_meta.rasters.empty:
+        if self.sar_meta.rasters.empty:
             return None
         else:
             logger.warning('Raster variable are experimental')
 
-        if self.objet_meta.cross_antemeridian:
+        if self.sar_meta.cross_antemeridian:
             raise NotImplementedError('Antimeridian crossing not yet checked')
 
         # will contain xr.DataArray to merge
         da_var_list = []
 
-        for name, infos in self.objet_meta.rasters.iterrows():
+        for name, infos in self.sar_meta.rasters.iterrows():
             # read the raster file using helpers functions
             read_function = infos['read_function']
             get_function = infos['get_function']
             resource = infos['resource']
 
             kwargs_get = {
-                'date': datetime.strptime(self.objet_meta.start_date, '%Y-%m-%d %H:%M:%S.%f'),
-                'footprint': self.objet_meta.footprint
+                'date': datetime.strptime(self.sar_meta.start_date, '%Y-%m-%d %H:%M:%S.%f'),
+                'footprint': self.sar_meta.footprint
             }
 
             logger.debug('adding raster "%s" from resource "%s"' % (name, str(resource)))

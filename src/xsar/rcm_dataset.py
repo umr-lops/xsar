@@ -83,23 +83,23 @@ class RcmDataset(BaseDataset):
         # default meta for map_blocks output.
         # as asarray is imported from numpy, it's a numpy array.
         # but if later we decide to import asarray from cupy, il will be a cupy.array (gpu)
-        self.objet_meta = None
+        self.sar_meta = None
         self.resolution = resolution
 
         if not isinstance(dataset_id, RcmMeta):
-            self.objet_meta = BlockingActorProxy(RcmMeta, dataset_id)
+            self.sar_meta = BlockingActorProxy(RcmMeta, dataset_id)
             # check serializable
             # import pickle
             # s1meta = pickle.loads(pickle.dumps(self.s1meta))
             # assert isinstance(rs2meta.coords2ll(100, 100),tuple)
         else:
             # we want self.rs2meta to be a dask actor on a worker
-            self.objet_meta = BlockingActorProxy(RcmMeta.from_dict, dataset_id.dict)
+            self.sar_meta = BlockingActorProxy(RcmMeta.from_dict, dataset_id.dict)
         del dataset_id
 
-        if self.objet_meta.multidataset:
+        if self.sar_meta.multidataset:
             raise IndexError(
-                """Can't open an multi-dataset. Use `xsar.RadarSat2Meta('%s').subdatasets` to show availables ones""" % self.objet_meta.path
+                """Can't open an multi-dataset. Use `xsar.RadarSat2Meta('%s').subdatasets` to show availables ones""" % self.sar_meta.path
             )
 
         # build datatree
@@ -108,11 +108,11 @@ class RcmDataset(BaseDataset):
         DN_tmp = self.flip_line_da(DN_tmp)
 
         ### geoloc
-        geoloc = self.objet_meta.geoloc
+        geoloc = self.sar_meta.geoloc
         geoloc.attrs['history'] = 'annotations'
 
         ### orbitInformation
-        orbit = self.objet_meta.orbit
+        orbit = self.sar_meta.orbit
         orbit.attrs['history'] = 'annotations'
 
         self.datatree = datatree.DataTree.from_dict({'measurement': DN_tmp, 'geolocation_annotation': geoloc
@@ -143,11 +143,11 @@ class RcmDataset(BaseDataset):
         for att in ['name', 'short_name', 'product', 'safe', 'swath', 'multidataset']:
             if att not in self.datatree.attrs:
                 # tmp = xr.DataArray(self.s1meta.__getattr__(att),attrs={'source':'filename decoding'})
-                self.datatree.attrs[att] = self.objet_meta.__getattr__(att)
-                self._dataset.attrs[att] = self.objet_meta.__getattr__(att)
+                self.datatree.attrs[att] = self.sar_meta.__getattr__(att)
+                self._dataset.attrs[att] = self.sar_meta.__getattr__(att)
 
-        value_res_line = self.objet_meta.pixel_line_m
-        value_res_sample = self.objet_meta.pixel_sample_m
+        value_res_line = self.sar_meta.pixel_line_m
+        value_res_sample = self.sar_meta.pixel_sample_m
         # self._load_incidence_from_lut()
         refe_spacing = 'slant'
         if resolution is not None:
@@ -156,20 +156,20 @@ class RcmDataset(BaseDataset):
                 value_res_sample = float(resolution.replace('m', ''))
                 value_res_line = value_res_sample
             elif isinstance(resolution, dict):
-                value_res_sample = self.objet_meta.pixel_sample_m * resolution['sample']
-                value_res_line = self.objet_meta.pixel_line_m * resolution['line']
+                value_res_sample = self.sar_meta.pixel_sample_m * resolution['sample']
+                value_res_line = self.sar_meta.pixel_line_m * resolution['line']
             else:
                 logger.warning('resolution type not handle (%s) should be str or dict -> sampleSpacing'
                                ' and lineSpacing are not correct', type(resolution))
         self._dataset['sampleSpacing'] = \
             xr.DataArray(value_res_sample,
                          attrs={'referential': refe_spacing} |
-                               self.objet_meta
+                               self.sar_meta
                                         .dt['imageReferenceAttributes/rasterAttributes']['sampledPixelSpacing'].attrs
                          )
         self._dataset['lineSpacing'] = \
             xr.DataArray(value_res_line,
-                         attrs=self.objet_meta
+                         attrs=self.sar_meta
                                         .dt['imageReferenceAttributes/rasterAttributes']['sampledLineSpacing'].attrs
                          )
 
@@ -180,7 +180,7 @@ class RcmDataset(BaseDataset):
             self._da_tmpl = xr.DataArray(
                 dask.array.empty_like(
                     self._dataset.digital_number.isel(pol=0).drop('pol'),
-                    dtype=np.int8, name="empty_var_tmpl-%s" % dask.base.tokenize(self.objet_meta.name)),
+                    dtype=np.int8, name="empty_var_tmpl-%s" % dask.base.tokenize(self.sar_meta.name)),
                 dims=('line', 'sample'),
                 coords={'line': self._dataset.digital_number.line,
                         'sample': self._dataset.digital_number.sample}
@@ -188,14 +188,14 @@ class RcmDataset(BaseDataset):
 
             # Add vars to define if lines or samples have been flipped to respect xsar convention
             self._dataset = xr.merge([
-                xr.DataArray(data=self.objet_meta.samples_flipped,
+                xr.DataArray(data=self.sar_meta.samples_flipped,
                              attrs={'meaning':
                                         'xsar convention : increasing incidence values along samples axis'}
                              ).to_dataset(name='samples_flipped'),
                 self._dataset
             ])
             self._dataset = xr.merge([
-                xr.DataArray(data=self.objet_meta.lines_flipped,
+                xr.DataArray(data=self.sar_meta.lines_flipped,
                              attrs={'meaning':
                                         'xsar convention : increasing time along line axis '
                                         '(whatever ascending or descending pass direction)'}
@@ -220,8 +220,8 @@ class RcmDataset(BaseDataset):
         self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
         # merge the datatree with the reader
         self.reconfigure_reader_datatree()
-        self._dataset.attrs.update(self.objet_meta.to_dict("all"))
-        self.datatree.attrs.update(self.objet_meta.to_dict("all"))
+        self._dataset.attrs.update(self.sar_meta.to_dict("all"))
+        self.datatree.attrs.update(self.sar_meta.to_dict("all"))
 
     def lazy_load_luts(self):
         """
@@ -235,8 +235,8 @@ class RcmDataset(BaseDataset):
         merge_list = []
         for key, value in self._map_calibration_type.items():
             list_da = []
-            for pola in self.objet_meta.lut.lookup_tables.pole:
-                lut = self.objet_meta.lut.lookup_tables.sel(sarCalibrationType=value, pole=pola)\
+            for pola in self.sar_meta.lut.lookup_tables.pole:
+                lut = self.sar_meta.lut.lookup_tables.sel(sarCalibrationType=value, pole=pola)\
                     .rename({
                         'pixel': 'sample',
                         }
@@ -266,9 +266,9 @@ class RcmDataset(BaseDataset):
         merge_list = []
         for key, value in self._map_calibration_type.items():
             list_da = []
-            values_nb = self.objet_meta.noise_lut.attrs['numberOfValues']
-            for pola in self.objet_meta.noise_lut.noiseLevelValues.pole:
-                lut = self.objet_meta.noise_lut.noiseLevelValues.sel(sarCalibrationType=value, pole=pola)\
+            values_nb = self.sar_meta.noise_lut.attrs['numberOfValues']
+            for pola in self.sar_meta.noise_lut.noiseLevelValues.pole:
+                lut = self.sar_meta.noise_lut.noiseLevelValues.sel(sarCalibrationType=value, pole=pola)\
                     .rename({
                         'pixel': 'sample',
                         }
@@ -309,7 +309,7 @@ class RcmDataset(BaseDataset):
         accepted_types = ["lut", "noise", "incidence"]
         if type not in accepted_types:
             raise ValueError("Please enter a type accepted ('lut', 'noise', 'incidence')")
-        lines = self.objet_meta.geoloc.line
+        lines = self.sar_meta.geoloc.line
         samples = var.sample
         var_type = None
         if type == 'noise':
@@ -442,7 +442,7 @@ class RcmDataset(BaseDataset):
         xarray.Dataset
             Contains delayed dataArrays of incidence
         """
-        incidence = self.objet_meta.incidence.rename({'pixel': 'sample'})
+        incidence = self.sar_meta.incidence.rename({'pixel': 'sample'})
         angles = incidence.angles
         values_nb = incidence.attrs['numberOfValues']
         lut_f_delayed = dask.delayed()(angles)
@@ -477,12 +477,12 @@ class RcmDataset(BaseDataset):
     @timing
     def load_from_geoloc(self, varnames, lazy_loading=True):
         """
-        Interpolate (with RectBiVariateSpline) variables from `self.objet_meta.geoloc` to `self._dataset`
+        Interpolate (with RectBiVariateSpline) variables from `self.sar_meta.geoloc` to `self._dataset`
 
         Parameters
         ----------
         varnames: list of str
-            subset of variables names in `self.objet_meta.geoloc`
+            subset of variables names in `self.sar_meta.geoloc`
 
         Returns
         -------
@@ -511,19 +511,19 @@ class RcmDataset(BaseDataset):
                 da_list.append(da)
             else:
                 if varname == 'longitude':
-                    z_values = self.objet_meta.geoloc[varname]
-                    if self.objet_meta.cross_antemeridian:
+                    z_values = self.sar_meta.geoloc[varname]
+                    if self.sar_meta.cross_antemeridian:
                         logger.debug('translate longitudes between 0 and 360')
                         z_values = z_values % 360
                 else:
-                    z_values = self.objet_meta.geoloc[varname_in_geoloc]
+                    z_values = self.sar_meta.geoloc[varname_in_geoloc]
                 interp_func = RectBivariateSpline(
-                    self.objet_meta.geoloc.line,
-                    self.objet_meta.geoloc.pixel,
+                    self.sar_meta.geoloc.line,
+                    self.sar_meta.geoloc.pixel,
                     z_values,
                     kx=1, ky=1
                 )
-                typee = self.objet_meta.geoloc[varname_in_geoloc].dtype
+                typee = self.sar_meta.geoloc[varname_in_geoloc].dtype
                 if lazy_loading:
                     da_var = map_blocks_coords(
                         self._da_tmpl.astype(typee),
@@ -535,14 +535,14 @@ class RcmDataset(BaseDataset):
                                           coords={'line': self._dataset.digital_number.line,
                                                   'sample': self._dataset.digital_number.sample})
                 if varname == 'longitude':
-                    if self.objet_meta.cross_antemeridian:
+                    if self.sar_meta.cross_antemeridian:
                         da_var.data = da_var.data.map_blocks(to_lon180)
 
                 da_var.name = varname
 
                 # copy history
                 try:
-                    da_var.attrs['history'] = self.objet_meta.geoloc[varname_in_geoloc].attrs['xpath']
+                    da_var.attrs['history'] = self.sar_meta.geoloc[varname_in_geoloc].attrs['xpath']
                 except KeyError:
                     pass
 
@@ -553,16 +553,16 @@ class RcmDataset(BaseDataset):
     @property
     def interpolate_times(self):
         """
-        Apply interpolation with RectBivariateSpline to the azimuth time extracted from `self.objet_meta.geoloc`
+        Apply interpolation with RectBivariateSpline to the azimuth time extracted from `self.sar_meta.geoloc`
 
         Returns
         -------
         xarray.Dataset
             Contains the time as delayed at the good resolution and expressed as type datetime64[ns]
         """
-        times = self.objet_meta.get_azitime
-        lines = self.objet_meta.geoloc.line
-        samples = self.objet_meta.geoloc.pixel
+        times = self.sar_meta.get_azitime
+        lines = self.sar_meta.geoloc.line
+        samples = self.sar_meta.geoloc.pixel
         time_values_2d = np.tile(times, (samples.shape[0], 1)).transpose()
         interp_func = RectBivariateSpline(x=lines, y=samples, z=time_values_2d.astype(float), kx=1, ky=1)
         da_var = map_blocks_coords(
@@ -579,8 +579,8 @@ class RcmDataset(BaseDataset):
         xarray.Dataset()
             containing a single variable velocity
         """
-        azimuth_times = self.objet_meta.get_azitime
-        orbstatevect = self.objet_meta.orbit
+        azimuth_times = self.sar_meta.get_azitime
+        orbstatevect = self.sar_meta.orbit
         velos = np.array(
             [orbstatevect['xVelocity'] ** 2., orbstatevect['yVelocity'] ** 2., orbstatevect['zVelocity'] ** 2.])
         vels = np.sqrt(np.sum(velos, axis=0))
@@ -617,7 +617,7 @@ class RcmDataset(BaseDataset):
                 List of Tiff file paths located in a folder
             """
 
-            return glob.glob(os.path.join(self.objet_meta.path, "imagery", "*"))
+            return glob.glob(os.path.join(self.sar_meta.path, "imagery", "*"))
 
         def _sort_list_files_and_get_pols(list_tiff):
             """
@@ -689,8 +689,8 @@ class RcmDataset(BaseDataset):
                 if isinstance(resolution, str) and resolution.endswith('m'):
                     resolution = float(resolution[:-1])
                     self.resolution = resolution
-                resolution = dict(line=resolution / self.objet_meta.pixel_line_m,
-                                  sample=resolution / self.objet_meta.pixel_sample_m)
+                resolution = dict(line=resolution / self.sar_meta.pixel_line_m,
+                                  sample=resolution / self.sar_meta.pixel_sample_m)
                 # resolution = dict(line=resolution / self.dataset['sampleSpacing'].values,
                 #                   sample=resolution / self.dataset['lineSpacing'].values)
 
@@ -749,7 +749,7 @@ class RcmDataset(BaseDataset):
             'history': yaml.safe_dump(
                 {
                     var_name: get_glob(
-                        [p.replace(self.objet_meta.path + '/', '') for p in tiff_files])
+                        [p.replace(self.sar_meta.path + '/', '') for p in tiff_files])
                 }
             )
         }
@@ -784,8 +784,8 @@ class RcmDataset(BaseDataset):
         xarray.Dataset
             Flipped back, respecting the xsar convention
         """
-        antenna_pointing = self.objet_meta.dt['sourceAttributes/radarParameters'].attrs['antennaPointing']
-        pass_direction = self.objet_meta.dt['sourceAttributes/orbitAndAttitude/orbitInformation'].attrs['passDirection']
+        antenna_pointing = self.sar_meta.dt['sourceAttributes/radarParameters'].attrs['antennaPointing']
+        pass_direction = self.sar_meta.dt['sourceAttributes/orbitAndAttitude/orbitInformation'].attrs['passDirection']
         flipped_cases = [('Left', 'Ascending'), ('Right', 'Descending')]
         if (antenna_pointing, pass_direction) in flipped_cases:
             new_ds = ds.copy().isel(sample=slice(None, None, -1)).assign_coords(sample=ds.sample)
@@ -810,7 +810,7 @@ class RcmDataset(BaseDataset):
         xarray.Dataset
             Flipped back, respecting the xsar convention
         """
-        pass_direction = self.objet_meta.dt['sourceAttributes/orbitAndAttitude/orbitInformation'].attrs['passDirection']
+        pass_direction = self.sar_meta.dt['sourceAttributes/orbitAndAttitude/orbitInformation'].attrs['passDirection']
         if pass_direction == 'Ascending':
             new_ds = ds.copy().isel(line=slice(None, None, -1)).assign_coords(line=ds.line)
         else:
@@ -822,9 +822,9 @@ class RcmDataset(BaseDataset):
         Merge self.datatree with the reader's one.
         Merge attributes of the reader's datatree in the attributes of self.datatree
         """
-        for group in self.objet_meta.dt:
-            self.datatree[group] = self.objet_meta.dt[group]
-        self.datatree.attrs |= self.objet_meta.dt.attrs
+        for group in self.sar_meta.dt:
+            self.datatree[group] = self.sar_meta.dt[group]
+        self.datatree.attrs |= self.sar_meta.dt.attrs
         return
 
     @property
@@ -840,7 +840,7 @@ class RcmDataset(BaseDataset):
 
     @dataset.setter
     def dataset(self, ds):
-        if self.objet_meta.name == ds.attrs['name']:
+        if self.sar_meta.name == ds.attrs['name']:
             # check if new ds has changed coordinates
             if not self.sliced:
                 self.sliced = any(

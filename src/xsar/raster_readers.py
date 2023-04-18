@@ -58,7 +58,7 @@ def _to_lon180(ds):
     return ds
 
 
-def ecmwf_0100_1h(fname,**kwargs):
+def ecmwf_0100_1h(fname, **kwargs):
     """
     ecmwf 0.1 deg 1h reader (ECMWF_FORECAST_0100_202109091300_10U_10V.nc)
     
@@ -91,7 +91,8 @@ def ecmwf_0100_1h(fname,**kwargs):
 
     return ecmwf_ds
 
-def ecmwf_0125_1h(fname,**kwargs):
+
+def ecmwf_0125_1h(fname, **kwargs):
     """
     ecmwf 0.125 deg 1h reader (ecmwf_201709071100.nc)
     
@@ -125,7 +126,8 @@ def ecmwf_0125_1h(fname,**kwargs):
 
     return ecmwf_ds
 
-def hwrf_0015_3h(fname,**kwargs):
+
+def hwrf_0015_3h(fname, **kwargs):
     """
     hwrf 0.015 deg 3h reader ()
     
@@ -141,9 +143,9 @@ def hwrf_0015_3h(fname,**kwargs):
     xarray.Dataset
     """
     hwrf_ds = xr.open_dataset(fname)
-    try : 
-        hwrf_ds = hwrf_ds.sel(t=kwargs['date'])[['U','V','LON','LAT']]
-    except Exception as e: 
+    try:
+        hwrf_ds = hwrf_ds.sel(t=kwargs['date'])[['U', 'V', 'LON', 'LAT']]
+    except Exception as e:
         raise ValueError("date '%s' can't be find in %s " % (kwargs['date'], fname))
     
     time_datetime = datetime.datetime.utcfromtimestamp(hwrf_ds.t.values.astype(int) * 1e-9)
@@ -161,6 +163,7 @@ def hwrf_0015_3h(fname,**kwargs):
     hwrf_ds.rio.write_crs("EPSG:4326", inplace=True)
 
     return hwrf_ds
+
 
 def gebco(gebco_files):
     """gebco file reader (geotiff from https://www.gebco.net/data_and_products/gridded_bathymetry_data)"""

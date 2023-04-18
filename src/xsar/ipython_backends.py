@@ -188,7 +188,7 @@ def repr_mimebundle_Sentinel1Dataset(self, include=None, exclude=None):
     if 'text/html' in data:
         data['text/html'] = template.render(
             intro=intro,
-            short_name=self.s1meta.short_name,
+            short_name=self.sar_meta.short_name,
             properties=properties,
             location=data['text/html']
         )

@@ -550,6 +550,7 @@ class RadarSat2Dataset(BaseDataset):
         # if self.resolution is not None:
         lut = self._resample_lut_values(lut)
         res = ((self._dataset.digital_number ** 2.) + offset) / lut
+        # Have to know if we keep this line written by Olivier because it replaces 0 values by nan --> creates problems for wind inversion
         res = res.where(res > 0)
         res.attrs.update(lut.attrs)
         return res.to_dataset(name=var_name + '_raw')

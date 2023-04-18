@@ -50,6 +50,7 @@ def resource_strftime(resource, **kwargs):
     return date, url_get(date.strftime(resource))
 
 
+
 def _to_lon180(ds):
     # roll [0, 360] to [-180, 180] on dim x
     ds = ds.roll(x=-np.searchsorted(ds.x, 180), roll_coords=True)
@@ -60,12 +61,13 @@ def _to_lon180(ds):
 def ecmwf_0100_1h(fname, **kwargs):
     """
     ecmwf 0.1 deg 1h reader (ECMWF_FORECAST_0100_202109091300_10U_10V.nc)
-
+    
     Parameters
     ----------
     fname: str
-
+        
         hwrf filename
+
     Returns
     -------
     xarray.Dataset
@@ -93,12 +95,13 @@ def ecmwf_0100_1h(fname, **kwargs):
 def ecmwf_0125_1h(fname, **kwargs):
     """
     ecmwf 0.125 deg 1h reader (ecmwf_201709071100.nc)
-
+    
     Parameters
     ----------
     fname: str
-
+        
         hwrf filename
+
     Returns
     -------
     xarray.Dataset
@@ -127,13 +130,14 @@ def ecmwf_0125_1h(fname, **kwargs):
 def hwrf_0015_3h(fname, **kwargs):
     """
     hwrf 0.015 deg 3h reader ()
-
-
+    
+    
     Parameters
     ----------
     fname: str
-
+        
         hwrf filename
+
     Returns
     -------
     xarray.Dataset
@@ -143,19 +147,18 @@ def hwrf_0015_3h(fname, **kwargs):
         hwrf_ds = hwrf_ds.sel(t=kwargs['date'])[['U', 'V', 'LON', 'LAT']]
     except Exception as e:
         raise ValueError("date '%s' can't be find in %s " % (kwargs['date'], fname))
-
+    
     time_datetime = datetime.datetime.utcfromtimestamp(hwrf_ds.t.values.astype(int) * 1e-9)
     hwrf_ds.attrs['time'] = (time_datetime.strftime("%Y/%m/%d %H:%M:%S"))
 
-    hwrf_ds = hwrf_ds.assign_coords({"x": hwrf_ds.LON.values[0, :], "y": hwrf_ds.LAT.values[:, 0]}).drop_vars(
-        ['t', 'LON', 'LAT']).rename(
-        {
-            'U': 'U10',
-            'V': 'V10'
-        }
-    )
+    hwrf_ds = hwrf_ds.assign_coords({"x":hwrf_ds.LON.values[0,:],"y":hwrf_ds.LAT.values[:,0]}).drop_vars(['t','LON','LAT']).rename(
+            {
+                'U': 'U10',
+                'V': 'V10'
+            }
+        )
 
-    # hwrf_ds.attrs = {k: hwrf_ds.attrs[k] for k in ['institution', 'time']}
+    #hwrf_ds.attrs = {k: hwrf_ds.attrs[k] for k in ['institution', 'time']}
     hwrf_ds = _to_lon180(hwrf_ds)
     hwrf_ds.rio.write_crs("EPSG:4326", inplace=True)
 

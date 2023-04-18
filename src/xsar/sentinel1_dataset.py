@@ -1158,4 +1158,9 @@ class Sentinel1Dataset(BaseDataset):
 
         return azitime
 
+    @property
+    def s1meta(self):
+        logger.warning('Please use `sar_meta` to call the sar meta object')
+        return self.sar_meta
+
 

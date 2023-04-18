@@ -753,4 +753,9 @@ class RadarSat2Dataset(BaseDataset):
     def dataset(self):
         logger.debug('deleter dataset')
 
+    @property
+    def rs2meta(self):
+        logger.warning('Please use `sar_meta` to call the sar meta object')
+        return self.sar_meta
+
 

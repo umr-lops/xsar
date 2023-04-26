@@ -148,13 +148,13 @@ class Sentinel1Dataset(BaseDataset):
         dop.attrs['history'] = 'annotations'
         
         # calibration LUTs
-        ds_luts = self.sar_meta.get_calibration_luts()
+        ds_luts = self.sar_meta.get_calibration_luts
         ds_luts.attrs['history'] = 'calibration'
 
         # noise levels LUTs
-        ds_noise_range = self.sar_meta.get_noise_range_raw()
+        ds_noise_range = self.sar_meta.get_noise_range_raw
         ds_noise_range.attrs['history'] = 'noise'
-        ds_noise_azi = self.sar_meta.get_noise_azi_raw()
+        ds_noise_azi = self.sar_meta.get_noise_azi_raw
         if self.sar_meta.swath=='WV':
             ds_noise_azi['noise_lut'] = self._patch_lut(ds_noise_azi['noise_lut']) # patch applied here is distinct to same patch applied on interpolated noise LUT
         ds_noise_azi.attrs['history'] = 'noise'
@@ -682,14 +682,14 @@ class Sentinel1Dataset(BaseDataset):
             lut_f = RectBivariateSpline(lut.line, lut.sample, lut, kx=1, ky=1)
             return lut_f
 
-        # get the lut in metadata. Lutname must be in self._map_lut_files.keys()
+        # get the lut in metadata. Lut name must be in self._map_lut_files.keys()
         _get_lut_meta = {
-            'sigma0_lut': self.sar_meta.dt['calibration_luts'].to_dataset().sigma0_lut,
-            'gamma0_lut': self.sar_meta.dt['calibration_luts'].to_dataset().gamma0_lut,
-            'noise_lut_range': self.sar_meta.dt['noise_azimuth_raw'].to_dataset(),
-            'noise_lut_azi': self.sar_meta.dt['noise_range_raw'].to_dataset(),
+            'sigma0_lut': self.sar_meta.get_calibration_luts.sigma0_lut,
+            'gamma0_lut': self.sar_meta.get_calibration_luts.gamma0_lut,
+            'noise_lut_range': self.sar_meta.get_noise_range_raw,
+            'noise_lut_azi': self.sar_meta.get_noise_azi_raw,
         }
-        # map the func to apply for each lut
+        # map the func to apply for each lut. Lut name must be in self._map_lut_files.keys()
         _map_func = {
             'sigma0_lut': signal_lut,
             'gamma0_lut': signal_lut,

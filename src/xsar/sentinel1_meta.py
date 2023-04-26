@@ -3,7 +3,6 @@ import logging
 import warnings
 import numpy as np
 import xarray
-import xarray as xr
 import pandas as pd
 import geopandas as gpd
 import rasterio
@@ -15,8 +14,6 @@ from shapely.ops import unary_union
 from .base_meta import BaseMeta
 from .utils import haversine, timing, class_or_instancemethod
 from .raster_readers import available_rasters
-from . import sentinel1_xml_mappings
-from .xml_parser import XmlParser
 import os
 from .ipython_backends import repr_mimebundle
 from safe_s1.metadata import Sentinel1Reader
@@ -412,6 +409,7 @@ class Sentinel1Meta(BaseMeta):
         """
         return self.dt['doppler_estimate'].to_dataset()
 
+    @property
     def get_calibration_luts(self):
         """
         get original (ie not interpolation) xr.Dataset sigma0 and gamma0 Look Up Tables to apply calibration
@@ -419,8 +417,10 @@ class Sentinel1Meta(BaseMeta):
         """
         return self.dt['calibration_luts'].to_dataset()
 
+    @property
     def get_noise_azi_raw(self):
         return self.dt['noise_azimuth_raw'].to_dataset()
 
+    @property
     def get_noise_range_raw(self):
         return self.dt['noise_range_raw'].to_dataset()

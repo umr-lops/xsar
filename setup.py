@@ -40,6 +40,7 @@ setup(
     extras_require={
         "RS2": ["xradarsat2"],
         "RCM": ["xarray-safe-rcm"],
+        "S1": ["xarray-safe-s1"]
     },
     entry_points={
         "xarray.backends": ["xsar=xsar.xarray_backends:XsarXarrayBackend"]

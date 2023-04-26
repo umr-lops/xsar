@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import os
 import pdb
 
 import logging
@@ -13,6 +14,7 @@ import rasterio.features
 import rioxarray
 import time
 from scipy.interpolate import interp1d
+from shapely.geometry import box
 
 from .utils import timing, map_blocks_coords, BlockingActorProxy, merge_yaml, get_glob, \
     to_lon180
@@ -23,6 +25,8 @@ import yaml
 import datatree
 from scipy.spatial import KDTree
 from .base_dataset import BaseDataset
+import pandas as pd
+import geopandas as gpd
 import datetime 
 
 logger = logging.getLogger('xsar.sentinel1_dataset')
@@ -516,29 +520,195 @@ class Sentinel1Dataset(BaseDataset):
 
         """
 
+        class _NoiseLut:
+            """small internal class that return a lut function(lines, samples) defined on all the image, from blocks in the image"""
+
+            def __init__(self, blocks):
+                self.blocks = blocks
+
+            def __call__(self, lines, samples):
+                """ return noise[a.size,x.size], by finding the intersection with blocks and calling the corresponding block.lut_f"""
+                if len(self.blocks) == 0:
+                    # no noise (ie no azi noise for ipf < 2.9)
+                    return 1
+                else:
+                    # the array to be returned
+                    noise = xr.DataArray(
+                        np.ones((lines.size, samples.size)) * np.nan,
+                        dims=('line', 'sample'),
+                        coords={'line': lines, 'sample': samples}
+                    )
+                    # find blocks that intersects with asked_box
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")
+                        # the box coordinates of the returned array
+                        asked_box = box(max(0, lines[0] - 0.5), max(0, samples[0] - 0.5), lines[-1] + 0.5,
+                                        samples[-1] + 0.5)
+                        # set match_blocks as the non empty intersection with asked_box
+                        match_blocks = self.blocks.copy()
+                        match_blocks.geometry = self.blocks.geometry.intersection(asked_box)
+                        match_blocks = match_blocks[~match_blocks.is_empty]
+                    for i, block in match_blocks.iterrows():
+                        (sub_a_min, sub_x_min, sub_a_max, sub_x_max) = map(int, block.geometry.bounds)
+                        sub_a = lines[(lines >= sub_a_min) & (lines <= sub_a_max)]
+                        sub_x = samples[(samples >= sub_x_min) & (samples <= sub_x_max)]
+                        noise.loc[dict(line=sub_a, sample=sub_x)] = block.lut_f(sub_a, sub_x)
+
+                # values returned as np array
+                return noise.values
+
+        def noise_lut_range(lut_range):
+            """
+
+            Parameters
+            ----------
+            lines: np.ndarray
+                1D array of lines. lut is defined at each line
+            samples: list of np.ndarray
+                arrays of samples. list length is same as samples. each array define samples where lut is defined
+            noiseLuts: list of np.ndarray
+                arrays of luts. Same structure as samples.
+
+            Returns
+            -------
+            geopandas.GeoDataframe
+                noise range geometry.
+                'geometry' is the polygon where 'lut_f' is defined.
+                attrs['type'] set to 'sample'
+
+
+            """
+
+            class Lut_box_range:
+                def __init__(self, a_start, a_stop, x, l):
+                    self.lines = np.arange(a_start, a_stop)
+                    self.samples = x
+                    self.area = box(a_start, x[0], a_stop, x[-1])
+                    self.lut_f = interp1d(x, l, kind='linear', fill_value=np.nan, assume_sorted=True,
+                                          bounds_error=False)
+
+                def __call__(self, lines, samples):
+                    lut = np.tile(self.lut_f(samples), (lines.size, 1))
+                    return lut
+
+            blocks = []
+            lines = lut_range.line
+            samples = np.tile(lut_range.sample, (len(lines), 1))
+            noiseLuts = lut_range.noise_lut
+            # lines is where lut is defined. compute lines interval validity
+            lines_start = (lines - np.diff(lines, prepend=0) / 2).astype(int)
+            lines_stop = np.ceil(
+                lines + np.diff(lines, append=lines[-1] + 1) / 2
+            ).astype(int)  # end is not included in the interval
+            lines_stop[-1] = 65535  # be sure to include all image if last azimuth line, is not last azimuth image
+            for a_start, a_stop, x, l in zip(lines_start, lines_stop, samples, noiseLuts):
+                lut_f = Lut_box_range(a_start, a_stop, x, l)
+                block = pd.Series(dict([
+                    ('lut_f', lut_f),
+                    ('geometry', lut_f.area)]))
+                blocks.append(block)
+
+            # to geopandas
+            blocks = pd.concat(blocks, axis=1).T
+            blocks = gpd.GeoDataFrame(blocks)
+
+            return self._NoiseLut(blocks)
+
+        def noise_lut_azi(lut_azi):
+            """
+            Parameters
+            ----------
+            line_azi
+            line_azi_start
+            line_azi_stop
+            sample_azi_start
+            sample_azi_stop
+            noise_azi_lut
+            swath
+
+            Returns
+            -------
+            geopandas.GeoDataframe
+                noise range geometry.
+                'geometry' is the polygon where 'lut_f' is defined.
+                attrs['type'] set to 'line'
+            """
+
+            class Lut_box_azi:
+                def __init__(self, sw, a, a_start, a_stop, x_start, x_stop, lut):
+                    self.lines = a
+                    self.samples = np.arange(x_start, x_stop + 1)
+                    self.area = box(max(0, a_start - 0.5), max(0, x_start - 0.5), a_stop + 0.5, x_stop + 0.5)
+                    if len(lut) > 1:
+                        self.lut_f = interp1d(a, lut, kind='linear', fill_value='extrapolate', assume_sorted=True,
+                                              bounds_error=False)
+                    else:
+                        # not enought values to do interpolation
+                        # noise will be constant on this box!
+                        self.lut_f = lambda _a: lut
+
+                def __call__(self, lines, samples):
+                    return np.tile(self.lut_f(lines), (samples.size, 1)).T
+
+            blocks = []
+            for sw, a, a_start, a_stop, x_start, x_stop, lut in zip(lut_azi.line_start.attrs['swath'],
+                                                                    np.tile(lut_azi.line, (1, 1)),
+                                                                    np.tile(lut_azi.line_start, 1),
+                                                                    np.tile(lut_azi.line_stop, 1),
+                                                                    np.tile(lut_azi.sample_start, 1),
+                                                                    np.tile(lut_azi.sample_stop, 1),
+                                                                    np.tile(lut_azi.noise_lut, (1, 1))):
+                lut_f = Lut_box_azi(sw, a, a_start, a_stop, x_start, x_stop, lut)
+                block = pd.Series(dict([
+                    ('lut_f', lut_f),
+                    ('geometry', lut_f.area)]))
+                blocks.append(block)
+
+            if len(blocks) == 0:
+                # no azi noise (ipf < 2.9) or WV
+                blocks.append(pd.Series(dict([
+                    ('lines', np.array([])),
+                    ('samples', np.array([])),
+                    ('lut_f', lambda a, x: 1),
+                    ('geometry', box(0, 0, 65535, 65535))])))  # arbitrary large box (bigger than whole image)
+
+            # to geopandas
+            blocks = pd.concat(blocks, axis=1).T
+            blocks = gpd.GeoDataFrame(blocks)
+
+            return self._NoiseLut(blocks)
+
+        def signal_lut(lut):
+            lut_f = RectBivariateSpline(lut.line, lut.sample, lut, kx=1, ky=1)
+            return lut_f
+
+        # get the lut in metadata. Lutname must be in self._map_lut_files.keys()
+        _get_lut_meta = {
+            'sigma0_lut': self.sar_meta.dt['calibration_luts'].to_dataset().sigma0_lut,
+            'gamma0_lut': self.sar_meta.dt['calibration_luts'].to_dataset().gamma0_lut,
+            'noise_lut_range': self.sar_meta.dt['noise_azimuth_raw'].to_dataset(),
+            'noise_lut_azi': self.sar_meta.dt['noise_range_raw'].to_dataset(),
+        }
+        # map the func to apply for each lut
+        _map_func = {
+            'sigma0_lut': signal_lut,
+            'gamma0_lut': signal_lut,
+            'noise_lut_range': noise_lut_range,
+            'noise_lut_azi': noise_lut_azi,
+        }
+
         luts_list = []
         luts = None
         for lut_name in luts_names:
-            xml_type = self._map_lut_files[lut_name]
-            xml_files = self.sar_meta.files.copy()
-            # polarization is a category. we use codes (ie index),
-            # to have well-ordered polarizations in latter combine_by_coords
-            xml_files['pol_code'] = xml_files['polarization'].cat.codes
-            xml_files = xml_files.set_index('pol_code')[xml_type]
-
-            if not self._vars_with_pol[lut_name]:
-                # luts are identical in all pols: take the fist one
-                xml_files = xml_files.iloc[[0]]
-
-            for pol_code, xml_file in xml_files.items():
-                pol = self.sar_meta.files['polarization'].cat.categories[pol_code]
+            raw_lut = _get_lut_meta[lut_name]
+            for pol in raw_lut.pol:
                 if self._vars_with_pol[lut_name]:
                     name = "%s_%s" % (lut_name, pol)
                 else:
                     name = lut_name
 
                 # get the lut function. As it takes some time to parse xml, make it delayed
-                lut_f_delayed = dask.delayed(self.sar_meta.xml_parser.get_compound_var)(xml_file, lut_name)
+                lut_f_delayed = dask.delayed(_map_func[lut_name])(raw_lut.sel(pol=pol))
                 lut = map_blocks_coords(
                     self._da_tmpl.astype(self._dtypes[lut_name]),
                     lut_f_delayed,
@@ -546,11 +716,10 @@ class Sentinel1Dataset(BaseDataset):
                 )
                 # needs to add pol dim ?
                 if self._vars_with_pol[lut_name]:
-                    lut = lut.assign_coords(pol_code=pol_code).expand_dims('pol_code')
+                    lut = lut.assign_coords(pol=pol).expand_dims('pol')
 
                 # set xml file and xpath used as history
-                histo = self.sar_meta.xml_parser.get_compound_var(xml_file, lut_name,
-                                                                describe=True)
+                histo = raw_lut.attrs['history']
                 lut.name = lut_name
                 if self._patch_variable:
                     lut = self._patch_lut(lut)
@@ -559,10 +728,6 @@ class Sentinel1Dataset(BaseDataset):
 
                 luts_list.append(lut)
             luts = xr.combine_by_coords(luts_list)
-
-            # convert pol_code to string
-            pols = self.sar_meta.files['polarization'].cat.categories[luts.pol_code.values.tolist()]
-            luts = luts.rename({'pol_code': 'pol'}).assign_coords({'pol': pols})
         return luts
 
     @timing
@@ -595,8 +760,12 @@ class Sentinel1Dataset(BaseDataset):
         else:
             comment = 'read at full resolution'
 
+        # Add root to path
+        files_measurement = self.sar_meta.reader.files['measurement'].copy()
+        files_measurement = [os.path.join(self.sar_meta.path, f) for f in files_measurement]
+
         # arbitrary rio object, to get shape, etc ... (will not be used to read data)
-        rio = rasterio.open(self.sar_meta.files['measurement'].iloc[0])
+        rio = rasterio.open(files_measurement[0])
 
         chunks['pol'] = 1
         # sort chunks keys like map_dims
@@ -611,7 +780,7 @@ class Sentinel1Dataset(BaseDataset):
                 [
                     rioxarray.open_rasterio(
                         f, chunks=chunks_rio, parse_coordinates=False
-                    ) for f in self.sar_meta.files['measurement']
+                    ) for f in files_measurement
                 ], 'band'
             ).assign_coords(band=np.arange(len(self.sar_meta.manifest_attrs['polarizations'])) + 1)
 
@@ -661,7 +830,7 @@ class Sentinel1Dataset(BaseDataset):
                         ),
                         dims=tuple(map_dims.keys()), coords={'pol': [pol]}
                     ) for f, pol in
-                    zip(self.sar_meta.files['measurement'], self.sar_meta.manifest_attrs['polarizations'])
+                    zip(files_measurement, self.sar_meta.manifest_attrs['polarizations'])
                 ],
                 'pol'
             ).chunk(chunks)
@@ -689,7 +858,7 @@ class Sentinel1Dataset(BaseDataset):
             'history': yaml.safe_dump(
                 {
                     var_name: get_glob(
-                        [p.replace(self.sar_meta.path + '/', '') for p in self.sar_meta.files['measurement']])
+                        [p.replace(self.sar_meta.path + '/', '') for p in files_measurement])
                 }
             )
         }

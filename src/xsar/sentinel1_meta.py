@@ -19,6 +19,7 @@ from . import sentinel1_xml_mappings
 from .xml_parser import XmlParser
 import os
 from .ipython_backends import repr_mimebundle
+from safe_s1.metadata import Sentinel1Reader
 
 logger = logging.getLogger('xsar.sentinel1_meta')
 logger.addHandler(logging.NullHandler())
@@ -44,16 +45,9 @@ class Sentinel1Meta(BaseMeta):
     xsd_definitions = None
 
     @timing
-    def __init__(self, name, _xml_parser=None):
+    def __init__(self, name):
 
-        if _xml_parser is None:
-            self.xml_parser = XmlParser(
-                xpath_mappings=sentinel1_xml_mappings.xpath_mappings,
-                compounds_vars=sentinel1_xml_mappings.compounds_vars,
-                namespaces=sentinel1_xml_mappings.namespaces
-            )
-        else:
-            self.xml_parser = _xml_parser
+        self.reader = Sentinel1Reader(name)
 
         if not name.startswith('SENTINEL1_DS:'):
             name = 'SENTINEL1_DS:%s:' % name
@@ -78,16 +72,17 @@ class Sentinel1Meta(BaseMeta):
             print("path: %s" % self.path)
             self.product = "XXX"
         """Product type, like 'GRDH', 'SLC', etc .."""
-        self.manifest = os.path.join(self.path, 'manifest.safe')
-        self.manifest_attrs = self.xml_parser.get_compound_var(self.manifest, 'safe_attributes')
 
-        self._safe_files = None
+        self.dt = self.reader.datatree
+
+        self.manifest_attrs = self.reader.manifest_attrs
+
         self.multidataset = False
         """True if multi dataset"""
         self.subdatasets = gpd.GeoDataFrame(geometry=[], index=[])
         """Subdatasets as GeodataFrame (empty if single dataset)"""
-        datasets_names = list(self.safe_files['dsid'].sort_index().unique())
-        self.xsd_definitions = self.get_annotation_definitions()
+        datasets_names = self.reader.datasets_names
+        self.xsd_definitions = self.reader.get_annotation_definitions()
         if self.name.endswith(':') and len(datasets_names) == 1:
             self.name = datasets_names[0]
         self.dsid = self.name.split(':')[-1]
@@ -97,7 +92,7 @@ class Sentinel1Meta(BaseMeta):
         self._submeta = []
         if self.short_name.endswith(':'):
             self.short_name = self.short_name + self.dsid
-        if self.files.empty:
+        if self.reader.files.empty:
             try:
                 self.subdatasets = gpd.GeoDataFrame(geometry=self.manifest_attrs['footprints'], index=datasets_names)
             except ValueError:
@@ -132,12 +127,11 @@ class Sentinel1Meta(BaseMeta):
         """
         return name == self.name or name in self.subdatasets.index
 
-
     def _get_time_range(self):
         if self.multidataset:
             time_range = [self.manifest_attrs['start_date'], self.manifest_attrs['stop_date']]
         else:
-            time_range = self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.line_time_range')
+            time_range = self.reader.time_range
         return pd.Interval(left=pd.Timestamp(time_range[0]), right=pd.Timestamp(time_range[-1]), closed='both')
 
     def to_dict(self, keys='minimal'):
@@ -191,60 +185,6 @@ class Sentinel1Meta(BaseMeta):
         )
 
     @property
-    def safe_files(self):
-        """
-        Files and polarizations for whole SAFE.
-        The index is the file number, extracted from the filename.
-        To get files in official SAFE order, the resulting dataframe should be sorted by polarization or index.
-
-        Returns
-        -------
-        pandas.Dataframe
-            with columns:
-                * index         : file number, extracted from the filename.
-                * dsid          : dataset id, compatible with gdal sentinel1 driver ('SENTINEL1_DS:/path/file.SAFE:WV_012')
-                * polarization  : polarization name.
-                * annotation    : xml annotation file.
-                * calibration   : xml calibration file.
-                * noise         : xml noise file.
-                * measurement   : tiff measurement file.
-
-        See Also
-        --------
-        xsar.Sentinel1Meta.files
-
-        """
-        if self._safe_files is None:
-            files = self.xml_parser.get_compound_var(self.manifest, 'files')
-            # add path
-            for f in ['annotation', 'measurement', 'noise', 'calibration']:
-                files[f] = files[f].map(lambda f: os.path.join(self.path, f))
-
-            # set "polarization" as a category, so sorting dataframe on polarization
-            # will return the dataframe in same order as self._safe_attributes['polarizations']
-            files["polarization"] = files.polarization.astype('category').cat.reorder_categories(
-                self.manifest_attrs['polarizations'], ordered=True)
-            # replace 'dsid' with full path, compatible with gdal sentinel1 driver
-            files['dsid'] = files['dsid'].map(lambda dsid: "SENTINEL1_DS:%s:%s" % (self.path, dsid))
-            files.sort_values('polarization', inplace=True)
-            self._safe_files = files
-        return self._safe_files
-
-    @property
-    def files(self):
-        """
-        Files for current dataset. (Empty for multi datasets)
-
-        See Also
-        --------
-        xsar.Sentinel1Meta.safe_files
-        """
-        return self.safe_files[self.safe_files['dsid'] == self.name]
-
-
-
-
-    @property
     def footprint(self):
         """footprint, as a shapely polygon or multi polygon"""
         if self.multidataset:
@@ -265,20 +205,7 @@ class Sentinel1Meta(BaseMeta):
         if self.multidataset:
             raise TypeError('geolocation_grid not available for multidataset')
         if self._geoloc is None:
-            xml_annotation = self.files['annotation'].iloc[0]
-            da_var_list = []
-            for var_name in ['longitude', 'latitude', 'height', 'azimuthTime', 'slantRangeTime', 'incidenceAngle',
-                             'elevationAngle']:
-                # TODO: we should use dask.array.from_delayed so xml files are read on demand
-                da_var = self.xml_parser.get_compound_var(xml_annotation, var_name)
-                da_var.name = var_name
-                da_var.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0],
-                                                                           var_name,
-                                                                           describe=True)
-                da_var_list.append(da_var)
-
-            self._geoloc = xr.merge(da_var_list)
-
+            self._geoloc = self.dt['geolocationGrid'].ds
             self._geoloc.attrs = {}
             # compute attributes (footprint, coverage, pixel_size)
             footprint_dict = {}
@@ -320,7 +247,6 @@ class Sentinel1Meta(BaseMeta):
                 if vv in self.xsd_definitions:
                     self._geoloc[vv].attrs['definition'] = str(self.xsd_definitions[vv])
 
-
         return self._geoloc
 
     @property
@@ -356,11 +282,7 @@ class Sentinel1Meta(BaseMeta):
     @property
     def denoised(self):
         """dict with pol as key, and bool as values (True is DN is predenoised at L1 level)"""
-        if self.multidataset:
-            return None  # not defined for multidataset
-        else:
-            return dict(
-                [self.xml_parser.get_compound_var(f, 'denoised') for f in self.files['annotation']])
+        return self.reader.denoised
 
     @property
     def ipf(self):
@@ -390,26 +312,11 @@ class Sentinel1Meta(BaseMeta):
         orbit is longer than the SAFE, because it belongs to all datatakes, not only this slice
 
         """
-        if self.multidataset:
-            return None  # not defined for multidataset
-        gdf_orbit = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'orbit')
-        for vv in gdf_orbit:
-            if vv in self.xsd_definitions:
-                gdf_orbit[vv].attrs['definition'] = self.xsd_definitions[vv]
-        gdf_orbit.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'orbit',
-                                                                      describe=True)
-        return gdf_orbit
+        return self.dt['orbit'].ds
 
     @property
     def image(self) -> xarray.Dataset:
-        if self.multidataset:
-            return None
-        img_dict = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'image')
-        img_dict['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'image', describe=True)
-        for vv in img_dict:
-            if vv in self.xsd_definitions:
-                img_dict[vv].attrs['definition'] = self.xsd_definitions[vv]
-        return img_dict
+        return self.dt['image'].ds
 
     @property
     def azimuth_fmrate(self):
@@ -417,13 +324,7 @@ class Sentinel1Meta(BaseMeta):
         xarray.Dataset
             Frequency Modulation rate annotations such as t0 (azimuth time reference) and polynomial coefficients: Azimuth FM rate = c0 + c1(tSR - t0) + c2(tSR - t0)^2
         """
-        fmrates = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'azimuth_fmrate')
-        fmrates.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'azimuth_fmrate',
-                                                                    describe=True)
-        for vv in fmrates:
-            if vv in self.xsd_definitions:
-                fmrates[vv].attrs['definition'] = self.xsd_definitions[vv]
-        return fmrates
+        return self.dt['azimuth_fmrate'].ds
 
     @property
     def _dict_coords2ll(self):
@@ -454,22 +355,9 @@ class Sentinel1Meta(BaseMeta):
 
         return resdict
 
-
     @property
     def _bursts(self):
-        if self.xml_parser.get_var(self.files['annotation'].iloc[0], 'annotation.number_of_bursts') > 0:
-            bursts = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts')
-            for vv in bursts:
-                if vv in self.xsd_definitions:
-                    bursts[vv].attrs['definition'] = self.xsd_definitions[vv]
-            bursts.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts',
-                                                                       describe=True)
-            return bursts
-        else:
-            bursts = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts_grd')
-            bursts.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'bursts_grd',
-                                                                       describe=True)
-            return bursts
+        return self.dt['bursts'].ds
 
     @property
     def approx_transform(self):
@@ -522,98 +410,17 @@ class Sentinel1Meta(BaseMeta):
         xarray.Dataset
             with Doppler Centroid Estimates from annotations such as geo_polynom,data_polynom or frequency
         """
-        dce = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'doppler_estimate')
-        for vv in dce:
-            if vv in self.xsd_definitions:
-                dce[vv].attrs['definition'] = self.xsd_definitions[vv]
-        dce.attrs['history'] = self.xml_parser.get_compound_var(self.files['annotation'].iloc[0], 'doppler_estimate',
-                                                                describe=True)
-        return dce
-
-
-
-    def get_annotation_definitions(self):
-        """
-        
-        :return:
-        """
-        final_dict = {}
-        ds_path_xsd = self.xml_parser.get_compound_var(self.manifest, 'xsd_files')
-        full_path_xsd = os.path.join(self.path, ds_path_xsd['xsd_product'].values[0])
-        if os.path.exists(full_path_xsd):
-            rootxsd = self.xml_parser.getroot(full_path_xsd)
-            mypath = '/xsd:schema/xsd:complexType/xsd:sequence/xsd:element'
-
-            for lulu, uu in enumerate(rootxsd.xpath(mypath, namespaces=sentinel1_xml_mappings.namespaces)):
-                mykey = uu.values()[0]
-                if uu.getchildren() != []:
-                    myvalue = uu.getchildren()[0].getchildren()[0]
-                else:
-                    myvalue = None
-                final_dict[mykey] = myvalue
-
-        return final_dict
+        return self.dt['doppler_estimate'].ds
 
     def get_calibration_luts(self):
         """
         get original (ie not interpolation) xr.Dataset sigma0 and gamma0 Look Up Tables to apply calibration
 
         """
-        #sigma0_lut = self.xml_parser.get_var(self.files['calibration'].iloc[0], 'calibration.sigma0_lut',describe=True)
-        pols = []
-        tmp = []
-        for pol_code, xml_file in self.files['calibration'].items():
-            luts_ds = self.xml_parser.get_compound_var(xml_file,'luts_raw')
-            pol = os.path.basename(xml_file).split('-')[4].upper()
-            pols.append(pol)
-            tmp.append(luts_ds)
-        ds = xr.concat(tmp, pd.Index(pols, name="pol"))
-        # ds.attrs = {'description':
-        #                                 'original (ie not interpolation) xr.Dataset sigma0 and gamma0 Look Up Tables'}
-        return ds
+        return self.dt['calibration_luts'].ds
 
     def get_noise_azi_raw(self):
-        tmp = []
-        pols = []
-        for pol_code, xml_file in self.files['noise'].items():
-            #pol = self.files['polarization'].cat.categories[pol_code-1]
-            pol = os.path.basename(xml_file).split('-')[4].upper()
-            pols.append(pol)
-            if self.product == 'SLC':
-                noise_lut_azi_raw_ds = self.xml_parser.get_compound_var(xml_file,'noise_lut_azi_raw_slc')
-            else:
-                noise_lut_azi_raw_ds = self.xml_parser.get_compound_var(xml_file, 'noise_lut_azi_raw_grd')
-            for vari in noise_lut_azi_raw_ds:
-                if 'noise_lut' in vari:
-                    varitmp = 'noiseLut'
-                    hihi = self.xml_parser.get_var(self.files['noise'].iloc[0], 'noise.azi.%s' % varitmp,
-                                                   describe=True)
-                elif vari == 'noise_lut' and self.product=='WV': #WV case
-                    hihi = 'dummy variable, noise is not defined in azimuth for WV acquisitions'
-                else:
-                    varitmp = vari
-                    hihi = self.xml_parser.get_var(self.files['noise'].iloc[0], 'noise.azi.%s' % varitmp,
-                                                   describe=True)
-
-                noise_lut_azi_raw_ds[vari].attrs['description'] = hihi
-            tmp.append(noise_lut_azi_raw_ds)
-        ds = xr.concat(tmp,pd.Index(pols, name="pol"))
-        return ds
+        return self.dt['noise_azimuth_raw'].ds
 
     def get_noise_range_raw(self):
-        tmp = []
-        pols = []
-        for pol_code, xml_file in self.files['noise'].items():
-            #pol = self.files['polarization'].cat.categories[pol_code - 1]
-            pol = os.path.basename(xml_file).split('-')[4].upper()
-            pols.append(pol)
-            noise_lut_range_raw_ds = self.xml_parser.get_compound_var(xml_file, 'noise_lut_range_raw')
-            for vari in noise_lut_range_raw_ds:
-                if 'noise_lut' in vari:
-                    varitmp = 'noiseLut'
-                hihi = self.xml_parser.get_var(self.files['noise'].iloc[0], 'noise.range.%s' % varitmp,
-                                               describe=True)
-                noise_lut_range_raw_ds[vari].attrs['description'] = hihi
-            tmp.append(noise_lut_range_raw_ds)
-        ds = xr.concat(tmp, pd.Index(pols, name="pol"))
-        return ds
+        return self.dt['noise_range_raw'].ds

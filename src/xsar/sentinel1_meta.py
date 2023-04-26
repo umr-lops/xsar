@@ -205,7 +205,7 @@ class Sentinel1Meta(BaseMeta):
         if self.multidataset:
             raise TypeError('geolocation_grid not available for multidataset')
         if self._geoloc is None:
-            self._geoloc = self.dt['geolocationGrid'].ds
+            self._geoloc = self.dt['geolocationGrid'].to_dataset()
             self._geoloc.attrs = {}
             # compute attributes (footprint, coverage, pixel_size)
             footprint_dict = {}
@@ -312,11 +312,11 @@ class Sentinel1Meta(BaseMeta):
         orbit is longer than the SAFE, because it belongs to all datatakes, not only this slice
 
         """
-        return self.dt['orbit'].ds
+        return self.dt['orbit'].to_dataset()
 
     @property
     def image(self) -> xarray.Dataset:
-        return self.dt['image'].ds
+        return self.dt['image'].to_dataset()
 
     @property
     def azimuth_fmrate(self):
@@ -324,7 +324,7 @@ class Sentinel1Meta(BaseMeta):
         xarray.Dataset
             Frequency Modulation rate annotations such as t0 (azimuth time reference) and polynomial coefficients: Azimuth FM rate = c0 + c1(tSR - t0) + c2(tSR - t0)^2
         """
-        return self.dt['azimuth_fmrate'].ds
+        return self.dt['azimuth_fmrate'].to_dataset()
 
     @property
     def _dict_coords2ll(self):
@@ -357,7 +357,7 @@ class Sentinel1Meta(BaseMeta):
 
     @property
     def _bursts(self):
-        return self.dt['bursts'].ds
+        return self.dt['bursts'].to_dataset()
 
     @property
     def approx_transform(self):
@@ -410,17 +410,17 @@ class Sentinel1Meta(BaseMeta):
         xarray.Dataset
             with Doppler Centroid Estimates from annotations such as geo_polynom,data_polynom or frequency
         """
-        return self.dt['doppler_estimate'].ds
+        return self.dt['doppler_estimate'].to_dataset()
 
     def get_calibration_luts(self):
         """
         get original (ie not interpolation) xr.Dataset sigma0 and gamma0 Look Up Tables to apply calibration
 
         """
-        return self.dt['calibration_luts'].ds
+        return self.dt['calibration_luts'].to_dataset()
 
     def get_noise_azi_raw(self):
-        return self.dt['noise_azimuth_raw'].ds
+        return self.dt['noise_azimuth_raw'].to_dataset()
 
     def get_noise_range_raw(self):
-        return self.dt['noise_range_raw'].ds
+        return self.dt['noise_range_raw'].to_dataset()

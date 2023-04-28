@@ -607,7 +607,7 @@ class Sentinel1Dataset(BaseDataset):
             blocks = pd.concat(blocks, axis=1).T
             blocks = gpd.GeoDataFrame(blocks)
 
-            return self._NoiseLut(blocks)
+            return _NoiseLut(blocks)
 
         def noise_lut_azi(lut_azi):
             """
@@ -646,13 +646,28 @@ class Sentinel1Dataset(BaseDataset):
                     return np.tile(self.lut_f(lines), (samples.size, 1)).T
 
             blocks = []
-            for sw, a, a_start, a_stop, x_start, x_stop, lut in zip(lut_azi.line_start.attrs['swath'],
-                                                                    np.tile(lut_azi.line, (1, 1)),
-                                                                    np.tile(lut_azi.line_start, 1),
-                                                                    np.tile(lut_azi.line_stop, 1),
-                                                                    np.tile(lut_azi.sample_start, 1),
-                                                                    np.tile(lut_azi.sample_stop, 1),
-                                                                    np.tile(lut_azi.noise_lut, (1, 1))):
+            if self.sar_meta.product == 'SLC':
+                swath = lut_azi.line_start.attrs['swath']
+                lines = np.tile(lut_azi.line, (1, 1))
+                line_start = np.tile(lut_azi.line_start, 1)
+                line_stop = np.tile(lut_azi.line_stop, 1)
+                sample_start = np.tile(lut_azi.sample_start, 1)
+                sample_stop = np.tile(lut_azi.sample_stop, 1)
+                noise_lut = np.tile(lut_azi.noise_lut, (1, 1))
+            else:
+                swath = lut_azi.swath
+                lines, noise_lut = self.sar_meta.reader.get_noise_azi_initial_parameters(pol)
+                line_start = lut_azi.line_start
+                line_stop = lut_azi.line_stop
+                sample_start = lut_azi.sample_start
+                sample_stop = lut_azi.sample_stop
+            for sw, a, a_start, a_stop, x_start, x_stop, lut in zip(swath,
+                                                                    lines,
+                                                                    line_start,
+                                                                    line_stop,
+                                                                    sample_start,
+                                                                    sample_stop,
+                                                                    noise_lut):
                 lut_f = Lut_box_azi(sw, a, a_start, a_stop, x_start, x_stop, lut)
                 block = pd.Series(dict([
                     ('lut_f', lut_f),
@@ -671,7 +686,7 @@ class Sentinel1Dataset(BaseDataset):
             blocks = pd.concat(blocks, axis=1).T
             blocks = gpd.GeoDataFrame(blocks)
 
-            return self._NoiseLut(blocks)
+            return _NoiseLut(blocks)
 
         def signal_lut(lut):
             lut_f = RectBivariateSpline(lut.line, lut.sample, lut, kx=1, ky=1)
@@ -696,7 +711,7 @@ class Sentinel1Dataset(BaseDataset):
         luts = None
         for lut_name in luts_names:
             raw_lut = _get_lut_meta[lut_name]
-            for pol in raw_lut.pol:
+            for pol in raw_lut.pol.values:
                 if self._vars_with_pol[lut_name]:
                     name = "%s_%s" % (lut_name, pol)
                 else:

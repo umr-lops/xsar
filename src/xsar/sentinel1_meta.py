@@ -37,7 +37,6 @@ class Sentinel1Meta(BaseMeta):
     # class attributes are needed to fetch instance attribute (ie self.name) with dask actors
     # ref http://distributed.dask.org/en/stable/actors.html#access-attributes
     # FIXME: not needed if @property, so it might be a good thing to have getter for those attributes
-    xml_parser = None
     xsd_definitions = None
 
     @timing

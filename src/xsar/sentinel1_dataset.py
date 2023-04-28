@@ -606,7 +606,7 @@ class Sentinel1Dataset(BaseDataset):
 
             return _NoiseLut(blocks)
 
-        def noise_lut_azi(lut_azi):
+        def noise_lut_azi():
             """
             Parameters
             ----------
@@ -643,21 +643,10 @@ class Sentinel1Dataset(BaseDataset):
                     return np.tile(self.lut_f(lines), (samples.size, 1)).T
 
             blocks = []
-            if self.sar_meta.product == 'SLC':
-                swath = lut_azi.line_start.attrs['swath']
-                lines = np.tile(lut_azi.line, (1, 1))
-                line_start = np.tile(lut_azi.line_start, 1)
-                line_stop = np.tile(lut_azi.line_stop, 1)
-                sample_start = np.tile(lut_azi.sample_start, 1)
-                sample_stop = np.tile(lut_azi.sample_stop, 1)
-                noise_lut = np.tile(lut_azi.noise_lut, (1, 1))
-            else:
-                swath = lut_azi.swath
-                lines, noise_lut = self.sar_meta.reader.get_noise_azi_initial_parameters(pol)
-                line_start = lut_azi.line_start
-                line_stop = lut_azi.line_stop
-                sample_start = lut_azi.sample_start
-                sample_stop = lut_azi.sample_stop
+
+            swath, lines, line_start, line_stop, sample_start, sample_stop, noise_lut = \
+                self.sar_meta.reader.get_noise_azi_initial_parameters(pol)
+
             for sw, a, a_start, a_stop, x_start, x_stop, lut in zip(swath,
                                                                     lines,
                                                                     line_start,
@@ -715,7 +704,11 @@ class Sentinel1Dataset(BaseDataset):
                     name = lut_name
 
                 # get the lut function. As it takes some time to parse xml, make it delayed
-                lut_f_delayed = dask.delayed(_map_func[lut_name])(raw_lut.sel(pol=pol))
+                if lut_name == 'noise_lut_azi':
+                    # noise_lut_azi doesn't need the raw_lut
+                    lut_f_delayed = dask.delayed(_map_func[lut_name])()
+                else:
+                    lut_f_delayed = dask.delayed(_map_func[lut_name])(raw_lut.sel(pol=pol))
                 lut = map_blocks_coords(
                     self._da_tmpl.astype(self._dtypes[lut_name]),
                     lut_f_delayed,

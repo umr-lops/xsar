@@ -12,8 +12,7 @@ from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
 from .base_meta import BaseMeta
-from .utils import haversine, timing, class_or_instancemethod
-from .raster_readers import available_rasters
+from .utils import haversine, timing
 import os
 from .ipython_backends import repr_mimebundle
 from safe_s1.metadata import Sentinel1Reader

@@ -17,6 +17,10 @@ import rasterio
 from rasterio.control import GroundControlPoint
 from shapely.validation import make_valid
 import geopandas as gpd
+from scipy.spatial import KDTree
+import time
+import rasterio.features
+
 
 from xsar.utils import bbox_coords, haversine, map_blocks_coords, timing
 
@@ -504,6 +508,50 @@ class BaseDataset(ABC):
 
         return xr.merge(da_list)
 
+    def ll2coords_SLC(self, *args):
+        """
+        for SLC product with irregular projected pixel spacing in range Affine transformation are not relevant
+        :return:
+        """
+        stride_dataset_line = 10  # stride !=1 to save computation time, hard coded here to avoid issues of between KDtree serialized and possible different stride usage
+        stride_dataset_sample = 30
+        # stride_dataset_line = 1 # stride !=1 to save computation time, hard coded here to avoid issues of between KDtree serialized and possible different stride usage
+        # stride_dataset_sample = 1
+        lon, lat = args
+        subset_lon = self.dataset['longitude'].isel(
+            {'line': slice(None, None, stride_dataset_line), 'sample': slice(None, None, stride_dataset_sample)})
+        subset_lat = self.dataset['latitude'].isel(
+            {'line': slice(None, None, stride_dataset_line), 'sample': slice(None, None, stride_dataset_sample)})
+        if self.geoloc_tree is None:
+            t0 = time.time()
+            lontmp = subset_lon.values.ravel()
+            lattmp = subset_lat.values.ravel()
+            self.geoloc_tree = KDTree(np.c_[lontmp, lattmp])
+            logger.debug('tree ready in %1.2f sec' % (time.time() - t0))
+        ll = np.vstack([lon, lat]).T
+        dd, ii = self.geoloc_tree.query(ll, k=1)
+        line, sample = np.unravel_index(ii, subset_lat.shape)
+        return line * stride_dataset_line, sample * stride_dataset_sample
+
+    def coords2ll_SLC(self, *args):
+        """
+            for SLC product with irregular projected pixel spacing in range Affine transformation are not relevant
+
+        Returns
+        -------
+        """
+        lines, samples = args
+        if isinstance(lines, list) or isinstance(lines, np.ndarray):
+            pass
+        else:  # in case of a single point,
+            lines = [lines]  # to avoid error when declaring the da_line and da_sample below
+            samples = [samples]
+        da_line = xr.DataArray(lines, dims='points')
+        da_sample = xr.DataArray(samples, dims='points')
+        lon = self.dataset['longitude'].sel(line=da_line, sample=da_sample)
+        lat = self.dataset['latitude'].sel(line=da_line, sample=da_sample)
+        return lon, lat
+
     def land_mask_slc_per_bursts(self, lazy_loading=True):
         """
         1) loop on burst polygons to get rasterized landmask
@@ -540,7 +588,7 @@ class BaseDataset(ABC):
             lines = np.clip(lines, a_min=0, a_max=self.dataset['line'].max().values)
             samples = np.array([hh for hh in samples]).astype(int)
             samples = np.clip(samples, a_min=0, a_max=self.dataset['sample'].max().values)
-            chunk_footprint_lon, chunk_footprint_lat = self.sar_meta.coords2ll_SLC(lines, samples)
+            chunk_footprint_lon, chunk_footprint_lat = self.coords2ll_SLC(lines, samples)
             chunk_footprint_ll = Polygon(np.vstack([chunk_footprint_lon, chunk_footprint_lat]).T)
             if chunk_footprint_ll.is_valid is False:
                 chunk_footprint_ll = make_valid(chunk_footprint_ll)
@@ -555,7 +603,7 @@ class BaseDataset(ABC):
                 lons_ma, lats_ma = vector_mask_ll.exterior.xy
                 lons = np.array([hh for hh in lons_ma])
                 lats = np.array([hh for hh in lats_ma])
-                vector_mask_coords_lines, vector_mask_coords_samples = self.sar_meta.ll2coords_SLC(lons, lats)
+                vector_mask_coords_lines, vector_mask_coords_samples = self.ll2coords_SLC(lons, lats)
                 vector_mask_coords = [Polygon(np.vstack([vector_mask_coords_lines, vector_mask_coords_samples]).T)]
             else:  # multipolygon
                 vector_mask_coords = []  # to store polygons in image coordinates
@@ -563,7 +611,7 @@ class BaseDataset(ABC):
                     lons_ma, lats_ma = onepoly.exterior.xy
                     lons = np.array([hh for hh in lons_ma])
                     lats = np.array([hh for hh in lats_ma])
-                    vector_mask_coords_lines, vector_mask_coords_samples = self.sar_meta.ll2coords_SLC(lons, lats)
+                    vector_mask_coords_lines, vector_mask_coords_samples = self.ll2coords_SLC(lons, lats)
                     vector_mask_coords.append(
                         Polygon(np.vstack([vector_mask_coords_lines, vector_mask_coords_samples]).T))
 

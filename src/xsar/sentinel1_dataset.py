@@ -7,7 +7,6 @@ from scipy.interpolate import RectBivariateSpline
 import xarray as xr
 import dask
 import rasterio.features
-import time
 from scipy.interpolate import interp1d
 from shapely.geometry import box
 
@@ -16,11 +15,9 @@ from .utils import timing, map_blocks_coords, BlockingActorProxy, merge_yaml, \
 from .sentinel1_meta import Sentinel1Meta
 from .ipython_backends import repr_mimebundle
 import datatree
-from scipy.spatial import KDTree
 from .base_dataset import BaseDataset
 import pandas as pd
 import geopandas as gpd
-from safe_s1.metadata import Sentinel1Reader
 
 logger = logging.getLogger('xsar.sentinel1_dataset')
 logger.addHandler(logging.NullHandler())
@@ -889,50 +886,6 @@ class Sentinel1Dataset(BaseDataset):
         line_az_times_values = line_time.values[line]
         z_interp_value = self.interpolation_func_slc[varname](line_az_times_values, sample, grid=False)
         return z_interp_value
-
-    def ll2coords_SLC(self, *args):
-        """
-        for SLC product with irregular projected pixel spacing in range Affine transformation are not relevant
-        :return:
-        """
-        stride_dataset_line = 10  # stride !=1 to save computation time, hard coded here to avoid issues of between KDtree serialized and possible different stride usage
-        stride_dataset_sample = 30
-        # stride_dataset_line = 1 # stride !=1 to save computation time, hard coded here to avoid issues of between KDtree serialized and possible different stride usage
-        # stride_dataset_sample = 1
-        lon, lat = args
-        subset_lon = self.dataset['longitude'].isel(
-            {'line': slice(None, None, stride_dataset_line), 'sample': slice(None, None, stride_dataset_sample)})
-        subset_lat = self.dataset['latitude'].isel(
-            {'line': slice(None, None, stride_dataset_line), 'sample': slice(None, None, stride_dataset_sample)})
-        if self.geoloc_tree is None:
-            t0 = time.time()
-            lontmp = subset_lon.values.ravel()
-            lattmp = subset_lat.values.ravel()
-            self.geoloc_tree = KDTree(np.c_[lontmp, lattmp])
-            logger.debug('tree ready in %1.2f sec' % (time.time() - t0))
-        ll = np.vstack([lon, lat]).T
-        dd, ii = self.geoloc_tree.query(ll, k=1)
-        line, sample = np.unravel_index(ii, subset_lat.shape)
-        return line * stride_dataset_line, sample * stride_dataset_sample
-
-    def coords2ll_SLC(self, *args):
-        """
-            for SLC product with irregular projected pixel spacing in range Affine transformation are not relevant
-
-        Returns
-        -------
-        """
-        lines, samples = args
-        if isinstance(lines, list) or isinstance(lines, np.ndarray):
-            pass
-        else:  # in case of a single point,
-            lines = [lines]  # to avoid error when declaring the da_line and da_sample below
-            samples = [samples]
-        da_line = xr.DataArray(lines, dims='points')
-        da_sample = xr.DataArray(samples, dims='points')
-        lon = self.dataset['longitude'].sel(line=da_line, sample=da_sample)
-        lat = self.dataset['latitude'].sel(line=da_line, sample=da_sample)
-        return lon, lat
 
     def _apply_calibration_lut(self, var_name):
         """

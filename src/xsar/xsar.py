@@ -20,7 +20,6 @@ import aiohttp
 import zipfile
 import pandas as pd
 import geopandas as gpd
-import xarray as xr
 
 
 from .sentinel1_meta import Sentinel1Meta

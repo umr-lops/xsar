@@ -150,6 +150,12 @@ class Sentinel1Meta(BaseMeta):
                 raise KeyError('Unable to find key/attr "%s" in Sentinel1Meta' % k)
         return res_dict
 
+    def annotation_angle(self, line, sample, angle):
+        """ Interpolate angle with RectBivariateSpline """
+        lut = angle.reshape(line.size, sample.size)
+        lut_f = RectBivariateSpline(line, sample, lut, kx=1, ky=1)
+        return lut_f
+
     @property
     def orbit_pass(self):
         """

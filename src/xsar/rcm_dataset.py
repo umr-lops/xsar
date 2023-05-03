@@ -465,8 +465,6 @@ class RcmDataset(BaseDataset):
         -------
 
         """
-        # TODO : use the satellite height from the reader (when included in it).
-        #  Issue : https://github.com/umr-lops/xarray-safe-rcm/issues/17
         satellite_height = self.sar_meta.dt['imageGenerationParameters/sarProcessingInformation']\
             .to_dataset().satelliteHeight
         earth_radius = 6.371e6

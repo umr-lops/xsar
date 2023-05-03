@@ -165,8 +165,12 @@ class BaseMeta(BaseDataset):
             return descr
 
         if self._mask_geometry[name] is None:
-            poly = self._get_mask_intersecting_geometries(name) \
-                .unary_union.intersection(self.footprint)
+            if self._get_mask_intersecting_geometries(name).unary_union:
+                poly = self._get_mask_intersecting_geometries(name) \
+                    .unary_union.intersection(self.footprint)
+
+            else:
+                poly = Polygon()
 
             if poly.is_empty:
                 poly = Polygon()

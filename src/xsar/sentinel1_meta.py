@@ -328,18 +328,6 @@ class Sentinel1Meta(BaseMeta):
         """footprints as list. should len 1 for single meta, or len(self.subdatasets) for multi meta"""
         return self.manifest_attrs['footprints']
 
-    @class_or_instancemethod
-    def set_raster(self_or_cls, name, resource, read_function=None, get_function=None):
-        # get defaults if exists
-        default = available_rasters.loc[name:name]
-
-        # set from params, or from default
-        self_or_cls.rasters.loc[name, 'resource'] = resource or default.loc[name, 'resource']
-        self_or_cls.rasters.loc[name, 'read_function'] = read_function or default.loc[name, 'read_function']
-        self_or_cls.rasters.loc[name, 'get_function'] = get_function or default.loc[name, 'get_function']
-
-        return
-
     @property
     def coverage(self):
         """coverage, as a string like '251km * 170km (sample * line )'"""

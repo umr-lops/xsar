@@ -7,7 +7,6 @@ from .radarsat2_meta import RadarSat2Meta
 from .utils import timing, map_blocks_coords, BlockingActorProxy, to_lon180
 import numpy as np
 import rasterio.features
-from xradarsat2 import load_digital_number
 import xarray as xr
 from scipy.interpolate import RectBivariateSpline, interp1d
 import dask
@@ -76,28 +75,27 @@ class RadarSat2Dataset(BaseDataset):
         # default meta for map_blocks output.
         # as asarray is imported from numpy, it's a numpy array.
         # but if later we decide to import asarray from cupy, il will be a cupy.array (gpu)
-        self.rs2meta = None
+        self.sar_meta = None
         self.resolution = resolution
 
         if not isinstance(dataset_id, RadarSat2Meta):
-            self.rs2meta = BlockingActorProxy(RadarSat2Meta, dataset_id)
+            self.sar_meta = BlockingActorProxy(RadarSat2Meta, dataset_id)
             # check serializable
             # import pickle
             # s1meta = pickle.loads(pickle.dumps(self.s1meta))
-            # assert isinstance(rs2meta.coords2ll(100, 100),tuple)
+            # assert isinstance(sar_meta.coords2ll(100, 100),tuple)
         else:
-            # we want self.rs2meta to be a dask actor on a worker
-            self.rs2meta = BlockingActorProxy(RadarSat2Meta.from_dict, dataset_id.dict)
+            # we want self.sar_meta to be a dask actor on a worker
+            self.sar_meta = BlockingActorProxy(RadarSat2Meta.from_dict, dataset_id.dict)
         del dataset_id
-        self.objet_meta = self.rs2meta
-
-        if self.rs2meta.multidataset:
+        if self.sar_meta.multidataset:
             raise IndexError(
-                """Can't open an multi-dataset. Use `xsar.RadarSat2Meta('%s').subdatasets` to show availables ones""" % self.rs2.path
+                """Can't open an multi-dataset. Use `xsar.RadarSat2Meta('%s').subdatasets` to show availables ones""" % self.sar_meta.path
             )
 
+        from xradarsat2 import load_digital_number
         # build datatree
-        DN_tmp = load_digital_number(self.rs2meta.dt, resolution=resolution,
+        DN_tmp = load_digital_number(self.sar_meta.dt, resolution=resolution,
                                      resampling=resampling, chunks=chunks)['digital_numbers'].ds
         ### In order to respect xsar convention, lines and samples have been flipped in the metadata when necessary.
         ### `load_digital_number` uses these metadata but rio creates new coords without keeping the flipping done.
@@ -106,31 +104,31 @@ class RadarSat2Dataset(BaseDataset):
         DN_tmp = self.flip_line_da(DN_tmp)
 
         ### geoloc
-        geoloc = self.rs2meta.geoloc
+        geoloc = self.sar_meta.geoloc
         geoloc.attrs['history'] = 'annotations'
 
         ### orbitAndAttitude
-        orbit_and_attitude = self.rs2meta.orbit_and_attitude
+        orbit_and_attitude = self.sar_meta.orbit_and_attitude
         orbit_and_attitude.attrs['history'] = 'annotations'
 
         ### dopplerCentroid
-        doppler_centroid = self.rs2meta.doppler_centroid
+        doppler_centroid = self.sar_meta.doppler_centroid
         doppler_centroid.attrs['history'] = 'annotations'
 
         ### dopplerRateValues
-        doppler_rate_values = self.rs2meta.doppler_rate_values
+        doppler_rate_values = self.sar_meta.doppler_rate_values
         doppler_rate_values.attrs['history'] = 'annotations'
 
         ### chirp
-        chirp = self.rs2meta.chirp
+        chirp = self.sar_meta.chirp
         chirp.attrs['history'] = 'annotations'
 
         ### radarParameters
-        radar_parameters = self.rs2meta.radar_parameters
+        radar_parameters = self.sar_meta.radar_parameters
         radar_parameters.attrs['history'] = 'annotations'
 
         ### lookUpTables
-        lut = self.rs2meta.lut
+        lut = self.sar_meta.lut
         lut.attrs['history'] = 'annotations'
 
         self.datatree = datatree.DataTree.from_dict({'measurement': DN_tmp, 'geolocation_annotation': geoloc
@@ -159,11 +157,11 @@ class RadarSat2Dataset(BaseDataset):
         for att in ['name', 'short_name', 'product', 'safe', 'swath', 'multidataset']:
             if att not in self.datatree.attrs:
                 # tmp = xr.DataArray(self.s1meta.__getattr__(att),attrs={'source':'filename decoding'})
-                self.datatree.attrs[att] = self.rs2meta.__getattr__(att)
-                self._dataset.attrs[att] = self.rs2meta.__getattr__(att)
+                self.datatree.attrs[att] = self.sar_meta.__getattr__(att)
+                self._dataset.attrs[att] = self.sar_meta.__getattr__(att)
 
-        value_res_line = self.rs2meta.geoloc.line.attrs['rasterAttributes_sampledLineSpacing_value']
-        value_res_sample = self.rs2meta.geoloc.pixel.attrs['rasterAttributes_sampledPixelSpacing_value']
+        value_res_line = self.sar_meta.geoloc.line.attrs['rasterAttributes_sampledLineSpacing_value']
+        value_res_sample = self.sar_meta.geoloc.pixel.attrs['rasterAttributes_sampledPixelSpacing_value']
         # self._load_incidence_from_lut()
         refe_spacing = 'slant'
         if resolution is not None:
@@ -172,9 +170,9 @@ class RadarSat2Dataset(BaseDataset):
                 value_res_sample = float(resolution.replace('m', ''))
                 value_res_line = value_res_sample
             elif isinstance(resolution, dict):
-                value_res_sample = self.rs2meta.geoloc.pixel.attrs['rasterAttributes_sampledPixelSpacing_value'] \
+                value_res_sample = self.sar_meta.geoloc.pixel.attrs['rasterAttributes_sampledPixelSpacing_value'] \
                                    * resolution['sample']
-                value_res_line = self.rs2meta.geoloc.line.attrs['rasterAttributes_sampledLineSpacing_value'] \
+                value_res_line = self.sar_meta.geoloc.line.attrs['rasterAttributes_sampledLineSpacing_value'] \
                                  * resolution['line']
             else:
                 logger.warning('resolution type not handle (%s) should be str or dict -> sampleSpacing'
@@ -190,21 +188,21 @@ class RadarSat2Dataset(BaseDataset):
             self._da_tmpl = xr.DataArray(
                 dask.array.empty_like(
                     self._dataset.digital_number.isel(pol=0).drop('pol'),
-                    dtype=np.int8, name="empty_var_tmpl-%s" % dask.base.tokenize(self.rs2meta.name)),
+                    dtype=np.int8, name="empty_var_tmpl-%s" % dask.base.tokenize(self.sar_meta.name)),
                 dims=('line', 'sample'),
                 coords={'line': self._dataset.digital_number.line,
                         'sample': self._dataset.digital_number.sample}
             )
         # Add vars to define if lines or samples have been flipped to respect xsar convention
         self._dataset = xr.merge([
-            xr.DataArray(data=self.rs2meta.samples_flipped,
+            xr.DataArray(data=self.sar_meta.samples_flipped,
                          attrs={'meaning':
                                     'xsar convention : increasing incidence values along samples axis'}
                          ).to_dataset(name='samples_flipped'),
             self._dataset
         ])
         self._dataset = xr.merge([
-            xr.DataArray(data=self.rs2meta.lines_flipped,
+            xr.DataArray(data=self.sar_meta.lines_flipped,
                          attrs={'meaning':
                                     'xsar convention : increasing time along line axis '
                                     '(whatever ascending or descending pass direction)'}
@@ -215,6 +213,9 @@ class RadarSat2Dataset(BaseDataset):
         self._luts = self.lazy_load_luts()
         self.apply_calibration_and_denoising()
         self._dataset = xr.merge([self.load_from_geoloc(geoloc_vars, lazy_loading=lazyloading), self._dataset])
+        rasters = self._load_rasters_vars()
+        if rasters is not None:
+            self._dataset = xr.merge([self._dataset, rasters])
         self._dataset = xr.merge([self.interpolate_times, self._dataset])
         if 'ground_heading' not in skip_variables:
             self._dataset = xr.merge([self.load_ground_heading(), self._dataset])
@@ -231,10 +232,10 @@ class RadarSat2Dataset(BaseDataset):
         """self.datatree = datatree.DataTree.from_dict(
             {'measurement': self.datatree['measurement'],
              'geolocation_annotation': self.datatree['geolocation_annotation'],
-             'reader': self.rs2meta.dt})"""
+             'reader': self.sar_meta.dt})"""
         self._reconfigure_reader_datatree()
-        self._dataset.attrs.update(self.rs2meta.to_dict("all"))
-        self.datatree.attrs.update(self.rs2meta.to_dict("all"))
+        self._dataset.attrs.update(self.sar_meta.to_dict("all"))
+        self.datatree.attrs.update(self.sar_meta.to_dict("all"))
 
         self.resampled = resolution is not None
 
@@ -247,7 +248,7 @@ class RadarSat2Dataset(BaseDataset):
         xarray.Dataset
             Contains delayed dataArrays of luts
         """
-        luts_ds = self.rs2meta.dt['lut'].ds.rename({'pixel': 'sample'})
+        luts_ds = self.sar_meta.dt['lut'].ds.rename({'pixel': 'sample'})
         merge_list = []
         for lut_name in luts_ds:
             lut_f_delayed = dask.delayed()(luts_ds[lut_name])
@@ -261,12 +262,12 @@ class RadarSat2Dataset(BaseDataset):
     @timing
     def load_from_geoloc(self, varnames, lazy_loading=True):
         """
-        Interpolate (with RectBiVariateSpline) variables from `self.rs2meta.geoloc` to `self._dataset`
+        Interpolate (with RectBiVariateSpline) variables from `self.sar_meta.geoloc` to `self._dataset`
 
         Parameters
         ----------
         varnames: list of str
-            subset of variables names in `self.rs2meta.geoloc`
+            subset of variables names in `self.sar_meta.geoloc`
 
         Returns
         -------
@@ -294,19 +295,19 @@ class RadarSat2Dataset(BaseDataset):
                 da_list.append(da)
             else:
                 if varname == 'longitude':
-                    z_values = self.rs2meta.geoloc[varname]
-                    if self.rs2meta.cross_antemeridian:
+                    z_values = self.sar_meta.geoloc[varname]
+                    if self.sar_meta.cross_antemeridian:
                         logger.debug('translate longitudes between 0 and 360')
                         z_values = z_values % 360
                 else:
-                    z_values = self.rs2meta.geoloc[varname_in_geoloc]
+                    z_values = self.sar_meta.geoloc[varname_in_geoloc]
                 interp_func = RectBivariateSpline(
-                    self.rs2meta.geoloc.line,
-                    self.rs2meta.geoloc.pixel,
+                    self.sar_meta.geoloc.line,
+                    self.sar_meta.geoloc.pixel,
                     z_values,
                     kx=1, ky=1
                 )
-                typee = self.rs2meta.geoloc[varname_in_geoloc].dtype
+                typee = self.sar_meta.geoloc[varname_in_geoloc].dtype
                 if lazy_loading:
                     da_var = map_blocks_coords(
                         self._da_tmpl.astype(typee),
@@ -318,14 +319,14 @@ class RadarSat2Dataset(BaseDataset):
                                           coords={'line': self._dataset.digital_number.line,
                                                   'sample': self._dataset.digital_number.sample})
                 if varname == 'longitude':
-                    if self.rs2meta.cross_antemeridian:
+                    if self.sar_meta.cross_antemeridian:
                         da_var.data = da_var.data.map_blocks(to_lon180)
 
                 da_var.name = varname
 
                 # copy history
                 try:
-                    da_var.attrs['history'] = self.rs2meta.geoloc[varname_in_geoloc].attrs['xpath']
+                    da_var.attrs['history'] = self.sar_meta.geoloc[varname_in_geoloc].attrs['xpath']
                 except KeyError:
                     pass
 
@@ -358,7 +359,7 @@ class RadarSat2Dataset(BaseDataset):
 
     @timing
     def _resample_lut_values(self, lut):
-        lines = self.rs2meta.geoloc.line
+        lines = self.sar_meta.geoloc.line
         samples = np.arange(lut.shape[0])
         lut_values_2d = dask.delayed(np.tile)(lut, (lines.shape[0], 1))
         interp_func = dask.delayed(RectBivariateSpline)(x=lines, y=samples, z=lut_values_2d, kx=1, ky=1)
@@ -384,7 +385,7 @@ class RadarSat2Dataset(BaseDataset):
         -------
 
         """
-        satellite_height = self.rs2meta.dt.attrs['satelliteHeight']
+        satellite_height = self.sar_meta.dt.attrs['satelliteHeight']
         earth_radius = 6.371e6
         incidence = self._load_incidence_from_lut()
         angle_rad = np.sin(np.radians(incidence))
@@ -410,7 +411,7 @@ class RadarSat2Dataset(BaseDataset):
         except KeyError:
             raise ValueError("can't find noise lut name for var '%s'" % var_name)
         try:
-            lut = self.rs2meta.dt['radarParameters'][lut_name]
+            lut = self.sar_meta.dt['radarParameters'][lut_name]
         except KeyError:
             raise ValueError("can't find noise lut from name '%s' for variable '%s'" % (lut_name, var_name))
         return lut
@@ -439,7 +440,7 @@ class RadarSat2Dataset(BaseDataset):
         first_pix = initial_lut.attrs['pixelFirstNoiseValue']
         step = initial_lut.attrs['stepSize']
         noise_values = (10 ** (initial_lut / 10))
-        lines = np.arange(self.rs2meta.geoloc.line[-1] + 1)
+        lines = np.arange(self.sar_meta.geoloc.line[-1] + 1)
         noise_values_2d = np.tile(noise_values, (lines.shape[0], 1))
         indexes = [first_pix + step * i for i in range(0, noise_values.shape[0])]
         interp_func = dask.delayed(RectBivariateSpline)(x=lines, y=indexes, z=noise_values_2d, kx=1, ky=1)
@@ -465,8 +466,12 @@ class RadarSat2Dataset(BaseDataset):
                 with one variable named by `'ne%sz' % var_name[0]` (ie 'nesz' for 'sigma0', 'nebz' for 'beta0', etc...)
         """
         name = 'ne%sz' % var_name[0]
-        lut_noise = self._interpolate_for_noise_lut(var_name)
-        return lut_noise.to_dataset(name=name)
+        concat_list = []
+        # add pol dim
+        for pol in self._dataset.pol:
+            lut_noise = self._interpolate_for_noise_lut(var_name).assign_coords(pol=pol).expand_dims('pol')
+            concat_list.append(lut_noise)
+        return xr.concat(concat_list, dim='pol').to_dataset(name=name)
 
     def apply_calibration_and_denoising(self):
         """
@@ -545,6 +550,7 @@ class RadarSat2Dataset(BaseDataset):
         # if self.resolution is not None:
         lut = self._resample_lut_values(lut)
         res = ((self._dataset.digital_number ** 2.) + offset) / lut
+        # Have to know if we keep this line written by Olivier because it replaces 0 values by nan --> creates problems for wind inversion
         res = res.where(res > 0)
         res.attrs.update(lut.attrs)
         return res.to_dataset(name=var_name + '_raw')
@@ -565,8 +571,8 @@ class RadarSat2Dataset(BaseDataset):
         xarray.Dataset
             Flipped back, respecting the xsar convention
         """
-        antenna_pointing = self.rs2meta.dt['radarParameters'].attrs['antennaPointing']
-        pass_direction = self.rs2meta.dt.attrs['passDirection']
+        antenna_pointing = self.sar_meta.dt['radarParameters'].attrs['antennaPointing']
+        pass_direction = self.sar_meta.dt.attrs['passDirection']
         flipped_cases = [('Left', 'Ascending'), ('Right', 'Descending')]
         if (antenna_pointing, pass_direction) in flipped_cases:
             new_ds = ds.copy().isel(sample=slice(None, None, -1)).assign_coords(sample=ds.sample)
@@ -593,7 +599,7 @@ class RadarSat2Dataset(BaseDataset):
         xarray.Dataset
             Flipped back, respecting the xsar convention
         """
-        pass_direction = self.rs2meta.dt.attrs['passDirection']
+        pass_direction = self.sar_meta.dt.attrs['passDirection']
         if pass_direction == 'Ascending':
             new_ds = ds.copy().isel(line=slice(None, None, -1)).assign_coords(line=ds.line)
         else:
@@ -603,16 +609,16 @@ class RadarSat2Dataset(BaseDataset):
     @property
     def interpolate_times(self):
         """
-        Apply interpolation with RectBivariateSpline to the azimuth time extracted from `self.rs2meta.geoloc`
+        Apply interpolation with RectBivariateSpline to the azimuth time extracted from `self.sar_meta.geoloc`
 
         Returns
         -------
         xarray.Dataset
             Contains the time as delayed at the good resolution and expressed as type datetime64[ns]
         """
-        times = self.rs2meta.get_azitime
-        lines = self.rs2meta.geoloc.line
-        samples = self.rs2meta.geoloc.pixel
+        times = self.sar_meta.get_azitime
+        lines = self.sar_meta.geoloc.line
+        samples = self.sar_meta.geoloc.pixel
         time_values_2d = np.tile(times, (samples.shape[0], 1)).transpose()
         interp_func = RectBivariateSpline(x=lines, y=samples, z=time_values_2d.astype(float), kx=1, ky=1)
         da_var = map_blocks_coords(
@@ -629,8 +635,8 @@ class RadarSat2Dataset(BaseDataset):
         xarray.Dataset()
             containing a single variable velocity
         """
-        azimuth_times = self.rs2meta.get_azitime
-        orbstatevect = self.rs2meta.orbit_and_attitude
+        azimuth_times = self.sar_meta.get_azitime
+        orbstatevect = self.sar_meta.orbit_and_attitude
         velos = np.array(
             [orbstatevect['xVelocity'] ** 2., orbstatevect['yVelocity'] ** 2., orbstatevect['zVelocity'] ** 2.])
         vels = np.sqrt(np.sum(velos, axis=0))
@@ -684,7 +690,7 @@ class RadarSat2Dataset(BaseDataset):
         }
         new_dt = datatree.DataTree.from_dict(dic)
 
-        dt = self.rs2meta.dt
+        dt = self.sar_meta.dt
 
         # rename lut
         new_dt['lut'] = dt['lut'].rename(rename_lut)
@@ -709,7 +715,7 @@ class RadarSat2Dataset(BaseDataset):
                 else:
                     new_dt[key] = copy_dt[key]
         self.datatree = new_dt
-        self.datatree.attrs.update(self.rs2meta.dt.attrs)
+        self.datatree.attrs.update(self.sar_meta.dt.attrs)
         return
 
     def __repr__(self):
@@ -732,7 +738,7 @@ class RadarSat2Dataset(BaseDataset):
 
     @dataset.setter
     def dataset(self, ds):
-        if self.rs2meta.name == ds.attrs['name']:
+        if self.sar_meta.name == ds.attrs['name']:
             # check if new ds has changed coordinates
             if not self.sliced:
                 self.sliced = any(
@@ -746,5 +752,10 @@ class RadarSat2Dataset(BaseDataset):
     @dataset.deleter
     def dataset(self):
         logger.debug('deleter dataset')
+
+    @property
+    def rs2meta(self):
+        logger.warning('Please use `sar_meta` to call the sar meta object')
+        return self.sar_meta
 
 

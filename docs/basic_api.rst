@@ -10,17 +10,33 @@ API reference
 
 Base classes
 ============
-.. automodule:: xsar
-    :members: BaseMeta, BaseDataset
+    .. autoclass:: BaseMeta
+        :members:
+
+
+    .. autoclass:: BaseDataset
+        :members:
 
 XSAR Meta classes
 =================
-.. automodule:: xsar
-    :members: Sentinel1Meta, RadarSat2Meta
+    .. autoclass:: Sentinel1Meta
+        :members:
+
+    .. autoclass:: RadarSat2Meta
+        :members:
+
+    .. autoclass:: RcmMeta
+        :members:
 
 XSAR Dataset classes
 ====================
-.. automodule:: xsar
-    :members: Sentinel1Dataset, RadarSat2Dataset
+    .. autoclass:: Sentinel1Dataset
+        :members:
+
+    .. autoclass:: RadarSat2Dataset
+        :members:
+
+    .. autoclass:: RcmDataset
+        :members:
 
 

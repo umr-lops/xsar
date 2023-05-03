@@ -401,6 +401,18 @@ class BaseMeta(BaseDataset):
         """stort date, as datetime.datetime"""
         return '%s' % self.time_range.right
 
+    @class_or_instancemethod
+    def set_raster(self_or_cls, name, resource, read_function=None, get_function=None):
+        # get defaults if exists
+        default = available_rasters.loc[name:name]
+
+        # set from params, or from default
+        self_or_cls.rasters.loc[name, 'resource'] = resource or default.loc[name, 'resource']
+        self_or_cls.rasters.loc[name, 'read_function'] = read_function or default.loc[name, 'read_function']
+        self_or_cls.rasters.loc[name, 'get_function'] = get_function or default.loc[name, 'get_function']
+
+        return
+
     @property
     def dict(self):
         # return a minimal dictionary that can be used with Sentinel1Meta.from_dict() or pickle (see __reduce__)

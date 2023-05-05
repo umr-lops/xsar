@@ -9,5 +9,5 @@ nbsphinx
 jupyter-sphinx
 sphinxcontrib-programoutput
 xradarsat2
-git+https://github.com/umr-lops/xarray-safe-rcm.git
-git+https://github.com/umr-lops/xarray_safe_s1.git
+xarray-safe-rcm
+xarray-safe-s1

@@ -40,7 +40,7 @@ conda install
 
 .. code-block::
 
-    pip install git+https://github.com/umr-lops/xarray-safe-rcm.git
+    pip install xarray-safe-rcm
 
 
 pip install
@@ -79,20 +79,18 @@ pip install
     pip install xsar
 
 
-- Install xsar including Radarsat2 and RCM:
+- Install xsar including multiple readers/dependencies (here Radarsat2 and RCM):
 
 .. code-block::
 
-    pip install git+https://github.com/umr-lops/xarray-safe-rcm.git
-    pip install xsar[RS2]
+    pip install xsar[RS2,RCM]
 
 
 - Install xsar including Radarsat2, Sentinel-1 and RCM:
 
 .. code-block::
 
-    pip install git+https://github.com/umr-lops/xarray-safe-rcm.git
-    pip install xsar[RS2,S1]
+    pip install xsar[RS2,S1, RCM]
 
 
 recommended packages

@@ -11,29 +11,38 @@ So insallation in a conda_ environement is recommended.
 conda install
 #############
 
-1) Install xsar (this won't include the readers)
+1) Install mamba
+
+For a faster installation and less conflicts between packages, it is better to install
+xsar with mamba
 
 .. code-block::
 
     conda create -n xsar
     conda activate xsar
-    conda install -c conda-forge xsar
+    conda install -c conda-forge mamba
+
+2) Install xsar (this won't include the readers)
+
+.. code-block::
+
+    mamba install -c conda-forge xsar
 
 
-2) Add optional dependencies (readers)
+3) Add optional dependencies (readers)
 
 - Add use of Radarsat2 :
+
+.. code-block::
+
+    mamba install -c conda-forge xradarsat2
+
 
 - Add use of Sentinel-1
 
 .. code-block::
 
-    pip install xarray-safe-s1
-
-
-.. code-block::
-
-    conda install -c conda-forge xradarsat2
+    mamba install -c conda-forge xarray-safe-s1
 
 
 - Add use of RCM

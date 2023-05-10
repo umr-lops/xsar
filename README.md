@@ -11,15 +11,24 @@ Sentinel1 Level 1 python reader for efficient xarray/dask based processor
 
 1) Install xsar (without the readers)
 
+For a faster installation and less conflicts between packages, it is better
+to make the installation with mamba
+
 ```
-conda install -c conda-forge xsar
+conda install -c conda-forge mamba
 ```
-2) Add optional dependencies
+
+2) Install xsar (without the readers)
+
+```
+mamba install -c conda-forge xsar
+```
+3) Add optional dependencies
 
 - Add use of Radarsat2 :
 
 ```
-conda install -c conda-forge xradarsat2
+mamba install -c conda-forge xradarsat2
 ```
 
 - Add use of RCM
@@ -31,7 +40,7 @@ pip install xarray-safe-rcm
 - Add use of Sentinel1
 
 ```
-pip install xarray-safe-s1
+mamba install -c conda-forge xarray-safe-s1
 ```
 
 ## Pypi

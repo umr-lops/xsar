@@ -1,21 +1,18 @@
 """miscellaneous functions"""
 import warnings
-from functools import wraps
 import time
 import os
 
-import cartopy
 import numpy as np
 import logging
 from scipy.interpolate import griddata
 import xarray as xr
 import dask
-from dask.distributed import get_client, secede, rejoin
+from dask.distributed import get_client
 from functools import wraps, partial
 import rasterio
 import shutil
 import glob
-import yaml
 import re
 import datetime
 import string
@@ -25,8 +22,6 @@ from importlib_resources import files
 from pathlib import Path
 import fsspec
 import aiohttp
-from shapely.geometry import Polygon
-import geopandas as gpd
 
 logger = logging.getLogger('xsar.utils')
 logger.addHandler(logging.NullHandler())

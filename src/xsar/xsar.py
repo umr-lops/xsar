@@ -1,7 +1,6 @@
 """
 TODO: this docstring is the main xsar module documentation shown to the user. It's should be updated with some examples.
 """
-import pdb
 
 import warnings
 import xarray
@@ -15,8 +14,6 @@ __version__ = metadata.version('xsar')
 import logging
 from .utils import timing, config, url_get
 import os
-import fsspec
-import aiohttp
 import zipfile
 import pandas as pd
 import geopandas as gpd

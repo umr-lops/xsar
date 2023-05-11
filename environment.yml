@@ -7,9 +7,6 @@ dependencies:
   - dask >=2021.6.2
   - gdal >=3.3
   - geopandas
-  - importlib_resources
-  - jmespath
-  - lxml
   - more-itertools
   - rasterio >=1.2.6
   - setuptools_scm

@@ -33,6 +33,7 @@ setup(
         'pytz',
         'psutil',
         'requests',
+        'xarray-safe-s1',
     ],
     extras_require={
         "RS2": ["xradarsat2"],

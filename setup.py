@@ -33,6 +33,7 @@ setup(
         'pytz',
         'psutil',
         'requests',
+        'importlib-resources',
         'xarray-safe-s1',
     ],
     extras_require={

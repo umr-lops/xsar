@@ -22,24 +22,24 @@ setup(
         'pyproj',
         'jinja2<=3.0.3',
         'xarray-datatree>=0.0.9',
-        'lxml',
         'numpy',
         'scipy',
         'shapely',
-        'jmespath',
         'geopandas',
         'more_itertools',
-        'importlib-resources',
         'pyyaml',
         'fsspec',
         'aiohttp',
         'pytz',
         'psutil',
         'requests',
+        'importlib-resources',
+        'xarray-safe-s1',
     ],
     extras_require={
         "RS2": ["xradarsat2"],
         "RCM": ["xarray-safe-rcm"],
+        "S1": ["xarray-safe-s1"]
     },
     entry_points={
         "xarray.backends": ["xsar=xsar.xarray_backends:XsarXarrayBackend"]

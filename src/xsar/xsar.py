@@ -1,7 +1,6 @@
 """
 TODO: this docstring is the main xsar module documentation shown to the user. It's should be updated with some examples.
 """
-import pdb
 
 import warnings
 import xarray
@@ -15,14 +14,9 @@ __version__ = metadata.version('xsar')
 import logging
 from .utils import timing, config, url_get
 import os
-import fsspec
-import aiohttp
 import zipfile
-from . import sentinel1_xml_mappings
-from .xml_parser import XmlParser
 import pandas as pd
 import geopandas as gpd
-import xarray as xr
 
 
 from .sentinel1_meta import Sentinel1Meta
@@ -126,7 +120,7 @@ def open_datatree(*args, **kwargs):
     return dt
 
 
-def product_info(path, columns='minimal', include_multi=False, _xml_parser=None):
+def product_info(path, columns='minimal', include_multi=False):
     """
 
     Parameters
@@ -175,12 +169,6 @@ def product_info(path, columns='minimal', include_multi=False, _xml_parser=None)
 
     if isinstance(path, str):
         path = [path]
-
-    if _xml_parser is None:
-        _xml_parser = XmlParser(
-            xpath_mappings=sentinel1_xml_mappings.xpath_mappings,
-            compounds_vars=sentinel1_xml_mappings.compounds_vars,
-            namespaces=sentinel1_xml_mappings.namespaces)
 
     df_list = []
     for p in path:

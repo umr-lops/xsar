@@ -1,6 +1,4 @@
 # -*- coding: utf-8 -*-
-import pdb
-
 import logging
 import warnings
 import numpy as np
@@ -8,22 +6,18 @@ import xarray
 from scipy.interpolate import RectBivariateSpline
 import xarray as xr
 import dask
-import rasterio
 import rasterio.features
-import rioxarray
-import time
 from scipy.interpolate import interp1d
+from shapely.geometry import box
 
-from .utils import timing, map_blocks_coords, BlockingActorProxy, merge_yaml, get_glob, \
+from .utils import timing, map_blocks_coords, BlockingActorProxy, merge_yaml, \
     to_lon180
-from affine import Affine
 from .sentinel1_meta import Sentinel1Meta
 from .ipython_backends import repr_mimebundle
-import yaml
 import datatree
-from scipy.spatial import KDTree
 from .base_dataset import BaseDataset
-import datetime 
+import pandas as pd
+import geopandas as gpd
 
 logger = logging.getLogger('xsar.sentinel1_dataset')
 logger.addHandler(logging.NullHandler())
@@ -127,7 +121,9 @@ class Sentinel1Dataset(BaseDataset):
             resolution = None
             logger.warning('xsar is not handling resolution change for SLC TOPS products. resolution set to `None`')
         # build datatree
-        DN_tmp = self._load_digital_number(resolution=resolution, resampling=resampling, chunks=chunks)
+        self.resolution, DN_tmp = self.sar_meta.reader.load_digital_number(resolution=resolution,
+                                                                           resampling=resampling,
+                                                                           chunks=chunks)
         ### geoloc
         geoloc = self.sar_meta.geoloc
         geoloc.attrs['history'] = 'annotations'
@@ -142,28 +138,28 @@ class Sentinel1Dataset(BaseDataset):
         # doppler
         dop = self.sar_meta._doppler_estimate
         dop.attrs['history'] = 'annotations'
-        
+
         # calibration LUTs
-        ds_luts = self.sar_meta.get_calibration_luts()
+        ds_luts = self.sar_meta.get_calibration_luts
         ds_luts.attrs['history'] = 'calibration'
 
         # noise levels LUTs
-        ds_noise_range = self.sar_meta.get_noise_range_raw()
+        ds_noise_range = self.sar_meta.get_noise_range_raw
         ds_noise_range.attrs['history'] = 'noise'
-        ds_noise_azi = self.sar_meta.get_noise_azi_raw()
-        if self.sar_meta.swath=='WV':
-            ds_noise_azi['noise_lut'] = self._patch_lut(ds_noise_azi['noise_lut']) # patch applied here is distinct to same patch applied on interpolated noise LUT
+        ds_noise_azi = self.sar_meta.get_noise_azi_raw
+        if self.sar_meta.swath == 'WV':
+            ds_noise_azi['noise_lut'] = self._patch_lut(ds_noise_azi[
+                                                            'noise_lut'])  # patch applied here is distinct to same patch applied on interpolated noise LUT
         ds_noise_azi.attrs['history'] = 'noise'
-
 
         self.datatree = datatree.DataTree.from_dict({'measurement': DN_tmp, 'geolocation_annotation': geoloc,
                                                      'bursts': bu, 'FMrate': FM, 'doppler_estimate': dop,
                                                      # 'image_information':
                                                      'orbit': self.sar_meta.orbit,
                                                      'image': self.sar_meta.image,
-                                                     'calibration':ds_luts,
-                                                     'noise_range':ds_noise_range,
-                                                     'noise_azimuth':ds_noise_azi
+                                                     'calibration': ds_luts,
+                                                     'noise_range': ds_noise_range,
+                                                     'noise_azimuth': ds_noise_azi
                                                      })
 
         # self.datatree['measurement'].ds = .from_dict({'measurement':self._load_digital_number(resolution=resolution, resampling=resampling, chunks=chunks)
@@ -239,7 +235,7 @@ class Sentinel1Dataset(BaseDataset):
         if 'GRD' in str(self.datatree.attrs['product']):  # load land_mask by default for GRD products
             self.add_high_resolution_variables(patch_variable=patch_variable, luts=luts, lazy_loading=lazyloading)
             self.apply_calibration_and_denoising()
-        self.datatree['measurement'].attrs = self.datatree.attrs # added 6 fev 23, to fill  empty attrs
+        self.datatree['measurement'].attrs = self.datatree.attrs  # added 6 fev 23, to fill  empty attrs
         self.sliced = False
         """True if dataset is a slice of original L1 dataset"""
 
@@ -334,7 +330,7 @@ class Sentinel1Dataset(BaseDataset):
             if skip_variables is None:
                 skip_variables = []
             # variables not returned to the user (unless luts=True)
-            #self._hidden_vars = ['sigma0_lut', 'gamma0_lut', 'noise_lut', 'noise_lut_range', 'noise_lut_azi']
+            # self._hidden_vars = ['sigma0_lut', 'gamma0_lut', 'noise_lut', 'noise_lut_range', 'noise_lut_azi']
             self._hidden_vars = []
             # attribute to activate correction on variables, if available
             self._patch_variable = patch_variable
@@ -362,7 +358,7 @@ class Sentinel1Dataset(BaseDataset):
 
             if luts:
                 ds_merge_list.append(self._luts[self._hidden_vars])
-            attrs = self._dataset.attrs 
+            attrs = self._dataset.attrs
             self._dataset = xr.merge(ds_merge_list)
             self._dataset.attrs = attrs
             geoloc_vars = ['altitude', 'azimuth_time', 'slant_range_time',
@@ -426,7 +422,7 @@ class Sentinel1Dataset(BaseDataset):
         # self._dataset = self.datatree[
         #     'measurement'].to_dataset()  # test oct 22 to see if then I can modify variables of the dt
         return
-        
+
     def __del__(self):
         logger.debug('__del__')
 
@@ -482,7 +478,7 @@ class Sentinel1Dataset(BaseDataset):
         lut xarray.Dataset
         """
         if self.sar_meta.swath == 'WV':
-            if lut.name in ['noise_lut_azi','noise_lut'] and self.sar_meta.ipf in [2.9, 2.91] and \
+            if lut.name in ['noise_lut_azi', 'noise_lut'] and self.sar_meta.ipf in [2.9, 2.91] and \
                     self.sar_meta.platform in ['SENTINEL-1A', 'SENTINEL-1B']:
                 noise_calibration_cst_pp1 = {
                     'SENTINEL-1A':
@@ -516,29 +512,203 @@ class Sentinel1Dataset(BaseDataset):
 
         """
 
+        class _NoiseLut:
+            """small internal class that return a lut function(lines, samples) defined on all the image, from blocks in the image"""
+
+            def __init__(self, blocks):
+                self.blocks = blocks
+
+            def __call__(self, lines, samples):
+                """ return noise[a.size,x.size], by finding the intersection with blocks and calling the corresponding block.lut_f"""
+                if len(self.blocks) == 0:
+                    # no noise (ie no azi noise for ipf < 2.9)
+                    return 1
+                else:
+                    # the array to be returned
+                    noise = xr.DataArray(
+                        np.ones((lines.size, samples.size)) * np.nan,
+                        dims=('line', 'sample'),
+                        coords={'line': lines, 'sample': samples}
+                    )
+                    # find blocks that intersects with asked_box
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")
+                        # the box coordinates of the returned array
+                        asked_box = box(max(0, lines[0] - 0.5), max(0, samples[0] - 0.5), lines[-1] + 0.5,
+                                        samples[-1] + 0.5)
+                        # set match_blocks as the non empty intersection with asked_box
+                        match_blocks = self.blocks.copy()
+                        match_blocks.geometry = self.blocks.geometry.intersection(asked_box)
+                        match_blocks = match_blocks[~match_blocks.is_empty]
+                    for i, block in match_blocks.iterrows():
+                        (sub_a_min, sub_x_min, sub_a_max, sub_x_max) = map(int, block.geometry.bounds)
+                        sub_a = lines[(lines >= sub_a_min) & (lines <= sub_a_max)]
+                        sub_x = samples[(samples >= sub_x_min) & (samples <= sub_x_max)]
+                        noise.loc[dict(line=sub_a, sample=sub_x)] = block.lut_f(sub_a, sub_x)
+
+                # values returned as np array
+                return noise.values
+
+        def noise_lut_range(lut_range):
+            """
+
+            Parameters
+            ----------
+            lines: np.ndarray
+                1D array of lines. lut is defined at each line
+            samples: list of np.ndarray
+                arrays of samples. list length is same as samples. each array define samples where lut is defined
+            noiseLuts: list of np.ndarray
+                arrays of luts. Same structure as samples.
+
+            Returns
+            -------
+            geopandas.GeoDataframe
+                noise range geometry.
+                'geometry' is the polygon where 'lut_f' is defined.
+                attrs['type'] set to 'sample'
+
+
+            """
+
+            class Lut_box_range:
+                def __init__(self, a_start, a_stop, x, l):
+                    self.lines = np.arange(a_start, a_stop)
+                    self.samples = x
+                    self.area = box(a_start, x[0], a_stop, x[-1])
+                    self.lut_f = interp1d(x, l, kind='linear', fill_value=np.nan, assume_sorted=True,
+                                          bounds_error=False)
+
+                def __call__(self, lines, samples):
+                    lut = np.tile(self.lut_f(samples), (lines.size, 1))
+                    return lut
+
+            blocks = []
+            lines = lut_range.line
+            samples = np.tile(lut_range.sample, (len(lines), 1))
+            noiseLuts = lut_range.noise_lut
+            # lines is where lut is defined. compute lines interval validity
+            lines_start = (lines - np.diff(lines, prepend=0) / 2).astype(int)
+            lines_stop = np.ceil(
+                lines + np.diff(lines, append=lines[-1] + 1) / 2
+            ).astype(int)  # end is not included in the interval
+            lines_stop[-1] = 65535  # be sure to include all image if last azimuth line, is not last azimuth image
+            for a_start, a_stop, x, l in zip(lines_start, lines_stop, samples, noiseLuts):
+                lut_f = Lut_box_range(a_start, a_stop, x, l)
+                block = pd.Series(dict([
+                    ('lut_f', lut_f),
+                    ('geometry', lut_f.area)]))
+                blocks.append(block)
+
+            # to geopandas
+            blocks = pd.concat(blocks, axis=1).T
+            blocks = gpd.GeoDataFrame(blocks)
+
+            return _NoiseLut(blocks)
+
+        def noise_lut_azi():
+            """
+            Parameters
+            ----------
+            line_azi
+            line_azi_start
+            line_azi_stop
+            sample_azi_start
+            sample_azi_stop
+            noise_azi_lut
+            swath
+
+            Returns
+            -------
+            geopandas.GeoDataframe
+                noise range geometry.
+                'geometry' is the polygon where 'lut_f' is defined.
+                attrs['type'] set to 'line'
+            """
+
+            class Lut_box_azi:
+                def __init__(self, sw, a, a_start, a_stop, x_start, x_stop, lut):
+                    self.lines = a
+                    self.samples = np.arange(x_start, x_stop + 1)
+                    self.area = box(max(0, a_start - 0.5), max(0, x_start - 0.5), a_stop + 0.5, x_stop + 0.5)
+                    if len(lut) > 1:
+                        self.lut_f = interp1d(a, lut, kind='linear', fill_value='extrapolate', assume_sorted=True,
+                                              bounds_error=False)
+                    else:
+                        # not enought values to do interpolation
+                        # noise will be constant on this box!
+                        self.lut_f = lambda _a: lut
+
+                def __call__(self, lines, samples):
+                    return np.tile(self.lut_f(lines), (samples.size, 1)).T
+
+            blocks = []
+
+            swath, lines, line_start, line_stop, sample_start, sample_stop, noise_lut = \
+                self.sar_meta.reader.get_noise_azi_initial_parameters(pol)
+
+            for sw, a, a_start, a_stop, x_start, x_stop, lut in zip(swath,
+                                                                    lines,
+                                                                    line_start,
+                                                                    line_stop,
+                                                                    sample_start,
+                                                                    sample_stop,
+                                                                    noise_lut):
+                lut_f = Lut_box_azi(sw, a, a_start, a_stop, x_start, x_stop, lut)
+                block = pd.Series(dict([
+                    ('lut_f', lut_f),
+                    ('geometry', lut_f.area)]))
+                blocks.append(block)
+
+            if len(blocks) == 0:
+                # no azi noise (ipf < 2.9) or WV
+                blocks.append(pd.Series(dict([
+                    ('lines', np.array([])),
+                    ('samples', np.array([])),
+                    ('lut_f', lambda a, x: 1),
+                    ('geometry', box(0, 0, 65535, 65535))])))  # arbitrary large box (bigger than whole image)
+
+            # to geopandas
+            blocks = pd.concat(blocks, axis=1).T
+            blocks = gpd.GeoDataFrame(blocks)
+
+            return _NoiseLut(blocks)
+
+        def signal_lut(lut):
+            lut_f = RectBivariateSpline(lut.line, lut.sample, lut, kx=1, ky=1)
+            return lut_f
+
+        # get the lut in metadata. Lut name must be in self._map_lut_files.keys()
+        _get_lut_meta = {
+            'sigma0_lut': self.sar_meta.get_calibration_luts.sigma0_lut,
+            'gamma0_lut': self.sar_meta.get_calibration_luts.gamma0_lut,
+            'noise_lut_range': self.sar_meta.get_noise_range_raw,
+            'noise_lut_azi': self.sar_meta.get_noise_azi_raw,
+        }
+        # map the func to apply for each lut. Lut name must be in self._map_lut_files.keys()
+        _map_func = {
+            'sigma0_lut': signal_lut,
+            'gamma0_lut': signal_lut,
+            'noise_lut_range': noise_lut_range,
+            'noise_lut_azi': noise_lut_azi,
+        }
+
         luts_list = []
         luts = None
         for lut_name in luts_names:
-            xml_type = self._map_lut_files[lut_name]
-            xml_files = self.sar_meta.files.copy()
-            # polarization is a category. we use codes (ie index),
-            # to have well-ordered polarizations in latter combine_by_coords
-            xml_files['pol_code'] = xml_files['polarization'].cat.codes
-            xml_files = xml_files.set_index('pol_code')[xml_type]
-
-            if not self._vars_with_pol[lut_name]:
-                # luts are identical in all pols: take the fist one
-                xml_files = xml_files.iloc[[0]]
-
-            for pol_code, xml_file in xml_files.items():
-                pol = self.sar_meta.files['polarization'].cat.categories[pol_code]
+            raw_lut = _get_lut_meta[lut_name]
+            for pol in raw_lut.pol.values:
                 if self._vars_with_pol[lut_name]:
                     name = "%s_%s" % (lut_name, pol)
                 else:
                     name = lut_name
 
                 # get the lut function. As it takes some time to parse xml, make it delayed
-                lut_f_delayed = dask.delayed(self.sar_meta.xml_parser.get_compound_var)(xml_file, lut_name)
+                if lut_name == 'noise_lut_azi':
+                    # noise_lut_azi doesn't need the raw_lut
+                    lut_f_delayed = dask.delayed(_map_func[lut_name])()
+                else:
+                    lut_f_delayed = dask.delayed(_map_func[lut_name])(raw_lut.sel(pol=pol))
                 lut = map_blocks_coords(
                     self._da_tmpl.astype(self._dtypes[lut_name]),
                     lut_f_delayed,
@@ -546,11 +716,10 @@ class Sentinel1Dataset(BaseDataset):
                 )
                 # needs to add pol dim ?
                 if self._vars_with_pol[lut_name]:
-                    lut = lut.assign_coords(pol_code=pol_code).expand_dims('pol_code')
+                    lut = lut.assign_coords(pol=pol).expand_dims('pol')
 
                 # set xml file and xpath used as history
-                histo = self.sar_meta.xml_parser.get_compound_var(xml_file, lut_name,
-                                                                describe=True)
+                histo = raw_lut.attrs['history']
                 lut.name = lut_name
                 if self._patch_variable:
                     lut = self._patch_lut(lut)
@@ -559,146 +728,7 @@ class Sentinel1Dataset(BaseDataset):
 
                 luts_list.append(lut)
             luts = xr.combine_by_coords(luts_list)
-
-            # convert pol_code to string
-            pols = self.sar_meta.files['polarization'].cat.categories[luts.pol_code.values.tolist()]
-            luts = luts.rename({'pol_code': 'pol'}).assign_coords({'pol': pols})
         return luts
-
-    @timing
-    def _load_digital_number(self, resolution=None, chunks=None, resampling=rasterio.enums.Resampling.rms):
-        """
-        load digital_number from self.sar_meta.files['measurement'], as an `xarray.Dataset`.
-
-        Parameters
-        ----------
-        resolution: None, number, str or dict
-            see `xsar.open_dataset`
-        resampling: rasterio.enums.Resampling
-            see `xsar.open_dataset`
-
-        Returns
-        -------
-        xarray.Dataset
-            dataset (possibly dual-pol), with basic coords/dims naming convention
-        """
-
-        map_dims = {
-            'pol': 'band',
-            'line': 'y',
-            'sample': 'x'
-        }
-
-        if resolution is not None:
-            comment = 'resampled at "%s" with %s.%s.%s' % (
-                resolution, resampling.__module__, resampling.__class__.__name__, resampling.name)
-        else:
-            comment = 'read at full resolution'
-
-        # arbitrary rio object, to get shape, etc ... (will not be used to read data)
-        rio = rasterio.open(self.sar_meta.files['measurement'].iloc[0])
-
-        chunks['pol'] = 1
-        # sort chunks keys like map_dims
-        chunks = dict(sorted(chunks.items(), key=lambda pair: list(map_dims.keys()).index(pair[0])))
-        chunks_rio = {map_dims[d]: chunks[d] for d in map_dims.keys()}
-        self.resolution = None
-        if resolution is None:
-            # using tiff driver: need to read individual tiff and concat them
-            # riofiles['rio'] is ordered like self.sar_meta.manifest_attrs['polarizations']
-
-            dn = xr.concat(
-                [
-                    rioxarray.open_rasterio(
-                        f, chunks=chunks_rio, parse_coordinates=False
-                    ) for f in self.sar_meta.files['measurement']
-                ], 'band'
-            ).assign_coords(band=np.arange(len(self.sar_meta.manifest_attrs['polarizations'])) + 1)
-
-            # set dimensions names
-            dn = dn.rename(dict(zip(map_dims.values(), map_dims.keys())))
-
-            # create coordinates from dimension index (because of parse_coordinates=False)
-            dn = dn.assign_coords({'line': dn.line, 'sample': dn.sample})
-            dn = dn.drop_vars('spatial_ref', errors='ignore')
-        else:
-            if not isinstance(resolution, dict):
-                if isinstance(resolution, str) and resolution.endswith('m'):
-                    resolution = float(resolution[:-1])
-                    self.resolution = resolution
-                resolution = dict(line=resolution / self.sar_meta.pixel_line_m,
-                                  sample=resolution / self.sar_meta.pixel_sample_m)
-                # resolution = dict(line=resolution / self.dataset['sampleSpacing'].values,
-                #                   sample=resolution / self.dataset['lineSpacing'].values)
-
-            # resample the DN at gdal level, before feeding it to the dataset
-            out_shape = (
-                int(rio.height / resolution['line']),
-                int(rio.width / resolution['sample'])
-            )
-            out_shape_pol = (1,) + out_shape
-            # read resampled array in one chunk, and rechunk
-            # this doesn't optimize memory, but total size remain quite small
-
-            if isinstance(resolution['line'], int):
-                # legacy behaviour: winsize is the maximum full image size that can be divided  by resolution (int)
-                winsize = (0, 0, rio.width // resolution['sample'] * resolution['sample'],
-                           rio.height // resolution['line'] * resolution['line'])
-                window = rasterio.windows.Window(*winsize)
-            else:
-                window = None
-
-            dn = xr.concat(
-                [
-                    xr.DataArray(
-                        dask.array.from_array(
-                            rasterio.open(f).read(
-                                out_shape=out_shape_pol,
-                                resampling=resampling,
-                                window=window
-                            ),
-                            chunks=chunks_rio
-                        ),
-                        dims=tuple(map_dims.keys()), coords={'pol': [pol]}
-                    ) for f, pol in
-                    zip(self.sar_meta.files['measurement'], self.sar_meta.manifest_attrs['polarizations'])
-                ],
-                'pol'
-            ).chunk(chunks)
-
-            # create coordinates at box center
-            translate = Affine.translation((resolution['sample'] - 1) / 2, (resolution['line'] - 1) / 2)
-            scale = Affine.scale(
-                rio.width // resolution['sample'] * resolution['sample'] / out_shape[1],
-                rio.height // resolution['line'] * resolution['line'] / out_shape[0])
-            sample, _ = translate * scale * (dn.sample, 0)
-            _, line = translate * scale * (0, dn.line)
-            dn = dn.assign_coords({'line': line, 'sample': sample})
-
-        # for GTiff driver, pols are already ordered. just rename them
-        dn = dn.assign_coords(pol=self.sar_meta.manifest_attrs['polarizations'])
-
-        if not all(self.sar_meta.denoised.values()):
-            descr = 'denoised'
-        else:
-            descr = 'not denoised'
-        var_name = 'digital_number'
-
-        dn.attrs = {
-            'comment': '%s digital number, %s' % (descr, comment),
-            'history': yaml.safe_dump(
-                {
-                    var_name: get_glob(
-                        [p.replace(self.sar_meta.path + '/', '') for p in self.sar_meta.files['measurement']])
-                }
-            )
-        }
-        ds = dn.to_dataset(name=var_name)
-        astype = self._dtypes.get(var_name)
-        if astype is not None:
-            ds = ds.astype(self._dtypes[var_name])
-
-        return ds
 
     @timing
     def _load_from_geoloc(self, varnames, lazy_loading=True):
@@ -849,50 +879,6 @@ class Sentinel1Dataset(BaseDataset):
         line_az_times_values = line_time.values[line]
         z_interp_value = self.interpolation_func_slc[varname](line_az_times_values, sample, grid=False)
         return z_interp_value
-
-    def ll2coords_SLC(self, *args):
-        """
-        for SLC product with irregular projected pixel spacing in range Affine transformation are not relevant
-        :return:
-        """
-        stride_dataset_line = 10  # stride !=1 to save computation time, hard coded here to avoid issues of between KDtree serialized and possible different stride usage
-        stride_dataset_sample = 30
-        # stride_dataset_line = 1 # stride !=1 to save computation time, hard coded here to avoid issues of between KDtree serialized and possible different stride usage
-        # stride_dataset_sample = 1
-        lon, lat = args
-        subset_lon = self.dataset['longitude'].isel(
-            {'line': slice(None, None, stride_dataset_line), 'sample': slice(None, None, stride_dataset_sample)})
-        subset_lat = self.dataset['latitude'].isel(
-            {'line': slice(None, None, stride_dataset_line), 'sample': slice(None, None, stride_dataset_sample)})
-        if self.geoloc_tree is None:
-            t0 = time.time()
-            lontmp = subset_lon.values.ravel()
-            lattmp = subset_lat.values.ravel()
-            self.geoloc_tree = KDTree(np.c_[lontmp, lattmp])
-            logger.debug('tree ready in %1.2f sec' % (time.time() - t0))
-        ll = np.vstack([lon, lat]).T
-        dd, ii = self.geoloc_tree.query(ll, k=1)
-        line, sample = np.unravel_index(ii, subset_lat.shape)
-        return line * stride_dataset_line, sample * stride_dataset_sample
-
-    def coords2ll_SLC(self, *args):
-        """
-            for SLC product with irregular projected pixel spacing in range Affine transformation are not relevant
-
-        Returns
-        -------
-        """
-        lines, samples = args
-        if isinstance(lines, list) or isinstance(lines, np.ndarray):
-            pass
-        else:  # in case of a single point,
-            lines = [lines]  # to avoid error when declaring the da_line and da_sample below
-            samples = [samples]
-        da_line = xr.DataArray(lines, dims='points')
-        da_sample = xr.DataArray(samples, dims='points')
-        lon = self.dataset['longitude'].sel(line=da_line, sample=da_sample)
-        lat = self.dataset['latitude'].sel(line=da_line, sample=da_sample)
-        return lon, lat
 
     def _apply_calibration_lut(self, var_name):
         """
@@ -1162,5 +1148,3 @@ class Sentinel1Dataset(BaseDataset):
     def s1meta(self):
         logger.warning('Please use `sar_meta` to call the sar meta object')
         return self.sar_meta
-
-

@@ -11,35 +11,51 @@ So insallation in a conda_ environement is recommended.
 conda install
 #############
 
-1) Install xsar (this will only permit to use Sentinel1)
+1) Install mamba
+
+For a faster installation and less conflicts between packages, it is better to install
+xsar with mamba
 
 .. code-block::
 
     conda create -n xsar
     conda activate xsar
-    conda install -c conda-forge xsar
+    conda install -c conda-forge mamba
+
+2) Install xsar (this won't include the readers)
+
+.. code-block::
+
+    mamba install -c conda-forge xsar
 
 
-2) Add optional dependencies
+3) Add optional dependencies (readers)
 
 - Add use of Radarsat2 :
 
 .. code-block::
 
-    conda install -c conda-forge xradarsat2
+    mamba install -c conda-forge xradarsat2
+
+
+- Add use of Sentinel-1
+
+.. code-block::
+
+    mamba install -c conda-forge xarray-safe-s1
 
 
 - Add use of RCM
 
 .. code-block::
 
-    pip install git+https://github.com/umr-lops/xarray-safe-rcm.git
+    pip install xarray-safe-rcm
 
 
 pip install
 ###########
 
-1) Install xsar (this will only permit to use Sentinel1)
+1) Install xsar (this won't include the readers)
 
 .. code-block::
 
@@ -48,7 +64,14 @@ pip install
     pip install xsar
 
 
-2) install xsar with optional dependencies (to use Radarsat2, RCM...)
+2) install xsar with optional dependencies (to use Sentinel-1, Radarsat2, RCM...)
+
+- Install xsar including Sentinel-1 :
+
+.. code-block::
+
+    pip install xsar[S1]
+
 
 - Install xsar including Radarsat2 :
 
@@ -65,12 +88,18 @@ pip install
     pip install xsar
 
 
-- Install xsar including Radarsat2 and RCM:
+- Install xsar including multiple readers/dependencies (here Radarsat2 and RCM):
 
 .. code-block::
 
-    pip install git+https://github.com/umr-lops/xarray-safe-rcm.git
-    pip install xsar[RS2]
+    pip install xsar[RS2,RCM]
+
+
+- Install xsar including Radarsat2, Sentinel-1 and RCM:
+
+.. code-block::
+
+    pip install xsar[RS2,S1, RCM]
 
 
 recommended packages

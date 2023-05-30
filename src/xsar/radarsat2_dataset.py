@@ -636,12 +636,22 @@ class RadarSat2Dataset(BaseDataset):
             containing a single variable velocity
         """
         azimuth_times = self.sar_meta.get_azitime
+        interp_times = self.interpolate_times['time']
         orbstatevect = self.sar_meta.orbit_and_attitude
+        orbstatevect2 = xr.Dataset()
+        # number of values must be the same as number of lines
+        for var in orbstatevect:
+            da = orbstatevect[var]
+            interp_func = interp1d(y=da, x=da.timeStamp.astype('float'))
+            interp_var = interp_func(azimuth_times.astype('float'))
+            orbstatevect2[var] = xr.DataArray(data=interp_var, dims=['timeStamp'], coords={'timeStamp': azimuth_times},
+                                              attrs=da.attrs)
+        orbstatevect2.attrs = orbstatevect.attrs
         velos = np.array(
-            [orbstatevect['xVelocity'] ** 2., orbstatevect['yVelocity'] ** 2., orbstatevect['zVelocity'] ** 2.])
+            [orbstatevect2['xVelocity'] ** 2., orbstatevect2['yVelocity'] ** 2., orbstatevect2['zVelocity'] ** 2.])
         vels = np.sqrt(np.sum(velos, axis=0))
         interp_f = interp1d(azimuth_times.astype(float), vels)
-        _vels = interp_f(self.interpolate_times['time'].astype(float))
+        _vels = interp_f(interp_times.astype(float))
         res = xr.DataArray(_vels, dims=['line'], coords={'line': self.dataset.line})
         return xr.Dataset({'velocity': res})
 

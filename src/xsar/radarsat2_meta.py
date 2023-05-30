@@ -1,7 +1,7 @@
 import pandas as pd
 import rasterio
 from rasterio.control import GroundControlPoint
-from scipy.interpolate import RectBivariateSpline
+from scipy.interpolate import RectBivariateSpline, interp1d
 from shapely.geometry import Polygon
 
 from .utils import haversine, timing
@@ -229,7 +229,13 @@ class RadarSat2Meta(BaseMeta):
         array[datetime64[ns]]
             times
         """
-        return self.orbit_and_attitude.timeStamp.values
+        times = self.orbit_and_attitude.timeStamp.values
+        lines = self.geoloc.line
+        # Some products have a different number of lines and timestamps
+        if len(times) != len(lines):
+            interp_func = interp1d(y=times, x=np.arange(1, len(times) + 1))
+            times = interp_func(np.linspace(1, len(times), len(lines)))
+        return times
 
     def __reduce__(self):
         # make self serializable with pickle

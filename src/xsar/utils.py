@@ -1,21 +1,18 @@
 """miscellaneous functions"""
 import warnings
-from functools import wraps
 import time
 import os
 
-import cartopy
 import numpy as np
 import logging
 from scipy.interpolate import griddata
 import xarray as xr
 import dask
-from dask.distributed import get_client, secede, rejoin
+from dask.distributed import get_client
 from functools import wraps, partial
 import rasterio
 import shutil
 import glob
-import yaml
 import re
 import datetime
 import string
@@ -25,8 +22,6 @@ from importlib_resources import files
 from pathlib import Path
 import fsspec
 import aiohttp
-from shapely.geometry import Polygon
-import geopandas as gpd
 
 logger = logging.getLogger('xsar.utils')
 logger.addHandler(logging.NullHandler())
@@ -304,7 +299,7 @@ def bbox_coords(xs, ys, pad='extends'):
     return bbox_ext
 
 
-def compress_safe(safe_path_in, safe_path_out, smooth=0, rasterio_kwargs={'compress': 'zstd'}):
+def compress_safe(safe_path_in, safe_path_out, product='S1', smooth=0, rasterio_kwargs={'compress': 'zstd'}):
     """
 
     Parameters
@@ -331,47 +326,130 @@ def compress_safe(safe_path_in, safe_path_out, smooth=0, rasterio_kwargs={'compr
     except:
         pass
     os.mkdir(safe_path_out_tmp)
+    if 'S1' in product:
+        shutil.copytree(safe_path_in + "/annotation", safe_path_out_tmp + "/annotation")
+        shutil.copyfile(safe_path_in + "/manifest.safe", safe_path_out_tmp + "/manifest.safe")
 
-    shutil.copytree(safe_path_in + "/annotation", safe_path_out_tmp + "/annotation")
-    shutil.copyfile(safe_path_in + "/manifest.safe", safe_path_out_tmp + "/manifest.safe")
+        os.mkdir(safe_path_out_tmp + "/measurement")
+        for tiff_file in glob.glob(os.path.join(safe_path_in, 'measurement', '*.tiff')):
+            src = rasterio.open(tiff_file)
+            open_kwargs = src.profile
+            open_kwargs.update(rasterio_kwargs)
+            gcps, crs = src.gcps
+            open_kwargs['gcps'] = gcps
+            open_kwargs['crs'] = crs
+            if smooth > 1:
+                reduced = xr.DataArray(
+                    src.read(
+                        1, out_shape=(src.height // smooth, src.width // smooth),
+                        resampling=rasterio.enums.Resampling.rms))
+                mean = reduced.mean().item()
+                if not isinstance(mean, complex) and mean < 1:
+                    raise RuntimeError('rasterio returned empty band. Try to use smallest smooth size')
+                reduced = reduced.assign_coords(
+                    dim_0=reduced.dim_0 * smooth + smooth / 2,
+                    dim_1=reduced.dim_1 * smooth + smooth / 2)
+                band = reduced.interp(
+                    dim_0=np.arange(src.height),
+                    dim_1=np.arange(src.width),
+                    method='nearest')
+                try:
+                    # convert to original datatype if possible
+                    band = band.values.astype(src.dtypes[0])
+                except TypeError:
+                    pass
+            else:
+                band = src.read(1)
 
-    os.mkdir(safe_path_out_tmp + "/measurement")
-    for tiff_file in glob.glob(os.path.join(safe_path_in, 'measurement', '*.tiff')):
-        src = rasterio.open(tiff_file)
-        open_kwargs = src.profile
-        open_kwargs.update(rasterio_kwargs)
-        gcps, crs = src.gcps
-        open_kwargs['gcps'] = gcps
-        open_kwargs['crs'] = crs
-        if smooth > 1:
-            reduced = xr.DataArray(
-                src.read(
-                    1, out_shape=(src.height // smooth, src.width // smooth),
-                    resampling=rasterio.enums.Resampling.rms))
-            mean = reduced.mean().item()
-            if not isinstance(mean, complex) and mean < 1:
-                raise RuntimeError('rasterio returned empty band. Try to use smallest smooth size')
-            reduced = reduced.assign_coords(
-                dim_0=reduced.dim_0 * smooth + smooth / 2,
-                dim_1=reduced.dim_1 * smooth + smooth / 2)
-            band = reduced.interp(
-                dim_0=np.arange(src.height),
-                dim_1=np.arange(src.width),
-                method='nearest')
-            try:
-                # convert to original datatype if possible
-                band = band.values.astype(src.dtypes[0])
-            except TypeError:
-                pass
-        else:
-            band = src.read(1)
+            with rasterio.open(
+                    safe_path_out_tmp + "/measurement/" + os.path.basename(tiff_file),
+                    'w',
+                    **open_kwargs
+            ) as dst:
+                dst.write(band, 1)
+    elif 'RCM' in product:
+        shutil.copytree(safe_path_in + "/metadata", safe_path_out_tmp + "/metadata")
+        shutil.copytree(safe_path_in + "/support", safe_path_out_tmp + "/support")
+        shutil.copyfile(safe_path_in + "/manifest.safe", safe_path_out_tmp + "/manifest.safe")
 
-        with rasterio.open(
-                safe_path_out_tmp + "/measurement/" + os.path.basename(tiff_file),
-                'w',
-                **open_kwargs
-        ) as dst:
-            dst.write(band, 1)
+        os.mkdir(safe_path_out_tmp + "/imagery")
+        for tiff_file in glob.glob(os.path.join(safe_path_in, 'imagery', '*.tif')):
+            src = rasterio.open(tiff_file)
+            open_kwargs = src.profile
+            open_kwargs.update(rasterio_kwargs)
+            gcps, crs = src.gcps
+            open_kwargs['gcps'] = gcps
+            open_kwargs['crs'] = crs
+            if smooth > 1:
+                reduced = xr.DataArray(
+                    src.read(
+                        1, out_shape=(src.height // smooth, src.width // smooth),
+                        resampling=rasterio.enums.Resampling.rms))
+                mean = reduced.mean().item()
+                if not isinstance(mean, complex) and mean < 1:
+                    raise RuntimeError('rasterio returned empty band. Try to use smallest smooth size')
+                reduced = reduced.assign_coords(
+                    dim_0=reduced.dim_0 * smooth + smooth / 2,
+                    dim_1=reduced.dim_1 * smooth + smooth / 2)
+                band = reduced.interp(
+                    dim_0=np.arange(src.height),
+                    dim_1=np.arange(src.width),
+                    method='nearest')
+                try:
+                    # convert to original datatype if possible
+                    band = band.values.astype(src.dtypes[0])
+                except TypeError:
+                    pass
+            else:
+                band = src.read(1)
+
+            with rasterio.open(
+                    safe_path_out_tmp + "/imagery/" + os.path.basename(tiff_file),
+                    'w',
+                    **open_kwargs
+            ) as dst:
+                dst.write(band, 1)
+
+    elif 'RS2' in product:
+        shutil.copytree(safe_path_in + "/schemas", safe_path_out_tmp + "/schemas")
+        for xml_file in glob.glob(os.path.join(safe_path_in, '*.xml')):
+            shutil.copyfile(xml_file, os.path.join(safe_path_out_tmp, os.path.basename(xml_file)))
+        for tiff_file in glob.glob(os.path.join(safe_path_in, '*.tif')):
+            src = rasterio.open(tiff_file)
+            open_kwargs = src.profile
+            open_kwargs.update(rasterio_kwargs)
+            gcps, crs = src.gcps
+            open_kwargs['gcps'] = gcps
+            open_kwargs['crs'] = crs
+            if smooth > 1:
+                reduced = xr.DataArray(
+                    src.read(
+                        1, out_shape=(src.height // smooth, src.width // smooth),
+                        resampling=rasterio.enums.Resampling.rms))
+                mean = reduced.mean().item()
+                if not isinstance(mean, complex) and mean < 1:
+                    raise RuntimeError('rasterio returned empty band. Try to use smallest smooth size')
+                reduced = reduced.assign_coords(
+                    dim_0=reduced.dim_0 * smooth + smooth / 2,
+                    dim_1=reduced.dim_1 * smooth + smooth / 2)
+                band = reduced.interp(
+                    dim_0=np.arange(src.height),
+                    dim_1=np.arange(src.width),
+                    method='nearest')
+                try:
+                    # convert to original datatype if possible
+                    band = band.values.astype(src.dtypes[0])
+                except TypeError:
+                    pass
+            else:
+                band = src.read(1)
+
+            with rasterio.open(
+                    os.path.join(safe_path_out_tmp, os.path.basename(tiff_file)),
+                    'w',
+                    **open_kwargs
+            ) as dst:
+                dst.write(band, 1)
 
     os.rename(safe_path_out_tmp, safe_path_out)
 

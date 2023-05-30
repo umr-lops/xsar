@@ -92,6 +92,7 @@ if __name__ == '__main__':
     safe_path = os.path.normpath(os.path.expanduser(args.safe_path))
     safe_name = os.path.basename(safe_path)
     safe_type = safe_name.split('_')[1]
+    safe_product = os.path.splitext(safe_name)[0].split('_')[0]
     if args.s == 'auto':
         if safe_type in smooth_size:
             smooth = smooth_size[safe_type]
@@ -108,7 +109,7 @@ if __name__ == '__main__':
     safe_path_out = os.path.join(args.d, safe_path_out)
 
     print("Compressing %s..." % os.path.basename(safe_path))
-    safe_out = compress_safe(safe_path, safe_path_out, smooth=smooth,
+    safe_out = compress_safe(safe_path, safe_path_out, product=safe_product, smooth=smooth,
                              rasterio_kwargs={'compress': args.z})
     in_size = get_dir_size(safe_path)
     out_size = get_dir_size(safe_out)

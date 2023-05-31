@@ -129,7 +129,7 @@ def ecmwf_0125_1h(fname, **kwargs):
     return ecmwf_ds
 
 
-def hwrf_0015_3h(fname, **kwargs):
+def hwrf_0015_3h(fname,**kwargs):
     """
     hwrf 0.015 deg 3h reader ()
     
@@ -145,15 +145,16 @@ def hwrf_0015_3h(fname, **kwargs):
     xarray.Dataset
     """
     hwrf_ds = xr.open_dataset(fname)
-    try:
-        hwrf_ds = hwrf_ds.sel(t=kwargs['date'])[['U', 'V', 'LON', 'LAT']]
-    except Exception as e:
+    try : 
+        hwrf_ds = hwrf_ds[['U','V','LON','LAT']]
+        hwrf_ds = hwrf_ds.squeeze('t', drop=True)
+
+    except Exception as e: 
         raise ValueError("date '%s' can't be find in %s " % (kwargs['date'], fname))
     
-    time_datetime = datetime.datetime.utcfromtimestamp(hwrf_ds.t.values.astype(int) * 1e-9)
-    hwrf_ds.attrs['time'] = (time_datetime.strftime("%Y/%m/%d %H:%M:%S"))
+    hwrf_ds.attrs['time'] = datetime.datetime.strftime(kwargs['date'],'%Y-%m-%d %H:%M:%S')
 
-    hwrf_ds = hwrf_ds.assign_coords({"x":hwrf_ds.LON.values[0,:],"y":hwrf_ds.LAT.values[:,0]}).drop_vars(['t','LON','LAT']).rename(
+    hwrf_ds = hwrf_ds.assign_coords({"x":hwrf_ds.LON.values[0,:],"y":hwrf_ds.LAT.values[:,0]}).drop_vars(['LON','LAT']).rename(
             {
                 'U': 'U10',
                 'V': 'V10'

@@ -74,7 +74,9 @@ def ecmwf_0100_1h(fname, **kwargs):
     """
     ecmwf_ds = xr.open_dataset(fname, chunks={'Longitude': 1000, 'Latitude': 1000}).isel(time=0)
     ecmwf_ds.attrs['time'] = datetime.datetime.fromtimestamp(ecmwf_ds.time.item() // 1000000000)
-    ecmwf_ds = ecmwf_ds.drop_vars('time').rename(
+    if 'time' in ecmwf_ds:
+        ecmwf_ds = ecmwf_ds.drop("time")
+    ecmwf_ds = ecmwf_ds[["Longitude","Latitude","10U","10V"]].rename(
         {
             'Longitude': 'x',
             'Latitude': 'y',

@@ -8,6 +8,7 @@ import shapely
 from shapely.geometry import Polygon
 from shapely import ops
 import numpy as np
+from datetime import datetime
 
 from abc import abstractmethod
 
@@ -394,12 +395,22 @@ class BaseMeta(BaseDataset):
     @property
     def start_date(self):
         """start date, as datetime.datetime"""
-        return '%s' % self.time_range.left
+        out_format = '%Y-%m-%d %H:%M:%S.%f'
+        date = self.time_range.left
+        try:
+            return '%s' % datetime.strptime('%s' % date, out_format)
+        except ValueError:
+            return '%s' % date.strftime(out_format)
 
     @property
     def stop_date(self):
-        """stort date, as datetime.datetime"""
-        return '%s' % self.time_range.right
+        """stop date, as datetime.datetime"""
+        out_format = '%Y-%m-%d %H:%M:%S.%f'
+        date = self.time_range.right
+        try:
+            return '%s' % datetime.strptime('%s' % date, out_format)
+        except ValueError:
+            return '%s' % date.strftime(out_format)
 
     @class_or_instancemethod
     def set_raster(self_or_cls, name, resource, read_function=None, get_function=None):

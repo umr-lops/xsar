@@ -47,5 +47,8 @@ setup(
     license='MIT',
     author='Olivier Archer, Alexandre Levieux, Antoine Grouazel',
     author_email='Olivier.Archer@ifremer.fr, Alexandre.Levieux@gmail.com, Antoine.Grouazel@ifremer.fr',
-    description='xarray/dask distributed L1 sar file reader'
+    description='xarray L1 SAR mapper',
+    summary='Python xarray library to use Level-1 GRD SAR products',
+    long_description_content_type='text/x-rst',
+    long_description = 'Python xarray library to use Level-1 GRD Synthetic Aperture Radar products'
 )

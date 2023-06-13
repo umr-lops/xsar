@@ -1,7 +1,7 @@
 ![Install test](https://github.com/umr-lops/xsar/actions/workflows/install-test.yml/badge.svg)
 # xsar
 
-Sentinel1 Level 1 python reader for efficient xarray/dask based processor
+Synthetic Aperture Radar (SAR) Level-1 GRD python mapper for efficient xarray/dask based processing
 
  
 
@@ -9,70 +9,70 @@ Sentinel1 Level 1 python reader for efficient xarray/dask based processor
 
 ## Conda
 
-1) Install xsar (without the readers)
+1) Install `xsar` (without the readers)
 
 For a faster installation and less conflicts between packages, it is better
-to make the installation with mamba
+to make the installation with `mamba`
 
-```
+```bash
 conda install -c conda-forge mamba
 ```
 
-2) Install xsar (without the readers)
+2) install `xsar` (without the readers)
 
-```
+```bash
 mamba install -c conda-forge xsar
 ```
 3) Add optional dependencies
 
-- Add use of Radarsat2 :
+- Add use of Radarsat-2 :
 
-```
+```bash
 mamba install -c conda-forge xradarsat2
 ```
 
-- Add use of RCM
+- Add use of RCM (RadarSat Constellation Mission)
 
-```
+```bash
 pip install xarray-safe-rcm
 ```
 
-- Add use of Sentinel1
+- Add use of Sentinel-1
 
-```
+```bash
 mamba install -c conda-forge xarray-safe-s1
 ```
 
 ## Pypi
 
-1) Install xsar (this will only permit to use Sentinel1)
+1) install `xsar` (this will only allow to use Sentinel-1)
 
-```
+```bash
 pip install xsar
 ```
-2) install xsar with optional dependencies (to use Radarsat2, RCM...)
+2) install `xsar` with optional dependencies (to use Radarsat-2, RCM...)
 
-- Install xsar including Sentinel1 :
+- install `xsar` including Sentinel-1 :
 
-```
+```bash
 pip install xsar[S1]
 ```
 
-- Install xsar including Radarsat2 :
+- install `xsar` including Radarsat-2 :
 
-```
+```bash
 pip install xsar[RS2]
 ```
 
-- Install xsar including RCM :
+- install `xsar` including RCM :
 
-```
+```bash
 pip install xsar[RCM]
 ```
 
-- Install xsar including multiple readers (here Radarsat2 and RCM):
+- install `xsar` including multiple readers (here Radarsat-2 and RCM):
 
-```
+```bash
 pip install xsar[RS2,RCM]
 ```
 
@@ -122,7 +122,7 @@ Attributes: (12/14)
 
 
 
-# More infos
+# More information
 
 For more install options and to use xsar, see [documentation](https://cyclobs.ifremer.fr/static/sarwing_datarmor/xsar/)
 

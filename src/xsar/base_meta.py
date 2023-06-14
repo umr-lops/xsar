@@ -180,9 +180,15 @@ class BaseMeta(BaseDataset):
         return self._mask_geometry[name]
 
     def _get_mask_intersecting_geometries(self, name):
+        """
+
+        :param name: str(eg land)
+        :return:
+        """
         if self._mask_intersecting_geometries[name] is None:
-            gseries = gpd.GeoSeries(self._get_mask_feature(name)
-                                    .intersecting_geometries(self.footprint.bounds))
+            gseries = gpd.GeoSeries(self._get_mask_feature(name).geometries())
+            # gseries = gpd.GeoSeries(self._get_mask_feature(name)
+            #                         .intersecting_geometries(self.footprint))
             if len(gseries) == 0:
                 # no intersection with mask, but we want at least one geometry in the serie (an empty one)
                 gseries = gpd.GeoSeries([Polygon()])

@@ -832,6 +832,7 @@ class Sentinel1Dataset(BaseDataset):
             if varname == 'longitude':
                 if self.sar_meta.cross_antemeridian:
                     da_var.data = da_var.data.map_blocks(to_lon180)
+                    self.anti_meridian_correction_performed = True
 
             da_var.name = varname
 

@@ -729,8 +729,8 @@ class BaseDataset(ABC):
         if not raster_ds.rio.crs.is_geographic:
             raster_ds = raster_ds.rio.reproject(4326)
 
-        if self.sar_meta.cross_antemeridian and self.anti_meridian_correction_performed is False:
-            raise NotImplementedError('Antimeridian crossing not yet checked')
+        if self.sar_meta.cross_antemeridian: # for method map_raster() we do not have implemented yet the workaround for antimeridian acquisitions
+            raise NotImplementedError('Antimeridian crossing positions not yet mitigated')
 
         # get lon/lat box for xsar dataset
         lon1, lat1, lon2, lat2 = self.sar_meta.footprint.exterior.bounds
@@ -814,8 +814,8 @@ class BaseDataset(ABC):
         else:
             logger.warning('Raster variable are experimental')
 
-        if self.sar_meta.cross_antemeridian and self.anti_meridian_correction_performed is False:
-            raise NotImplementedError('Antimeridian crossing not yet checked')
+        if self.sar_meta.cross_antemeridian: # for _load_rasters_vars() there is no workaround yet for acqiisitions over antimeridian
+            raise NotImplementedError('Antimeridian crossing positions not yet mitigated')
 
         # will contain xr.DataArray to merge
         da_var_list = []

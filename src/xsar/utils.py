@@ -18,7 +18,7 @@ import datetime
 import string
 import pytz
 import yaml
-from importlib_resources import files
+from importlib.resources import files
 from pathlib import Path
 import fsspec
 import aiohttp

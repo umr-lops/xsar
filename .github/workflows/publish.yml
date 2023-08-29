@@ -1,32 +1,54 @@
-name: Upload package to PyPI
+name: Upload Package to PyPI
 
 on:
   release:
     types: [created]
 
 jobs:
-  publish:
-    name: Publish to PyPI
+  build:
+    name: Build packages
     runs-on: ubuntu-latest
+    if: github.repository == 'umr-lops/xsar'
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v3
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.x'
+          python-version: "3.x"
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip build twine
+          python -m pip install --upgrade pip
+          python -m pip install build twine
       - name: Build
         run: |
-          python -m build --sdist --wheel .
+          python -m build --sdist --outdir dist/ .
       - name: Check the built archives
         run: |
           twine check dist/*
-          pip install dist/*.whl
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
         with:
-          password: ${{ secrets.pypi_token }}
-          repository_url: https://upload.pypi.org/legacy/
-          verify_metadata: true
+          name: packages
+          path: dist/*
+
+  pypi-publish:
+    name: Upload to PyPI
+    runs-on: ubuntu-latest
+    needs: build
+
+    environment:
+      name: pypi
+      url: https://pypi.org/p/xsar
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: packages
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@b7f401de30cb6434a1e19f805ff006643653240e

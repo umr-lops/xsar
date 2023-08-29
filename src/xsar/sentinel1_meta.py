@@ -15,7 +15,7 @@ from .base_meta import BaseMeta
 from .utils import haversine, timing
 import os
 from .ipython_backends import repr_mimebundle
-from safe_s1.metadata import Sentinel1Reader
+
 
 logger = logging.getLogger('xsar.sentinel1_meta')
 logger.addHandler(logging.NullHandler())
@@ -41,7 +41,7 @@ class Sentinel1Meta(BaseMeta):
 
     @timing
     def __init__(self, name):
-
+        from safe_s1.metadata import Sentinel1Reader
         self.reader = Sentinel1Reader(name)
 
         if not name.startswith('SENTINEL1_DS:'):

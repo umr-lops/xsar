@@ -5,10 +5,7 @@ TODO: this docstring is the main xsar module documentation shown to the user. It
 import warnings
 import xarray
 
-try:
-    from importlib import metadata
-except ImportError: # for Python<3.8
-    import importlib_metadata as metadata
+from importlib import metadata
 __version__ = metadata.version('xsar')
 
 import logging

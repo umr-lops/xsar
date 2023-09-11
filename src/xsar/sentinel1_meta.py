@@ -45,7 +45,10 @@ class Sentinel1Meta(BaseMeta):
         self.reader = Sentinel1Reader(name)
 
         if not name.startswith('SENTINEL1_DS:'):
+            name = name.rstrip('/') # remove trailing space
             name = 'SENTINEL1_DS:%s:' % name
+        else:
+            name = name.replace('/:',':')
         self.name = name
         """Gdal dataset name"""
         name_parts = self.name.split(':')

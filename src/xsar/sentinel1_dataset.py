@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+import pdb
+
 import logging
 import warnings
 import numpy as np
@@ -117,9 +119,11 @@ class Sentinel1Dataset(BaseDataset):
                 """Can't open an multi-dataset. Use `xsar.Sentinel1Meta('%s').subdatasets` to show availables ones""" % self.sar_meta.path
             )
         # security to prevent using resolution argument with SLC
-        if self.sar_meta.product == 'SLC' and 'WV' not in self.sar_meta.swath:  # TOPS cases
-            resolution = None
-            logger.warning('xsar is not handling resolution change for SLC TOPS products. resolution set to `None`')
+        if self.sar_meta.product == 'SLC' and resolution is not None and self.sar_meta.swath in ['IW','EW']:
+            # we tolerate resampling for WV since image width is only 20 km
+            logger.error('xsar is not handling resolution change for SLC TOPS products.')
+            raise Exception('xsar is not handling resolution change for SLC TOPS products.')
+
         # build datatree
         self.resolution, DN_tmp = self.sar_meta.reader.load_digital_number(resolution=resolution,
                                                                            resampling=resampling,
@@ -148,7 +152,10 @@ class Sentinel1Dataset(BaseDataset):
         ds_noise_range.attrs['history'] = 'noise'
         ds_noise_azi = self.sar_meta.get_noise_azi_raw
         if self.sar_meta.swath == 'WV':
-            ds_noise_azi['noise_lut'] = self._patch_lut(ds_noise_azi[
+            # since WV noise is not defined on azimuth we apply the patch on range noise
+            # ds_noise_azi['noise_lut'] = self._patch_lut(ds_noise_azi[
+            #                                                 'noise_lut'])  # patch applied here is distinct to same patch applied on interpolated noise LUT
+            ds_noise_range['noise_lut'] = self._patch_lut(ds_noise_range[
                                                             'noise_lut'])  # patch applied here is distinct to same patch applied on interpolated noise LUT
         ds_noise_azi.attrs['history'] = 'noise'
 

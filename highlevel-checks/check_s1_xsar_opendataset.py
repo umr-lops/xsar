@@ -2,7 +2,6 @@ import xsar
 import rasterio
 import os
 import logging
-import pytest
 import dill
 import pickle
 

@@ -616,7 +616,7 @@ class RcmDataset(BaseDataset):
                 List of Tiff file paths located in a folder
             """
 
-            return glob.glob(os.path.join(self.sar_meta.path, "imagery", "*"))
+            return glob.glob(os.path.join(self.sar_meta.path, "imagery", "*.tif"))
 
         def _sort_list_files_and_get_pols(list_tiff):
             """

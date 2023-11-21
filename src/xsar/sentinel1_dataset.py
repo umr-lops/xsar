@@ -916,55 +916,61 @@ class Sentinel1Dataset(BaseDataset):
 
         return res.to_dataset(name=var_name)
 
-    def reverse_calibration_lut(self, ds_var):
+    def reverse_calibration_lut(self, var_name):
         """
-        TODO: replace ds_var by var_name
-        Inverse of `_apply_calibration_lut` : from `var_name`, reverse apply lut, to get digital_number.
-        See `official ESA documentation <https://sentinel.esa.int/web/sentinel/radiometric-calibration-of-level-1-products>`_ .
-        > Level-1 products provide four calibration Look Up Tables (LUTs) to produce ß0i, σ0i and γi
-        > or to return to the Digital Number (DN)
-
-        A warning message may be issued if original complex 'digital_number' is converted to module during this operation.
+        ONLY MADE FOR GRD YET
+        can't retrieve complex number for SLC 
+        
+        Reverse the calibration Look Up Table (LUT) applied to `var_name` to retrieve the original digital number (DN).
+        This is the inverse operation of `_apply_calibration_lut`.
+        Refer to the official ESA documentation for more details on the radiometric calibration of Level-1 products:
+        https://sentinel.esa.int/web/sentinel/radiometric-calibration-of-level-1-products
 
         Parameters
         ----------
-        ds_var: xarray.Dataset
-            with only one variable name that must exist in `self._map_var_lut` to be able to reverse the lut to get digital_number
+        var_name: str
+            The variable name from which the LUT should be reversed to get 'digital_number'. The variable must exist in `self._map_var_lut`.
 
         Returns
         -------
         xarray.Dataset
-            with one variable named 'digital_number'.
+            A dataset with one variable named 'digital_number'.
+
+        Raises
+        ------
+        ValueError
+            If `var_name` does not have an associated LUT in `self._map_var_lut`.
         """
-        var_names = list(ds_var.keys())
-        assert len(var_names) == 1
-        var_name = var_names[0]
+        # Check if the variable has an associated LUT, raise ValueError if not
         if var_name not in self._map_var_lut:
-            raise ValueError(
-                "Unable to find lut for var '%s'. Allowed : %s" % (var_name, str(self._map_var_lut.keys())))
-        da_var = ds_var[var_name]
+            raise ValueError(f"Unable to find lut for var '{var_name}'. Allowed: {list(self._map_var_lut.keys())}")
+
+        # Retrieve the variable data array and corresponding LUT
+        da_var = self._dataset[var_name]
         lut = self._luts[self._map_var_lut[var_name]]
 
-        # resize lut with same a/sample as da_var
-        lut = lut.sel(line=da_var.line, sample=da_var.sample, method='nearest')
-        # as we used 'nearest', force exact coords
-        lut['line'] = da_var.line
-        lut['sample'] = da_var.sample
-        # waiting for https://github.com/pydata/xarray/pull/4155
-        # lut = lut.interp(line=da_var.line, sample=da_var.sample)
+        # Interpolate the LUT to match the variable's coordinates
+        lut = lut.interp(line=da_var.line, sample=da_var.sample)
 
-        # revert lut to get dn
-        dn = np.sqrt(da_var * lut ** 2)
+        # Reverse the LUT application to compute the squared digital number
+        dn2 = da_var * (lut ** 2)
 
-        if self._dataset.digital_number.dtype == np.complex and dn.dtype != np.complex:
+        # Where the variable data array is NaN, set the squared digital number to 0
+        dn2 = xr.where(np.isnan(da_var), 0, dn2)
+
+        # Apply square root to get the digital number
+        dn = np.sqrt(dn2)
+
+        # Check and warn if the dtype of the original 'digital_number' is not preserved
+        if self._dataset.digital_number.dtype == np.complex_ and dn.dtype != np.complex_:
             warnings.warn(
-                "Unable to retrieve 'digital_number' as dtype '%s'. Fallback to '%s'"
-                % (str(self._dataset.digital_number.dtype), str(dn.dtype))
+                f"Unable to retrieve 'digital_number' as dtype '{self._dataset.digital_number.dtype}'. "
+                f"Fallback to '{dn.dtype}'"
             )
 
+        # Create a dataset with the computed digital number
         name = 'digital_number'
         ds = dn.to_dataset(name=name)
-
         return ds
 
     def _get_noise(self, var_name):

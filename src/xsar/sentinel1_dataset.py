@@ -944,6 +944,7 @@ class Sentinel1Dataset(BaseDataset):
         # Check if the variable has an associated LUT, raise ValueError if not
         if var_name not in self._map_var_lut:
             raise ValueError(f"Unable to find lut for var '{var_name}'. Allowed: {list(self._map_var_lut.keys())}")
+        
         if self.sar_meta.product != 'GRD':
             raise ValueError(f"SAR product must be GRD. Not implemented for SLC")
 

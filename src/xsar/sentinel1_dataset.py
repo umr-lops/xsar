@@ -259,7 +259,7 @@ class Sentinel1Dataset(BaseDataset):
 
             self.add_high_resolution_variables(patch_variable=patch_variable, luts=luts, lazy_loading=lazyloading)
             if (self.apply_recalibration):
-                self.clean_gains()       
+                self.select_gains()       
         
             self.apply_calibration_and_denoising()
             
@@ -273,8 +273,15 @@ class Sentinel1Dataset(BaseDataset):
         # save original bbox
         self._bbox_coords_ori = self._bbox_coords
 
-    def clean_gains(self):
-        #attribution of tje doog swath gain 
+    def select_gains(self):
+        """
+        attribution of the good swath gain by getting the swath number of each pixel 
+
+        Returns:
+        --------
+
+        """
+        #
         def get_geap(ds,var_template):
             #select good gain 
             resultat = xr.where(ds['swath_number'] == 1, ds[var_template+"_1"],
@@ -470,6 +477,13 @@ class Sentinel1Dataset(BaseDataset):
         return
 
     def add_swath_number(self):
+        """
+        add a DataArray with the swath number chosen for each pixel of the dataset ; 
+        also add a DataArray with a flag
+
+        Returns:
+        --------
+        """
         swath_tab = xr.DataArray(np.full_like(self._dataset.elevation, np.nan, dtype=int), coords={'line': self._dataset.coords["line"],'sample': self._dataset.coords["sample"]})
         flag_tab = xr.DataArray(np.zeros_like(self._dataset.elevation, dtype=int), coords={'line': self._dataset.coords["line"],'sample': self._dataset.coords["sample"]})
 
@@ -507,7 +521,7 @@ class Sentinel1Dataset(BaseDataset):
         """
         self.ds_recalibration  = self.datatree.geolocation_annotation.to_dataset().copy()
         
-        if "pol" in s1Dataset.dataset.dims:
+        if "pol" in self._dataset.dims:
             self.ds_recalibration = self.ds_recalibration.assign_coords(pol=('pol', self.s1meta.manifest_attrs["polarizations"]))
 
             

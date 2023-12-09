@@ -21,6 +21,7 @@ from .base_dataset import BaseDataset
 import pandas as pd
 import geopandas as gpd
 
+
 logger = logging.getLogger('xsar.sentinel1_dataset')
 logger.addHandler(logging.NullHandler())
 
@@ -37,7 +38,8 @@ mapping_dataset_geoloc = {'latitude': 'latitude',
                           'elevation': 'elevationAngle',
                           'altitude': 'height',
                           'azimuth_time': 'azimuthTime',
-                          'slant_range_time': 'slantRangeTime'}
+                          'slant_range_time': 'slantRangeTime',
+                          }
 
 
 # noinspection PyTypeChecker
@@ -91,7 +93,9 @@ class Sentinel1Dataset(BaseDataset):
     def __init__(self, dataset_id, resolution=None,
                  resampling=rasterio.enums.Resampling.rms,
                  luts=False, chunks={'line': 5000, 'sample': 5000},
-                 dtypes=None, patch_variable=True, lazyloading=True):
+                 dtypes=None, patch_variable=True, lazyloading=True,
+                 recalibration=False):
+        self.apply_recalibration=recalibration
         # default dtypes
         if dtypes is not None:
             self._dtypes.update(dtypes)
@@ -123,7 +127,7 @@ class Sentinel1Dataset(BaseDataset):
             # we tolerate resampling for WV since image width is only 20 km
             logger.error('xsar is not handling resolution change for SLC TOPS products.')
             raise Exception('xsar is not handling resolution change for SLC TOPS products.')
-
+    
         # build datatree
         self.resolution, DN_tmp = self.sar_meta.reader.load_digital_number(resolution=resolution,
                                                                            resampling=resampling,
@@ -151,6 +155,13 @@ class Sentinel1Dataset(BaseDataset):
         ds_noise_range = self.sar_meta.get_noise_range_raw
         ds_noise_range.attrs['history'] = 'noise'
         ds_noise_azi = self.sar_meta.get_noise_azi_raw
+        
+        # antenna pattern 
+        ds_antenna_pattern = self.sar_meta.get_antenna_pattern
+
+        # swath merging 
+        ds_swath_merging = self.sar_meta.get_swath_merging
+
         if self.sar_meta.swath == 'WV':
             # since WV noise is not defined on azimuth we apply the patch on range noise
             # ds_noise_azi['noise_lut'] = self._patch_lut(ds_noise_azi[
@@ -166,7 +177,9 @@ class Sentinel1Dataset(BaseDataset):
                                                      'image': self.sar_meta.image,
                                                      'calibration': ds_luts,
                                                      'noise_range': ds_noise_range,
-                                                     'noise_azimuth': ds_noise_azi
+                                                     'noise_azimuth': ds_noise_azi,
+                                                     'antenna_pattern' : ds_antenna_pattern,
+                                                     'swath_merging': ds_swath_merging
                                                      })
 
         # self.datatree['measurement'].ds = .from_dict({'measurement':self._load_digital_number(resolution=resolution, resampling=resampling, chunks=chunks)
@@ -239,9 +252,17 @@ class Sentinel1Dataset(BaseDataset):
         self._dataset.attrs.update(self.sar_meta.to_dict("all"))
         self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
         self.datatree.attrs.update(self.sar_meta.to_dict("all"))
+        
+
+        
         if 'GRD' in str(self.datatree.attrs['product']):  # load land_mask by default for GRD products
+
             self.add_high_resolution_variables(patch_variable=patch_variable, luts=luts, lazy_loading=lazyloading)
+            if (self.apply_recalibration):
+                self.clean_gains()       
+        
             self.apply_calibration_and_denoising()
+            
         self.datatree['measurement'].attrs = self.datatree.attrs  # added 6 fev 23, to fill  empty attrs
         self.sliced = False
         """True if dataset is a slice of original L1 dataset"""
@@ -252,6 +273,39 @@ class Sentinel1Dataset(BaseDataset):
         # save original bbox
         self._bbox_coords_ori = self._bbox_coords
 
+    def clean_gains(self):
+        #attribution of tje doog swath gain 
+        def get_geap(ds,var_template):
+            #select good gain 
+            resultat = xr.where(ds['swath_number'] == 1, ds[var_template+"_1"],
+                   xr.where(ds['swath_number'] == 2, ds[var_template+"_2"],
+                   xr.where(ds['swath_number'] == 3, ds[var_template+"_3"],
+                   xr.where(ds['swath_number'] == 4, ds[var_template+"_4"],
+                   xr.where(ds['swath_number'] == 5, ds[var_template+"_5"],
+                            np.nan)))))  
+            return resultat
+
+        def get_gproc(ds,var_template):
+            # select good gain 
+            resultat = xr.where(ds['swath_number'] == 1, self.sar_meta.geoloc[var_template+"_1"],
+               xr.where(ds['swath_number'] == 2, self.sar_meta.geoloc[var_template+"_2"],
+               xr.where(ds['swath_number'] == 3, self.sar_meta.geoloc[var_template+"_3"],
+               xr.where(ds['swath_number'] == 4, self.sar_meta.geoloc[var_template+"_4"],
+               xr.where(ds['swath_number'] == 5, self.sar_meta.geoloc[var_template+"_5"],
+                        np.nan)))))  
+
+            return resultat
+        
+        for var_template in ["old_geap","new_geap"]:
+            self._dataset[var_template] = get_geap(self.dataset,var_template)
+            #vars_to_drop.extend([f"{var_template}_{i}" for i in range(1, 6)])
+        #ds = s1Dataset.dataset.drop_vars(vars_to_drop)
+        for var_template in ["old_gproc","new_gproc"]:
+            self._dataset[var_template] = get_gproc(self.dataset,var_template)
+        
+        self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
+
+        
     def add_high_resolution_variables(self, luts=False, patch_variable=True, skip_variables=None, load_luts=True,
                                       lazy_loading=True):
         """
@@ -377,6 +431,13 @@ class Sentinel1Dataset(BaseDataset):
 
             self._dataset = self._dataset.merge(self._load_from_geoloc(geoloc_vars, lazy_loading=lazy_loading))
 
+            if self.apply_recalibration:
+                self.add_swath_number()
+                self.add_gains('S1B_AUX_CAL_V20160422T000000_G20210104T140113.SAFE','S1B_AUX_PP1_V20160422T000000_G20220323T140710.SAFE')
+                self.sar_meta.geoloc = self.ds_recalibration
+                geap_gains = [var for var in self.sar_meta.geoloc.data_vars if "_geap_" in var]
+                self._dataset = self._dataset.merge(self._load_from_geoloc(geap_gains, lazy_loading=lazy_loading))
+
             rasters = self._load_rasters_vars()
             if rasters is not None:
                 self._dataset = xr.merge([self._dataset, rasters])
@@ -402,12 +463,145 @@ class Sentinel1Dataset(BaseDataset):
                 assert 'land_mask' in self.datatree['measurement']
                 if self.sar_meta.product == 'SLC' and 'WV' not in self.sar_meta.swath:  # TOPS cases
                     logger.debug('a TOPS product')
-                    self.land_mask_slc_per_bursts(
-                        lazy_loading=lazy_loading)  # replace "GRD" like (Affine transform) land_mask by a burst-by-burst rasterised land mask
+                    #self.land_mask_slc_per_bursts(
+                    #    lazy_loading=lazy_loading)  # replace "GRD" like (Affine transform) land_mask by a burst-by-burst rasterised land mask
                 else:
                     logger.debug('not a TOPS product -> land_mask already available.')
         return
 
+    def add_swath_number(self):
+        swath_tab = xr.DataArray(np.full_like(self._dataset.elevation, np.nan, dtype=int), coords={'line': self._dataset.coords["line"],'sample': self._dataset.coords["sample"]})
+        flag_tab = xr.DataArray(np.zeros_like(self._dataset.elevation, dtype=int), coords={'line': self._dataset.coords["line"],'sample': self._dataset.coords["sample"]})
+
+        for i in range(len(self.datatree['swath_merging'].swaths)):  # Supposons que dataset.swaths ait 45 éléments comme mentionné
+            y_min, y_max = self.datatree['swath_merging']['firstAzimuthLine'][i], self.datatree['swath_merging']['lastAzimuthLine'][i]
+            x_min, x_max = self.datatree['swath_merging']['firstRangeSample'][i], self.datatree['swath_merging']['lastRangeSample'][i]
+
+            # Localisation des pixels appartenant à ce swath
+            swath_index = int(self.datatree['swath_merging'].swaths[i])
+
+            condition = (self._dataset.line >= y_min) & (self._dataset.line <= y_max) & (self._dataset.sample >= x_min) & (self._dataset.sample <= x_max)
+
+            # Marquer les pixels déjà vus
+            flag_tab = xr.where((flag_tab == 1) & condition & (swath_tab == swath_index), 2, flag_tab)
+
+            # Affecter le swath actuel
+            swath_tab = xr.where(condition, swath_index, swath_tab)
+
+            # Marquer les premiers pixels vus
+            flag_tab = xr.where((flag_tab == 0) & condition, 1, flag_tab)
+    
+        self._dataset['swath_number'] = swath_tab
+        self._dataset['swath_number_flag'] = flag_tab
+        self._dataset['swath_number_flag'].attrs["flag_info"] = "0 : no swath \n1 : unique swath \n2 : undecided swath"
+        
+        self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
+
+    def get_recalibration_dataset(self):
+        """
+        select the dataset to map gains 
+
+        Returns:
+        --------
+
+        """
+        self.ds_recalibration  = self.datatree.geolocation_annotation.to_dataset().copy()
+        
+        if "pol" in s1Dataset.dataset.dims:
+            self.ds_recalibration = self.ds_recalibration.assign_coords(pol=('pol', self.s1meta.manifest_attrs["polarizations"]))
+
+            
+    def add_gains(self,new_aux_cal_name, new_aux_pp1_name):
+        from .utils import get_path_aux_cal,get_path_aux_pp1, get_geap_gains, get_gproc_gains
+        import os
+        from scipy.interpolate import interp1d 
+        
+        new_aux_cal_name = "S1B_AUX_CAL_V20160422T000000_G20210104T140113.SAFE"
+        new_aux_pp1_name = "S1B_AUX_PP1_V20160422T000000_G20220323T140710.SAFE"
+        PATH_AUX_CAL_NEW = get_path_aux_cal(new_aux_cal_name)
+        PATH_AUX_CAL_OLD = get_path_aux_cal(os.path.basename(self.s1meta.manifest_attrs["aux_cal"]))
+
+        PATH_AUX_PP1_NEW = get_path_aux_pp1(new_aux_pp1_name)
+        PATH_AUX_PP1_OLD = get_path_aux_pp1(os.path.basename(self.s1meta.manifest_attrs["aux_pp1"]))
+
+        self.get_recalibration_dataset()
+
+        ## 1 - compute offboresight angle 
+        roll = self.datatree['antenna_pattern']['roll']
+        azimuthTime = self.datatree['antenna_pattern']['azimuthTime']
+        interp_roll = interp1d(azimuthTime.values.flatten().astype(int), roll.values.flatten(), kind='linear', fill_value='extrapolate')
+
+        self.ds_recalibration = self.ds_recalibration.assign(rollAngle=(['line','sample'], interp_roll(self.ds_recalibration.azimuthTime)))
+        self.ds_recalibration = self.ds_recalibration.assign(offboresigthAngle=(['line','sample'], self.ds_recalibration['elevationAngle'].data - self.ds_recalibration['rollAngle'].data))
+
+        ## 2- get gains geap and map them 
+        dict_geap_old = get_geap_gains(PATH_AUX_CAL_OLD, mode = self.s1meta.manifest_attrs["swath_type"], pols = self.sar_meta.manifest_attrs['polarizations'])
+        dict_geap_new = get_geap_gains(PATH_AUX_CAL_NEW, mode = self.s1meta.manifest_attrs["swath_type"], pols = self.sar_meta.manifest_attrs['polarizations'])
+
+        for key, infos_geap in dict_geap_old.items():
+            pol = key[-2:] 
+            number = key[2:-3]  
+
+            keyf = "old_geap_"+number
+
+            if keyf not in self.ds_recalibration:
+                self.ds_recalibration[keyf] = xr.DataArray(np.nan, coords=self.ds_recalibration.coords)
+                self.ds_recalibration[keyf].attrs['aux_path']=os.path.join(os.path.basename(os.path.dirname(os.path.dirname(PATH_AUX_CAL_OLD))), 
+                                                              os.path.basename(os.path.dirname(PATH_AUX_CAL_OLD)), 
+                                                              os.path.basename(PATH_AUX_CAL_OLD))
+            interp =  interp1d(infos_geap['offboresightAngle'], infos_geap['gain'], kind='linear')
+            self.ds_recalibration[keyf].loc[..., pol] = interp(self.ds_recalibration['offboresigthAngle'])
+
+        for key, infos_geap in dict_geap_new.items():
+            pol = key[-2:] 
+            number = key[2:-3]  
+
+            keyf = "new_geap_"+number
+
+            if keyf not in self.ds_recalibration:
+                self.ds_recalibration[keyf] = xr.DataArray(np.nan, coords=self.ds_recalibration.coords)
+                self.ds_recalibration[keyf].attrs['aux_path']=os.path.join(os.path.basename(os.path.dirname(os.path.dirname(PATH_AUX_CAL_NEW))), 
+                                                              os.path.basename(os.path.dirname(PATH_AUX_CAL_NEW)), 
+                                                              os.path.basename(PATH_AUX_CAL_NEW))
+            interp =  interp1d(infos_geap['offboresightAngle'], infos_geap['gain'], kind='linear')
+            self.ds_recalibration[keyf].loc[..., pol] = interp(self.ds_recalibration['offboresigthAngle'])
+
+
+
+        ##3- get gains gproc and map them 
+        dict_gproc_old = get_gproc_gains(PATH_AUX_PP1_OLD, mode = self.s1meta.manifest_attrs["swath_type"], product = self.s1meta.product)
+        dict_gproc_new = get_gproc_gains(PATH_AUX_PP1_NEW, mode = self.s1meta.manifest_attrs["swath_type"], product = self.s1meta.product)
+
+
+        for idxpol, pol in enumerate(['HH','HV','VV','VH']):
+            if pol in self.s1meta.manifest_attrs["polarizations"]:
+                valid_keys_indices = [(key, idxpol, pol) for key, infos_gproc in dict_gproc_old.items()]
+                for key, idxpol, pol in valid_keys_indices:
+                    sw_nb  = str(key)[-1]
+                    keyf = "old_gproc_"+sw_nb
+                    if keyf not in self.ds_recalibration:
+                        self.ds_recalibration[keyf] = xr.DataArray(np.nan, dims=['pol'], coords={'pol': self.ds_recalibration.coords["pol"]})
+                        self.ds_recalibration[keyf].attrs['aux_path']=os.path.basename(PATH_AUX_PP1_OLD)
+                    self.ds_recalibration[keyf].attrs['aux_path']=os.path.join(os.path.basename(os.path.dirname(os.path.dirname(PATH_AUX_PP1_OLD))), 
+                                                                  os.path.basename(os.path.dirname(PATH_AUX_PP1_OLD)), 
+                                                                  os.path.basename(PATH_AUX_PP1_OLD))
+                    self.ds_recalibration[keyf].loc[..., pol] = dict_gproc_old[key][idxpol]
+
+        for idxpol, pol in enumerate(['HH','HV','VV','VH']):
+            if pol in self.s1meta.manifest_attrs["polarizations"]:
+                valid_keys_indices = [(key, idxpol, pol) for key, infos_gproc in dict_gproc_new.items()]
+                for key, idxpol, pol in valid_keys_indices:
+                    sw_nb  = str(key)[-1]
+                    keyf = "new_gproc_"+sw_nb
+                    if keyf not in self.ds_recalibration:
+                        self.ds_recalibration[keyf] = xr.DataArray(np.nan, dims=['pol'], coords={'pol': self.ds_recalibration.coords["pol"]})
+                        self.ds_recalibration[keyf].attrs['aux_path']=os.path.join(os.path.basename(os.path.dirname(os.path.dirname(PATH_AUX_PP1_NEW))), 
+                                                                      os.path.basename(os.path.dirname(PATH_AUX_PP1_NEW)), 
+                                                                      os.path.basename(PATH_AUX_PP1_NEW))
+                    self.ds_recalibration[keyf].loc[..., pol] = dict_gproc_new[key][idxpol]
+           
+        #return self.ds_recalibration
+    
     def apply_calibration_and_denoising(self):
         """
         apply calibration and denoising functions to get high resolution sigma0 , beta0 and gamma0 + variables *_raw
@@ -424,6 +618,20 @@ class Sentinel1Dataset(BaseDataset):
                 self._dataset = self._dataset.merge(self._get_noise(var_name))
             else:
                 logger.debug("Skipping variable '%s' ('%s' lut is missing)" % (var_name, lut_name))
+                
+        if self.apply_recalibration:      
+            INTEREST_VAR = ["sigma0_raw"]
+            for var in INTEREST_VAR:
+                varname_db = var+"_dB"
+                var_dB = 10*np.log10(self._dataset[var])
+
+                self._dataset[varname_db+"__corrected"] = var_dB + 10*np.log10(self._dataset["old_geap"]) - 10*np.log10(self._dataset["new_geap"]) -\
+                    2*10*np.log10(self._dataset["old_gproc"]) + 2*10*np.log10(self._dataset["new_gproc"])
+                
+            self._dataset[var+"__corrected"] = 10**(
+                self._dataset[varname_db+"__corrected"]/10)
+            
+
         self._dataset = self._add_denoised(self._dataset)
         self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
         # self._dataset = self.datatree[
@@ -737,6 +945,7 @@ class Sentinel1Dataset(BaseDataset):
             luts = xr.combine_by_coords(luts_list)
         return luts
 
+
     @timing
     def _load_from_geoloc(self, varnames, lazy_loading=True):
         """
@@ -777,68 +986,105 @@ class Sentinel1Dataset(BaseDataset):
 
             return wrapperfunc(vect1dazti[:, np.newaxis], vect1dxtrac[np.newaxis, :], rbs)
 
-        for varname in varnames:
-            varname_in_geoloc = mapping_dataset_geoloc[varname]
-            if varname in ['azimuth_time']:
-                z_values = self.sar_meta.geoloc[varname_in_geoloc].astype(float)
-            elif varname == 'longitude':
-                z_values = self.sar_meta.geoloc[varname_in_geoloc]
-                if self.sar_meta.cross_antemeridian:
-                    logger.debug('translate longitudes between 0 and 360')
-                    z_values = z_values % 360
-            else:
-                z_values = self.sar_meta.geoloc[varname_in_geoloc]
-            if self.sar_meta._bursts['burst'].size != 0:
-                # TOPS SLC
-                rbs = RectBivariateSpline(
-                    self.sar_meta.geoloc.azimuthTime[:, 0].astype(float),
-                    self.sar_meta.geoloc.sample,
-                    z_values,
-                    kx=1, ky=1,
-                )
-                interp_func = interp_func_slc
-            else:
-                rbs = None
-                interp_func = RectBivariateSpline(
-                    self.sar_meta.geoloc.line,
-                    self.sar_meta.geoloc.sample,
-                    z_values,
-                    kx=1, ky=1
-                )
-            # the following take much cpu and memory, so we want to use dask
-            # interp_func(self._dataset.line, self.dataset.sample)
-            typee = self.sar_meta.geoloc[varname_in_geoloc].dtype
+        for varname in varnames:  
+            try : 
+                varname_in_geoloc = mapping_dataset_geoloc[varname]
+            except:
+                varname_in_geoloc = varname
+            # do all var from geoloc that are 3-dims 
+            if (varname_in_geoloc in self.sar_meta.geoloc and self.sar_meta.geoloc[varname_in_geoloc].dims == ('line','sample','pol')):
+                da_vars = []
+                typee = self.sar_meta.geoloc[varname_in_geoloc].dtype
+                
+                for pol in self.sar_meta.geoloc[varname_in_geoloc].pol:
+                    z_values_pol = self.sar_meta.geoloc[varname_in_geoloc].sel(pol=pol)
 
-            if self.sar_meta._bursts['burst'].size != 0:
-                datemplate = self._da_tmpl.astype(typee).copy()
-                # replace the line coordinates by line_time coordinates
-                datemplate = datemplate.assign_coords({'line': datemplate.coords['line_time']})
-                if lazy_loading:
-                    da_var = map_blocks_coords(
-                        datemplate,
-                        interp_func,
-                        func_kwargs={"rbs": rbs}
+                    interp_func = RectBivariateSpline(
+                        self.sar_meta.geoloc.line,
+                        self.sar_meta.geoloc.sample,
+                        z_values_pol,
+                        kx=1, ky=1
                     )
-                    # put back the real line coordinates
-                    da_var = da_var.assign_coords({'line': self._dataset.digital_number.line})
+                
+                    if lazy_loading:
+                        da_var_pol = map_blocks_coords(
+                            self._da_tmpl.astype(typee),
+                            interp_func
+                        )
+                    else:
+                        da_var_pol = interp_func(self._dataset.digital_number.line, self._dataset.digital_number.sample)
+                        
+                    da_var_pol = xr.DataArray(da_var_pol, 
+                                              coords={'line': self._dataset.digital_number.line,
+                                                      'sample': self._dataset.digital_number.sample},
+                                              dims=['line', 'sample']
+                                    ).expand_dims({'pol': [pol.data]})
+                    da_vars.append(da_var_pol)
+
+                # combine pols
+                da_var = xr.concat(da_vars, dim='pol')
+
+            elif self.sar_meta.geoloc[varname_in_geoloc].dims == ('line','sample'):
+                if varname in ['azimuth_time']:
+                    z_values = self.sar_meta.geoloc[varname_in_geoloc].astype(float)
+                elif varname == 'longitude':
+                    z_values = self.sar_meta.geoloc[varname_in_geoloc]
+                    if self.sar_meta.cross_antemeridian:
+                        logger.debug('translate longitudes between 0 and 360')
+                        z_values = z_values % 360
                 else:
-                    line_time = self.get_burst_azitime
-                    XX, YY = np.meshgrid(line_time.astype(float), self._dataset.digital_number.sample)
-                    da_var = rbs(XX, YY, grid=False)
-                    da_var = xr.DataArray(da_var.T, coords={'line': self._dataset.digital_number.line,
-                                                            "sample": self._dataset.digital_number.sample},
-                                          dims=['line', 'sample'])
-            else:
-                if lazy_loading:
-                    da_var = map_blocks_coords(
-                        self._da_tmpl.astype(typee),
-                        interp_func
+                    z_values = self.sar_meta.geoloc[varname_in_geoloc]
+                if self.sar_meta._bursts['burst'].size != 0:
+                    # TOPS SLC
+                    rbs = RectBivariateSpline(
+                        self.sar_meta.geoloc.azimuthTime[:, 0].astype(float),
+                        self.sar_meta.geoloc.sample,
+                        z_values,
+                        kx=1, ky=1,
                     )
+                    interp_func = interp_func_slc
                 else:
-                    da_var = interp_func(self._dataset.digital_number.line, self._dataset.digital_number.sample)
-            if varname == 'longitude':
-                if self.sar_meta.cross_antemeridian:
-                    da_var.data = da_var.data.map_blocks(to_lon180)
+                    rbs = None
+                    interp_func = RectBivariateSpline(
+                        self.sar_meta.geoloc.line,
+                        self.sar_meta.geoloc.sample,
+                        z_values,
+                        kx=1, ky=1
+                    )
+                # the following take much cpu and memory, so we want to use dask
+                # interp_func(self._dataset.line, self.dataset.sample)
+                typee = self.sar_meta.geoloc[varname_in_geoloc].dtype
+
+                if self.sar_meta._bursts['burst'].size != 0:
+                    datemplate = self._da_tmpl.astype(typee).copy()
+                    # replace the line coordinates by line_time coordinates
+                    datemplate = datemplate.assign_coords({'line': datemplate.coords['line_time']})
+                    if lazy_loading:
+                        da_var = map_blocks_coords(
+                            datemplate,
+                            interp_func,
+                            func_kwargs={"rbs": rbs}
+                        )
+                        # put back the real line coordinates
+                        da_var = da_var.assign_coords({'line': self._dataset.digital_number.line})
+                    else:
+                        line_time = self.get_burst_azitime
+                        XX, YY = np.meshgrid(line_time.astype(float), self._dataset.digital_number.sample)
+                        da_var = rbs(XX, YY, grid=False)
+                        da_var = xr.DataArray(da_var.T, coords={'line': self._dataset.digital_number.line,
+                                                                "sample": self._dataset.digital_number.sample},
+                                              dims=['line', 'sample'])
+                else:
+                    if lazy_loading:
+                        da_var = map_blocks_coords(
+                            self._da_tmpl.astype(typee),
+                            interp_func
+                        )
+                    else:
+                        da_var = interp_func(self._dataset.digital_number.line, self._dataset.digital_number.sample)
+                if varname == 'longitude':
+                    if self.sar_meta.cross_antemeridian:
+                        da_var.data = da_var.data.map_blocks(to_lon180)
 
             da_var.name = varname
 
@@ -944,7 +1190,7 @@ class Sentinel1Dataset(BaseDataset):
         # Check if the variable has an associated LUT, raise ValueError if not
         if var_name not in self._map_var_lut:
             raise ValueError(f"Unable to find lut for var '{var_name}'. Allowed: {list(self._map_var_lut.keys())}")
-        
+
         if self.sar_meta.product != 'GRD':
             raise ValueError(f"SAR product must be GRD. Not implemented for SLC")
 

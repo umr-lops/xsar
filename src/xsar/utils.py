@@ -22,6 +22,7 @@ from importlib.resources import files
 from pathlib import Path
 import fsspec
 import aiohttp
+from lxml import objectify
 
 logger = logging.getLogger('xsar.utils')
 logger.addHandler(logging.NullHandler())
@@ -671,4 +672,104 @@ def url_get(url, cache_dir=os.path.join(config['data_dir'], 'fsspec_cache')):
 
     return fname
 
+def get_geap_gains(path_aux_cal, mode, pols):
+    """
+    Find gains Geap associated with mode product and slice number from AUX_CAL.
 
+    DOC : `https://sentinel.esa.int/documents/247904/1877131/DI-MPC-PB-0241-3-10_Sentinel-1IPFAuxiliaryProductSpecification.pdf/ae025687-c3e3-6ab0-de8d-d9cf58657431?t=1669115416469`
+
+    Parameters
+    ----------
+    path_aux_cal: str 
+
+    mode: str
+        "IW" for example.
+
+    pols : list 
+        ["VV","VH"] for example;
+
+
+    Returns
+    ----------
+    dict
+        return a dict for the given (mode+pols).
+        this dictionnary contains a dict with offboresight angle values and associated gains values
+    """
+    with open(path_aux_cal, 'rb') as file:
+        xml = file.read()
+        
+    root_aux = objectify.fromstring(xml)
+    dict_gains = {}
+
+    for calibrationParams in root_aux.calibrationParamsList.getchildren():
+        swath = calibrationParams.swath
+        polarisation = calibrationParams.polarisation
+
+        if (mode in swath.text and polarisation in pols):
+            dict_temp = {}
+
+            increment = calibrationParams.elevationAntennaPattern.elevationAngleIncrement
+            valuesIQ = np.array([float(
+                e) for e in calibrationParams.elevationAntennaPattern['values'].text.split(' ')])
+            gain = np.sqrt(valuesIQ[::2]**2+valuesIQ[1::2]**2)
+
+            count = gain.size
+            ang = np.linspace(-((count - 1)/2) * increment,
+                              ((count - 1)/2) * increment, count)
+
+            dict_temp["offboresightAngle"] = ang
+            dict_temp["gain"] = gain
+            dict_gains[swath+"_"+polarisation] = dict_temp
+
+    return dict_gains
+
+
+def get_gproc_gains(path_aux_pp1, mode, product):
+    """
+    Find gains Gproc associated with mode product and slice number from AUX_PP1.
+
+    DOC : `https://sentinel.esa.int/documents/247904/1877131/DI-MPC-PB-0241-3-10_Sentinel-1IPFAuxiliaryProductSpecification.pdf/ae025687-c3e3-6ab0-de8d-d9cf58657431?t=1669115416469`
+
+    Parameters
+    ----------
+    path_aux_pp1: str 
+
+    Returns
+    ----------
+    dict
+        return a dict of 4 linear gain values for each (mode+product_type+slice_number)
+        in this order : Gproc_HH, Gproc_HV, Gproc_VV, Gproc_VH
+    """
+
+    # Parse the XML file
+    with open(path_aux_pp1, 'rb') as file:
+        xml = file.read()
+    root_pp1 = objectify.fromstring(xml)
+    dict_gains = {}
+    for prd in root_pp1.productList.getchildren():
+        for swathParams in prd.slcProcParams.swathParamsList.getchildren():
+            if (mode in swathParams.swath.text and product in prd.productId.text):
+                gains = [float(g) for g in swathParams.gain.text.split(' ')]
+                key = swathParams.swath
+                dict_gains[key] = gains
+    return dict_gains
+
+def get_path_aux_cal(aux_cal_name):
+    path = os.path.join("/home/datawork-cersat-public/cache/project/sarwave/data/products/tests/recalibrated_data_from_mpc_kersten/original_data", 
+                        "AUX_CAL", 
+                        aux_cal_name, 
+                        "data", 
+                        aux_cal_name[0:3].lower() + "-aux-cal.xml")
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"File doesn't exist: {path}")
+    return path
+
+def get_path_aux_pp1(aux_pp1_name):
+    path = os.path.join("/home/datawork-cersat-public/cache/project/sarwave/data/products/tests/recalibrated_data_from_mpc_kersten/original_data", 
+                        "AUX_PP1", 
+                        aux_pp1_name, 
+                        "data", 
+                        aux_pp1_name[0:3].lower() + "-aux-pp1.xml")
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"File doesn't exist: {path}")
+    return path

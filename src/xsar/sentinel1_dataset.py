@@ -659,6 +659,9 @@ class Sentinel1Dataset(BaseDataset):
         if self.apply_recalibration:      
             INTEREST_VAR = ["sigma0_raw","gamma0_raw","beta0_raw"]
             for var in INTEREST_VAR:
+                if var not in self._dataset:
+                    continue
+                    
                 var_dB = 10*np.log10(self._dataset[var])
 
                 corrected_dB = var_dB + 10*np.log10(self._dataset_recalibration["old_geap"]) - 10*np.log10(self._dataset_recalibration["new_geap"]) -\

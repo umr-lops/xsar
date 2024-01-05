@@ -95,7 +95,6 @@ class Sentinel1Dataset(BaseDataset):
                  luts=False, chunks={'line': 5000, 'sample': 5000},
                  dtypes=None, patch_variable=True, lazyloading=True,
                  recalibration=False):
-        self.apply_recalibration=recalibration
         # default dtypes
         if dtypes is not None:
             self._dtypes.update(dtypes)

@@ -709,9 +709,17 @@ def get_geap_gains(path_aux_cal, mode, pols):
             dict_temp = {}
 
             increment = calibrationParams.elevationAntennaPattern.elevationAngleIncrement
+            
             valuesIQ = np.array([float(
                 e) for e in calibrationParams.elevationAntennaPattern['values'].text.split(' ')])
-            gain = np.sqrt(valuesIQ[::2]**2+valuesIQ[1::2]**2)
+            
+            if valuesIQ.size == 1202:
+                gain = np.sqrt(valuesIQ[::2]**2+valuesIQ[1::2]**2)
+            elif valuesIQ.size == 601:
+                gain = 10**(valuesIQ/10)
+            else : 
+                raise ValueError(f"valuesIQ must be of size 601 (float) or 1202 (complex)")
+            #gain = np.sqrt(valuesIQ[::2]**2+valuesIQ[1::2]**2)
 
             count = gain.size
             ang = np.linspace(-((count - 1)/2) * increment,
@@ -755,8 +763,8 @@ def get_gproc_gains(path_aux_pp1, mode, product):
     return dict_gains
 
 def get_path_aux_cal(aux_cal_name):
-    path = os.path.join("/home/datawork-cersat-public/cache/project/sarwave/data/products/tests/recalibrated_data_from_mpc_kersten/original_data", 
-                        "AUX_CAL", 
+    path = os.path.join(config["auxiliary_dir"],
+                        aux_cal_name[0:3]+"_AUX_CAL",
                         aux_cal_name, 
                         "data", 
                         aux_cal_name[0:3].lower() + "-aux-cal.xml")
@@ -765,8 +773,8 @@ def get_path_aux_cal(aux_cal_name):
     return path
 
 def get_path_aux_pp1(aux_pp1_name):
-    path = os.path.join("/home/datawork-cersat-public/cache/project/sarwave/data/products/tests/recalibrated_data_from_mpc_kersten/original_data", 
-                        "AUX_PP1", 
+    path = os.path.join(config["auxiliary_dir"],
+                        aux_pp1_name[0:3]+"_AUX_PP1",
                         aux_pp1_name, 
                         "data", 
                         aux_pp1_name[0:3].lower() + "-aux-pp1.xml")

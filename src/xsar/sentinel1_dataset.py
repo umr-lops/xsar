@@ -128,6 +128,7 @@ class Sentinel1Dataset(BaseDataset):
             logger.error('xsar is not handling resolution change for SLC TOPS products.')
             raise Exception('xsar is not handling resolution change for SLC TOPS products.')
     
+
         # build datatree
         self.resolution, DN_tmp = self.sar_meta.reader.load_digital_number(resolution=resolution,
                                                                            resampling=resampling,
@@ -182,10 +183,28 @@ class Sentinel1Dataset(BaseDataset):
                                                      'swath_merging': ds_swath_merging
                                                      })
 
+        # apply recalibration ?     
+        
+        self.apply_recalibration=recalibration
+        if (self.sar_meta.swath != "EW" and self.sar_meta.swath != "IW"):
+            self.apply_recalibration=False
+            raise ValueError(f"Recalibration in only done for EW/IW modes. You have '{self.sar_meta.swath}'. apply_recalibration is set to False.") 
+        if np.all(np.isnan(self.datatree.antenna_pattern['roll'].values)):
+            self.apply_recalibration=False
+            raise ValueError(f"Recalibration can't be done without roll angle. You probably work with an old file for which roll angle is not auxiliary file.") 
+
+
+            
         # self.datatree['measurement'].ds = .from_dict({'measurement':self._load_digital_number(resolution=resolution, resampling=resampling, chunks=chunks)
         # self._dataset = self.datatree['measurement'].ds #the two variables should be linked then.
         self._dataset = self.datatree[
             'measurement'].to_dataset()  # test oct 22 to see if then I can modify variables of the dt
+        
+        #create a datatree for variables used in recalibration
+        self.datatree["recalibration"] = datatree.DataTree()
+        self._dataset_recalibration = xr.Dataset(coords=self.datatree["measurement"].coords)
+                
+                
         for att in ['name', 'short_name', 'product', 'safe', 'swath', 'multidataset']:
             if att not in self.datatree.attrs:
                 # tmp = xr.DataArray(self.sar_meta.__getattr__(att),attrs={'source':'filename decoding'})
@@ -254,13 +273,10 @@ class Sentinel1Dataset(BaseDataset):
         self.datatree.attrs.update(self.sar_meta.to_dict("all"))
         
 
-        
         if 'GRD' in str(self.datatree.attrs['product']):  # load land_mask by default for GRD products
-
             self.add_high_resolution_variables(patch_variable=patch_variable, luts=luts, lazy_loading=lazyloading)
-            if (self.apply_recalibration):
-                self.select_gains()       
-        
+            if self.apply_recalibration:
+                self.select_gains()           
             self.apply_calibration_and_denoising()
             
         self.datatree['measurement'].attrs = self.datatree.attrs  # added 6 fev 23, to fill  empty attrs
@@ -281,36 +297,31 @@ class Sentinel1Dataset(BaseDataset):
         --------
 
         """
-        #
-        def get_geap(ds,var_template):
-            #select good gain 
-            resultat = xr.where(ds['swath_number'] == 1, ds[var_template+"_1"],
-                   xr.where(ds['swath_number'] == 2, ds[var_template+"_2"],
-                   xr.where(ds['swath_number'] == 3, ds[var_template+"_3"],
-                   xr.where(ds['swath_number'] == 4, ds[var_template+"_4"],
-                   xr.where(ds['swath_number'] == 5, ds[var_template+"_5"],
-                            np.nan)))))  
-            return resultat
-
-        def get_gproc(ds,var_template):
-            # select good gain 
-            resultat = xr.where(ds['swath_number'] == 1, self.sar_meta.geoloc[var_template+"_1"],
-               xr.where(ds['swath_number'] == 2, self.sar_meta.geoloc[var_template+"_2"],
-               xr.where(ds['swath_number'] == 3, self.sar_meta.geoloc[var_template+"_3"],
-               xr.where(ds['swath_number'] == 4, self.sar_meta.geoloc[var_template+"_4"],
-               xr.where(ds['swath_number'] == 5, self.sar_meta.geoloc[var_template+"_5"],
-                        np.nan)))))  
-
-            return resultat
-        
-        for var_template in ["old_geap","new_geap"]:
-            self._dataset[var_template] = get_geap(self.dataset,var_template)
+        vars_to_drop = []
+        def get_gains(ds, var_template):
+            if self.sar_meta.swath == "EW":
+                resultat = xr.where(ds['swath_number'] == 1, ds[var_template + "_1"],
+                           xr.where(ds['swath_number'] == 2, ds[var_template + "_2"],
+                           xr.where(ds['swath_number'] == 3, ds[var_template + "_3"],
+                           xr.where(ds['swath_number'] == 4, ds[var_template + "_4"],
+                           xr.where(ds['swath_number'] == 5, ds[var_template + "_5"],
+                                    np.nan)))))
+                return resultat
+            elif self.sar_meta.swath == "IW":
+                resultat = xr.where(ds['swath_number'] == 1, ds[var_template + "_1"],
+                           xr.where(ds['swath_number'] == 2, ds[var_template + "_2"],
+                           xr.where(ds['swath_number'] == 3, ds[var_template + "_3"],
+                                    np.nan)))
+                return resultat
+            else:
+                raise ValueError(f"Recalibration in only done for EW/IW modes. You have '{self.sar_meta.swath}'") 
+       
+        for var_template in ["old_geap","new_geap","old_gproc","new_gproc"]:
+            self._dataset_recalibration[var_template] = get_gains(self._dataset_recalibration,var_template)
             #vars_to_drop.extend([f"{var_template}_{i}" for i in range(1, 6)])
-        #ds = s1Dataset.dataset.drop_vars(vars_to_drop)
-        for var_template in ["old_gproc","new_gproc"]:
-            self._dataset[var_template] = get_gproc(self.dataset,var_template)
+        #self._dataset = self._dataset.drop_vars(vars_to_drop,errors = "ignore")
         
-        self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
+        self.datatree['recalibration'] = self.datatree['recalibration'].assign(self._dataset_recalibration)
 
         
     def add_high_resolution_variables(self, luts=False, patch_variable=True, skip_variables=None, load_luts=True,
@@ -441,9 +452,6 @@ class Sentinel1Dataset(BaseDataset):
             if self.apply_recalibration:
                 self.add_swath_number()
                 self.add_gains('S1B_AUX_CAL_V20160422T000000_G20210104T140113.SAFE','S1B_AUX_PP1_V20160422T000000_G20220323T140710.SAFE')
-                self.sar_meta.geoloc = self.ds_recalibration
-                geap_gains = [var for var in self.sar_meta.geoloc.data_vars if "_geap_" in var]
-                self._dataset = self._dataset.merge(self._load_from_geoloc(geap_gains, lazy_loading=lazy_loading))
 
             rasters = self._load_rasters_vars()
             if rasters is not None:
@@ -505,11 +513,11 @@ class Sentinel1Dataset(BaseDataset):
             # Marquer les premiers pixels vus
             flag_tab = xr.where((flag_tab == 0) & condition, 1, flag_tab)
     
-        self._dataset['swath_number'] = swath_tab
-        self._dataset['swath_number_flag'] = flag_tab
-        self._dataset['swath_number_flag'].attrs["flag_info"] = "0 : no swath \n1 : unique swath \n2 : undecided swath"
+        self._dataset_recalibration['swath_number'] = swath_tab
+        self._dataset_recalibration['swath_number_flag'] = flag_tab
+        self._dataset_recalibration['swath_number_flag'].attrs["flag_info"] = "0 : no swath \n1 : unique swath \n2 : undecided swath"
         
-        self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
+        self.datatree['recalibration'] = self.datatree['recalibration'].assign(self._dataset_recalibration)
 
     def get_recalibration_dataset(self):
         """
@@ -519,38 +527,35 @@ class Sentinel1Dataset(BaseDataset):
         --------
 
         """
-        self.ds_recalibration  = self.datatree.geolocation_annotation.to_dataset().copy()
+        self.ds_recalibration  = self._dataset#self.datatree.geolocation_annotation.to_dataset().copy()
         
         if "pol" in self._dataset.dims:
-            self.ds_recalibration = self.ds_recalibration.assign_coords(pol=('pol', self.s1meta.manifest_attrs["polarizations"]))
+            self.ds_recalibration = self.ds_recalibration.assign_coords(pol=('pol', self.sar_meta.manifest_attrs["polarizations"]))
 
             
     def add_gains(self,new_aux_cal_name, new_aux_pp1_name):
         from .utils import get_path_aux_cal,get_path_aux_pp1, get_geap_gains, get_gproc_gains
         import os
-        from scipy.interpolate import interp1d 
+        from scipy.interpolate import interp1d        
         
-        new_aux_cal_name = "S1B_AUX_CAL_V20160422T000000_G20210104T140113.SAFE"
-        new_aux_pp1_name = "S1B_AUX_PP1_V20160422T000000_G20220323T140710.SAFE"
         PATH_AUX_CAL_NEW = get_path_aux_cal(new_aux_cal_name)
-        PATH_AUX_CAL_OLD = get_path_aux_cal(os.path.basename(self.s1meta.manifest_attrs["aux_cal"]))
+        PATH_AUX_CAL_OLD = get_path_aux_cal(os.path.basename(self.sar_meta.manifest_attrs["aux_cal"]))
 
         PATH_AUX_PP1_NEW = get_path_aux_pp1(new_aux_pp1_name)
-        PATH_AUX_PP1_OLD = get_path_aux_pp1(os.path.basename(self.s1meta.manifest_attrs["aux_pp1"]))
+        PATH_AUX_PP1_OLD = get_path_aux_pp1(os.path.basename(self.sar_meta.manifest_attrs["aux_pp1"]))
 
-        self.get_recalibration_dataset()
 
         ## 1 - compute offboresight angle 
         roll = self.datatree['antenna_pattern']['roll']
         azimuthTime = self.datatree['antenna_pattern']['azimuthTime']
         interp_roll = interp1d(azimuthTime.values.flatten().astype(int), roll.values.flatten(), kind='linear', fill_value='extrapolate')
 
-        self.ds_recalibration = self.ds_recalibration.assign(rollAngle=(['line','sample'], interp_roll(self.ds_recalibration.azimuthTime)))
-        self.ds_recalibration = self.ds_recalibration.assign(offboresigthAngle=(['line','sample'], self.ds_recalibration['elevationAngle'].data - self.ds_recalibration['rollAngle'].data))
+        self._dataset_recalibration = self._dataset_recalibration.assign(rollAngle=(['line','sample'], interp_roll(self._dataset.azimuth_time)))
+        self._dataset_recalibration = self._dataset_recalibration.assign(offboresigthAngle=(['line','sample'], self._dataset['elevation'].data - self._dataset_recalibration['rollAngle'].data))
 
         ## 2- get gains geap and map them 
-        dict_geap_old = get_geap_gains(PATH_AUX_CAL_OLD, mode = self.s1meta.manifest_attrs["swath_type"], pols = self.sar_meta.manifest_attrs['polarizations'])
-        dict_geap_new = get_geap_gains(PATH_AUX_CAL_NEW, mode = self.s1meta.manifest_attrs["swath_type"], pols = self.sar_meta.manifest_attrs['polarizations'])
+        dict_geap_old = get_geap_gains(PATH_AUX_CAL_OLD, mode = self.sar_meta.manifest_attrs["swath_type"], pols = self.sar_meta.manifest_attrs['polarizations'])
+        dict_geap_new = get_geap_gains(PATH_AUX_CAL_NEW, mode = self.sar_meta.manifest_attrs["swath_type"], pols = self.sar_meta.manifest_attrs['polarizations'])
 
         for key, infos_geap in dict_geap_old.items():
             pol = key[-2:] 
@@ -558,13 +563,22 @@ class Sentinel1Dataset(BaseDataset):
 
             keyf = "old_geap_"+number
 
-            if keyf not in self.ds_recalibration:
-                self.ds_recalibration[keyf] = xr.DataArray(np.nan, coords=self.ds_recalibration.coords)
-                self.ds_recalibration[keyf].attrs['aux_path']=os.path.join(os.path.basename(os.path.dirname(os.path.dirname(PATH_AUX_CAL_OLD))), 
+            if keyf not in self._dataset_recalibration:
+                data_shape = (len(self._dataset_recalibration.coords['line']), len(self._dataset_recalibration.coords['sample']),len(self._dataset_recalibration.coords['pol']))
+                self._dataset_recalibration[keyf] = xr.DataArray(np.full(data_shape, np.nan),
+                                                   coords={'line': self._dataset_recalibration.coords['line'], 
+                                                           'sample': self._dataset_recalibration.coords['sample'],
+                                                           'pol' : self._dataset_recalibration.coords['pol']},
+                                                   dims = ['line','sample','pol'])#coords=self._dataset.coords))
+
+
+                self._dataset_recalibration[keyf].attrs['aux_path']=os.path.join(os.path.basename(os.path.dirname(os.path.dirname(PATH_AUX_CAL_OLD))), 
                                                               os.path.basename(os.path.dirname(PATH_AUX_CAL_OLD)), 
                                                               os.path.basename(PATH_AUX_CAL_OLD))
+
+
             interp =  interp1d(infos_geap['offboresightAngle'], infos_geap['gain'], kind='linear')
-            self.ds_recalibration[keyf].loc[..., pol] = interp(self.ds_recalibration['offboresigthAngle'])
+            self._dataset_recalibration[keyf].loc[:,:, pol] = interp(self._dataset_recalibration['offboresigthAngle'])
 
         for key, infos_geap in dict_geap_new.items():
             pol = key[-2:] 
@@ -572,49 +586,59 @@ class Sentinel1Dataset(BaseDataset):
 
             keyf = "new_geap_"+number
 
-            if keyf not in self.ds_recalibration:
-                self.ds_recalibration[keyf] = xr.DataArray(np.nan, coords=self.ds_recalibration.coords)
-                self.ds_recalibration[keyf].attrs['aux_path']=os.path.join(os.path.basename(os.path.dirname(os.path.dirname(PATH_AUX_CAL_NEW))), 
-                                                              os.path.basename(os.path.dirname(PATH_AUX_CAL_NEW)), 
-                                                              os.path.basename(PATH_AUX_CAL_NEW))
+            if keyf not in self._dataset_recalibration:
+                data_shape = (len(self._dataset_recalibration.coords['line']), len(self._dataset_recalibration.coords['sample']),len(self._dataset_recalibration.coords['pol']))
+                self._dataset_recalibration[keyf] = xr.DataArray(np.full(data_shape, np.nan),
+                                                   coords={'line': self._dataset_recalibration.coords['line'], 
+                                                           'sample': self._dataset_recalibration.coords['sample'],
+                                                           'pol' : self._dataset_recalibration.coords['pol']},
+                                                   dims = ['line','sample','pol'])#coords=self._dataset.coords))
+
+
+                self._dataset_recalibration[keyf].attrs['aux_path']=os.path.join(os.path.basename(os.path.dirname(os.path.dirname(PATH_AUX_CAL_OLD))), 
+                                                              os.path.basename(os.path.dirname(PATH_AUX_CAL_OLD)), 
+                                                              os.path.basename(PATH_AUX_CAL_OLD))
+
+
             interp =  interp1d(infos_geap['offboresightAngle'], infos_geap['gain'], kind='linear')
-            self.ds_recalibration[keyf].loc[..., pol] = interp(self.ds_recalibration['offboresigthAngle'])
+            self._dataset_recalibration[keyf].loc[:,:, pol] = interp(self._dataset_recalibration['offboresigthAngle'])
 
 
 
         ##3- get gains gproc and map them 
-        dict_gproc_old = get_gproc_gains(PATH_AUX_PP1_OLD, mode = self.s1meta.manifest_attrs["swath_type"], product = self.s1meta.product)
-        dict_gproc_new = get_gproc_gains(PATH_AUX_PP1_NEW, mode = self.s1meta.manifest_attrs["swath_type"], product = self.s1meta.product)
+        dict_gproc_old = get_gproc_gains(PATH_AUX_PP1_OLD, mode = self.sar_meta.manifest_attrs["swath_type"], product = self.sar_meta.product)
+        dict_gproc_new = get_gproc_gains(PATH_AUX_PP1_NEW, mode = self.sar_meta.manifest_attrs["swath_type"], product = self.sar_meta.product)
 
 
         for idxpol, pol in enumerate(['HH','HV','VV','VH']):
-            if pol in self.s1meta.manifest_attrs["polarizations"]:
+            if pol in self.sar_meta.manifest_attrs["polarizations"]:
                 valid_keys_indices = [(key, idxpol, pol) for key, infos_gproc in dict_gproc_old.items()]
                 for key, idxpol, pol in valid_keys_indices:
                     sw_nb  = str(key)[-1]
                     keyf = "old_gproc_"+sw_nb
-                    if keyf not in self.ds_recalibration:
-                        self.ds_recalibration[keyf] = xr.DataArray(np.nan, dims=['pol'], coords={'pol': self.ds_recalibration.coords["pol"]})
-                        self.ds_recalibration[keyf].attrs['aux_path']=os.path.basename(PATH_AUX_PP1_OLD)
-                    self.ds_recalibration[keyf].attrs['aux_path']=os.path.join(os.path.basename(os.path.dirname(os.path.dirname(PATH_AUX_PP1_OLD))), 
+                    if keyf not in self._dataset_recalibration:
+                        self._dataset_recalibration[keyf] = xr.DataArray(np.nan, dims=['pol'], coords={'pol': self._dataset_recalibration.coords["pol"]})
+                        self._dataset_recalibration[keyf].attrs['aux_path']=os.path.join(os.path.basename(os.path.dirname(os.path.dirname(PATH_AUX_PP1_OLD))), 
                                                                   os.path.basename(os.path.dirname(PATH_AUX_PP1_OLD)), 
                                                                   os.path.basename(PATH_AUX_PP1_OLD))
-                    self.ds_recalibration[keyf].loc[..., pol] = dict_gproc_old[key][idxpol]
+                    self._dataset_recalibration[keyf].loc[..., pol] = dict_gproc_old[key][idxpol]
 
         for idxpol, pol in enumerate(['HH','HV','VV','VH']):
-            if pol in self.s1meta.manifest_attrs["polarizations"]:
+            if pol in self.sar_meta.manifest_attrs["polarizations"]:
                 valid_keys_indices = [(key, idxpol, pol) for key, infos_gproc in dict_gproc_new.items()]
                 for key, idxpol, pol in valid_keys_indices:
                     sw_nb  = str(key)[-1]
                     keyf = "new_gproc_"+sw_nb
-                    if keyf not in self.ds_recalibration:
-                        self.ds_recalibration[keyf] = xr.DataArray(np.nan, dims=['pol'], coords={'pol': self.ds_recalibration.coords["pol"]})
-                        self.ds_recalibration[keyf].attrs['aux_path']=os.path.join(os.path.basename(os.path.dirname(os.path.dirname(PATH_AUX_PP1_NEW))), 
+                    if keyf not in self._dataset_recalibration:
+                        self._dataset_recalibration[keyf] = xr.DataArray(np.nan, dims=['pol'], coords={'pol': self._dataset_recalibration.coords["pol"]})
+                        self._dataset_recalibration[keyf].attrs['aux_path']=os.path.join(os.path.basename(os.path.dirname(os.path.dirname(PATH_AUX_PP1_NEW))), 
                                                                       os.path.basename(os.path.dirname(PATH_AUX_PP1_NEW)), 
                                                                       os.path.basename(PATH_AUX_PP1_NEW))
-                    self.ds_recalibration[keyf].loc[..., pol] = dict_gproc_new[key][idxpol]
-           
-        #return self.ds_recalibration
+                    self._dataset_recalibration[keyf].loc[..., pol] = dict_gproc_new[key][idxpol]
+        
+        self.datatree['recalibration'] = self.datatree['recalibration'].assign(self._dataset_recalibration)
+        
+        #return self._dataset
     
     def apply_calibration_and_denoising(self):
         """
@@ -636,15 +660,13 @@ class Sentinel1Dataset(BaseDataset):
         if self.apply_recalibration:      
             INTEREST_VAR = ["sigma0_raw"]
             for var in INTEREST_VAR:
-                varname_db = var+"_dB"
                 var_dB = 10*np.log10(self._dataset[var])
 
-                self._dataset[varname_db+"__corrected"] = var_dB + 10*np.log10(self._dataset["old_geap"]) - 10*np.log10(self._dataset["new_geap"]) -\
-                    2*10*np.log10(self._dataset["old_gproc"]) + 2*10*np.log10(self._dataset["new_gproc"])
+                corrected_dB = var_dB + 10*np.log10(self._dataset_recalibration["old_geap"]) - 10*np.log10(self._dataset_recalibration["new_geap"]) -\
+                    2*10*np.log10(self._dataset_recalibration["old_gproc"]) + 2*10*np.log10(self._dataset_recalibration["new_gproc"])
                 
-            self._dataset[var+"__corrected"] = 10**(
-                self._dataset[varname_db+"__corrected"]/10)
-            
+                self._dataset_recalibration[var+"__corrected"] = 10**(corrected_dB/10)
+            self.datatree['recalibration'] = self.datatree['recalibration'].assign(self._dataset_recalibration)
 
         self._dataset = self._add_denoised(self._dataset)
         self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
@@ -958,7 +980,6 @@ class Sentinel1Dataset(BaseDataset):
                 luts_list.append(lut)
             luts = xr.combine_by_coords(luts_list)
         return luts
-
 
     @timing
     def _load_from_geoloc(self, varnames, lazy_loading=True):
@@ -1292,11 +1313,22 @@ class Sentinel1Dataset(BaseDataset):
                 # TODO: to be implemented
                 raise NotImplementedError("semi denoised products not yet implemented")
             else:
-                denoised = ds[varname_raw] - ds[noise]
-                denoised.attrs['history'] = merge_yaml(
-                    [ds[varname_raw].attrs['history'], ds[noise].attrs['history']],
-                    section=varname
-                )
+                varname_raw_corrected = varname_raw + "__corrected"
+                if ((self.apply_recalibration) & (varname_raw_corrected in self._dataset_recalibration.variables)):
+                    denoised = self._dataset_recalibration[varname_raw_corrected] - ds[noise]
+                    denoised.attrs['history'] = merge_yaml(
+                        [ds[varname_raw].attrs['history'], ds[noise].attrs['history']],
+                        section=varname
+                    )
+                    denoised.attrs['comment_recalibration'] = 'kersten recalibration applied'
+                else :
+                    denoised = ds[varname_raw] - ds[noise]
+                    denoised.attrs['history'] = merge_yaml(
+                        [ds[varname_raw].attrs['history'], ds[noise].attrs['history']],
+                        section=varname
+                    )
+                    denoised.attrs['comment_recalibration'] = 'kersten recalibration not applied'
+
                 if clip:
                     denoised = denoised.clip(min=0)
                     denoised.attrs['comment'] = 'clipped, no values <0'

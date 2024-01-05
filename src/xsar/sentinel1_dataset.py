@@ -657,7 +657,7 @@ class Sentinel1Dataset(BaseDataset):
                 logger.debug("Skipping variable '%s' ('%s' lut is missing)" % (var_name, lut_name))
                 
         if self.apply_recalibration:      
-            INTEREST_VAR = ["sigma0_raw"]
+            INTEREST_VAR = ["sigma0_raw","gamma0_raw","beta0_raw"]
             for var in INTEREST_VAR:
                 var_dB = 10*np.log10(self._dataset[var])
 

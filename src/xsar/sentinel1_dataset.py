@@ -185,10 +185,11 @@ class Sentinel1Dataset(BaseDataset):
         # apply recalibration ?     
         
         self.apply_recalibration=recalibration
-        if (self.sar_meta.swath != "EW" and self.sar_meta.swath != "IW"):
+        if self.apply_recalibration and (self.sar_meta.swath != "EW" and self.sar_meta.swath != "IW"):
             self.apply_recalibration=False
             raise ValueError(f"Recalibration in only done for EW/IW modes. You have '{self.sar_meta.swath}'. apply_recalibration is set to False.") 
-        if np.all(np.isnan(self.datatree.antenna_pattern['roll'].values)):
+            
+        if self.apply_recalibration and np.all(np.isnan(self.datatree.antenna_pattern['roll'].values)):
             self.apply_recalibration=False
             raise ValueError(f"Recalibration can't be done without roll angle. You probably work with an old file for which roll angle is not auxiliary file.") 
 

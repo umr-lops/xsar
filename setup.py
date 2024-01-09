@@ -8,7 +8,7 @@ setup(
     scripts=glob.glob('src/scripts/*.py'),
     url='https://github.com/umr-lops/xsar',
     use_scm_version=True,
-    setup_requires=['setuptools_scm', 'setuptools_scm_git_archive'],
+    setup_requires=['setuptools_scm'],
     include_package_data=True,
     install_requires=[
         'GDAL',

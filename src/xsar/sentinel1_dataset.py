@@ -472,8 +472,8 @@ class Sentinel1Dataset(BaseDataset):
             if self.apply_recalibration:
                 self.add_swath_number()
 
-                self.add_gains(config["auxiliary_names"][self.sar_meta.short_name.split(":")[-2][0:3]][aux_config_name]["AUX_CAL"],
-                               config["auxiliary_names"][self.sar_meta.short_name.split(":")[-2][0:3]][aux_config_name]["AUX_PP1"])
+                self.add_gains(config["auxiliary_names"][self.sar_meta.short_name.split(":")[-2][0:3]][self.aux_config_name]["AUX_CAL"],
+                               config["auxiliary_names"][self.sar_meta.short_name.split(":")[-2][0:3]][self.aux_config_name]["AUX_PP1"])
 
             rasters = self._load_rasters_vars()
             if rasters is not None:
@@ -559,6 +559,7 @@ class Sentinel1Dataset(BaseDataset):
         from .utils import get_path_aux_cal, get_path_aux_pp1, get_geap_gains, get_gproc_gains
         import os
         from scipy.interpolate import interp1d
+        logger.debug(f"doing recalibration with AUX_CAL = {new_aux_cal_name} & AUX_PP1 = {new_aux_pp1_name}")
 
         path_aux_cal_new = get_path_aux_cal(new_aux_cal_name)
         path_aux_cal_old = get_path_aux_cal(

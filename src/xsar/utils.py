@@ -762,6 +762,8 @@ def get_gproc_gains(path_aux_pp1, mode, product):
                 dict_gains[key] = gains
     return dict_gains
 
+
+
 def get_path_aux_cal(aux_cal_name):
     path = os.path.join(config["auxiliary_dir"],
                         aux_cal_name[0:3]+"_AUX_CAL",

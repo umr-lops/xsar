@@ -95,7 +95,7 @@ class Sentinel1Dataset(BaseDataset):
                  resampling=rasterio.enums.Resampling.rms,
                  luts=False, chunks={'line': 5000, 'sample': 5000},
                  dtypes=None, patch_variable=True, lazyloading=True,
-                 recalibration=False, aux_config_name = 'v_IPF_36'):
+                 recalibration=False, aux_config_name='v_IPF_36'):
         # default dtypes
         if dtypes is not None:
             self._dtypes.update(dtypes)
@@ -187,7 +187,7 @@ class Sentinel1Dataset(BaseDataset):
                                                      })
 
         # apply recalibration ?
-        
+
         self.aux_config_name = aux_config_name
         self.apply_recalibration = recalibration
         if self.apply_recalibration and (self.sar_meta.swath != "EW" and self.sar_meta.swath != "IW"):
@@ -469,9 +469,10 @@ class Sentinel1Dataset(BaseDataset):
             self._dataset = self._dataset.merge(
                 self._load_from_geoloc(geoloc_vars, lazy_loading=lazy_loading))
 
+            
+            self.add_swath_number()   
+                
             if self.apply_recalibration:
-                self.add_swath_number()
-
                 self.add_gains(config["auxiliary_names"][self.sar_meta.short_name.split(":")[-2][0:3]][self.aux_config_name]["AUX_CAL"],
                                config["auxiliary_names"][self.sar_meta.short_name.split(":")[-2][0:3]][self.aux_config_name]["AUX_PP1"])
 
@@ -559,7 +560,8 @@ class Sentinel1Dataset(BaseDataset):
         from .utils import get_path_aux_cal, get_path_aux_pp1, get_geap_gains, get_gproc_gains
         import os
         from scipy.interpolate import interp1d
-        logger.debug(f"doing recalibration with AUX_CAL = {new_aux_cal_name} & AUX_PP1 = {new_aux_pp1_name}")
+        logger.debug(
+            f"doing recalibration with AUX_CAL = {new_aux_cal_name} & AUX_PP1 = {new_aux_pp1_name}")
 
         path_aux_cal_new = get_path_aux_cal(new_aux_cal_name)
         path_aux_cal_old = get_path_aux_cal(

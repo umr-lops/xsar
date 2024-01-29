@@ -98,7 +98,7 @@ jobs:
           pytest
 
       # check if docs has changed
-      - uses: dorny/paths-filter@v2
+      - uses: dorny/paths-filter@v3
         id: changes
         if: github.event_name != 'schedule'
         with:

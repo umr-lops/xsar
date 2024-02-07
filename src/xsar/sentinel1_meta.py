@@ -431,3 +431,12 @@ class Sentinel1Meta(BaseMeta):
     @property
     def get_noise_range_raw(self):
         return self.dt['noise_range_raw'].to_dataset()
+    
+    @property
+    def get_antenna_pattern(self):
+        return self.dt['antenna_pattern'].to_dataset()
+
+    
+    @property
+    def get_swath_merging(self):
+        return self.dt['swath_merging'].to_dataset()

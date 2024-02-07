@@ -30,7 +30,8 @@ setup(
         'pytz',
         'psutil',
         'jinja2',
-        'rioxarray'
+        'rioxarray',
+        'lxml'
     ],
     extras_require={
         "RS2": ["xradarsat2"],

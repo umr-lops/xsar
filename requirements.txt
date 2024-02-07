@@ -13,3 +13,4 @@ packaging
 pytest
 dill
 xarray-datatree
+lxml

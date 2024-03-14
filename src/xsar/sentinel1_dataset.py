@@ -40,6 +40,7 @@ mapping_dataset_geoloc = {'latitude': 'latitude',
                           'altitude': 'height',
                           'azimuth_time': 'azimuthTime',
                           'slant_range_time': 'slantRangeTime',
+                          'offboresight': 'offeboresightAngle',
                           }
 
 
@@ -139,6 +140,16 @@ class Sentinel1Dataset(BaseDataset):
         # geoloc
         geoloc = self.sar_meta.geoloc
         geoloc.attrs['history'] = 'annotations'
+        geoloc["offboresightAngle"] = geoloc.elevationAngle - \
+            (30.1833947 * geoloc.latitude ** 0 + \
+            0.0082998714 * geoloc.latitude ** 1 - \
+            0.00031181534 * geoloc.latitude ** 2 - \
+            0.0943533e-07 * geoloc.latitude ** 3 + \
+            3.0191435e-08 * geoloc.latitude ** 4 + \
+            4.968415428e-12 *geoloc.latitude ** 5 - \
+            9.315371305e-13 * geoloc.latitude ** 6) + 29.45
+        geoloc["offboresightAngle"].attrs['comment']='built from elevation angle and latitude'
+        
         # bursts
         bu = self.sar_meta._bursts
         bu.attrs['history'] = 'annotations'

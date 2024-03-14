@@ -471,7 +471,7 @@ class Sentinel1Dataset(BaseDataset):
             self._dataset = xr.merge(ds_merge_list)
             self._dataset.attrs = attrs
             geoloc_vars = ['altitude', 'azimuth_time', 'slant_range_time',
-                           'incidence', 'elevation', 'longitude', 'latitude']
+                           'incidence', 'elevation', 'longitude', 'latitude', 'offboresight']
 
             for vv in skip_variables:
                 if vv in geoloc_vars:

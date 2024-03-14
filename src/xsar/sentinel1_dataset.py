@@ -40,7 +40,7 @@ mapping_dataset_geoloc = {'latitude': 'latitude',
                           'altitude': 'height',
                           'azimuth_time': 'azimuthTime',
                           'slant_range_time': 'slantRangeTime',
-                          'offboresight': 'offeboresightAngle',
+                          'offboresight': 'offboresightAngle',
                           }
 
 

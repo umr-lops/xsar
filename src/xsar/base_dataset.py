@@ -1,3 +1,4 @@
+import pdb
 import warnings
 from abc import ABC
 from datetime import datetime
@@ -47,6 +48,7 @@ class BaseDataset(ABC):
     name = None
     sliced = False
     sar_meta = None
+    anti_meridian_correction_performed = False
     _rasterized_masks = None
     resolution = None
     _da_tmpl = None
@@ -727,8 +729,8 @@ class BaseDataset(ABC):
         if not raster_ds.rio.crs.is_geographic:
             raster_ds = raster_ds.rio.reproject(4326)
 
-        if self.sar_meta.cross_antemeridian:
-            raise NotImplementedError('Antimeridian crossing not yet checked')
+        if self.sar_meta.cross_antemeridian: # for method map_raster() we do not have implemented yet the workaround for antimeridian acquisitions
+            raise NotImplementedError('Antimeridian crossing positions not yet mitigated')
 
         # get lon/lat box for xsar dataset
         lon1, lat1, lon2, lat2 = self.sar_meta.footprint.exterior.bounds
@@ -812,8 +814,8 @@ class BaseDataset(ABC):
         else:
             logger.warning('Raster variable are experimental')
 
-        if self.sar_meta.cross_antemeridian:
-            raise NotImplementedError('Antimeridian crossing not yet checked')
+        if self.sar_meta.cross_antemeridian: # for _load_rasters_vars() there is no workaround yet for acqiisitions over antimeridian
+            raise NotImplementedError('Antimeridian crossing positions not yet mitigated')
 
         # will contain xr.DataArray to merge
         da_var_list = []

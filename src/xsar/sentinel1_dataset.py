@@ -99,7 +99,6 @@ class Sentinel1Dataset(BaseDataset):
         # default dtypes
         if dtypes is not None:
             self._dtypes.update(dtypes)
-
         # default meta for map_blocks output.
         # as asarray is imported from numpy, it's a numpy array.
         # but if later we decide to import asarray from cupy, il will be a cupy.array (gpu)
@@ -294,6 +293,9 @@ class Sentinel1Dataset(BaseDataset):
 
         # added 6 fev 23, to fill  empty attrs
         self.datatree['measurement'].attrs = self.datatree.attrs
+        tmp = self.corrected_range_noise_lut(self.datatree)
+        self.datatree['noise_range'].ds = tmp # the corrcted noise_range dataset shold now contain an attrs 'corrected_range_noise_lut'
+        # self.datatree = self.corrected_range_noise_lut(self.datatree)
         self.sliced = False
         """True if dataset is a slice of original L1 dataset"""
 
@@ -302,6 +304,34 @@ class Sentinel1Dataset(BaseDataset):
 
         # save original bbox
         self._bbox_coords_ori = self._bbox_coords
+
+    def corrected_range_noise_lut(self,dt):
+        """
+        Patch F.Nouguier see https://jira-projects.cls.fr/browse/MPCS-3581 and https://github.com/umr-lops/xsar_slc/issues/175
+        Return range noise lut with corrected line numbering. This function should be used only on the full SLC dataset dt
+        Args:
+            dt (xarray.datatree) : datatree returned by xsar corresponding to one subswath
+        Return:
+            (xarray.dataset) : range noise lut with corrected line number
+        """
+        # Detection of azimuthTime jumps (linked to burst changes). Burst sensingTime should NOT be used since they have erroneous value too !
+        line_shift = 0
+        tt = dt['measurement']['time']
+        i_jump = np.ravel(np.argwhere(np.diff(tt)<np.timedelta64(0))+1) # index of jumps
+        line_jump_meas = dt['measurement']['line'][i_jump] # line number of jumps
+        line_jump_noise = np.ravel(dt['noise_range']['line'][1:-1].data) # annotated line number of burst begining
+        burst_first_lineshift = line_jump_meas-line_jump_noise
+        if len(np.unique(burst_first_lineshift))==1:
+            line_shift = int(np.unique(burst_first_lineshift)[0])
+            logging.info('line_shift: %s',line_shift)
+        else:
+            raise ValueError('Inconsistency in line shifting : {}'.format(burst_first_lineshift))
+        res = dt['noise_range'].ds.assign_coords({'line':dt['noise_range']['line']+line_shift})
+        if line_shift==0:
+            res.attrs['corrected_range_noise_lut'] = 'no change'
+        else:
+            res.attrs['corrected_range_noise_lut'] = 'shift : %i lines'%line_shift
+        return res
 
     def select_gains(self):
         """

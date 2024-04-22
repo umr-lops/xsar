@@ -293,9 +293,9 @@ class Sentinel1Dataset(BaseDataset):
 
         # added 6 fev 23, to fill  empty attrs
         self.datatree['measurement'].attrs = self.datatree.attrs
-        tmp = self.corrected_range_noise_lut(self.datatree)
-        self.datatree['noise_range'].ds = tmp # the corrcted noise_range dataset shold now contain an attrs 'corrected_range_noise_lut'
-        # self.datatree = self.corrected_range_noise_lut(self.datatree)
+        if self.sar_meta.product == 'SLC' and 'WV' not in self.sar_meta.swath:  # TOPS cases
+            tmp = self.corrected_range_noise_lut(self.datatree)
+            self.datatree['noise_range'].ds = tmp # the corrcted noise_range dataset shold now contain an attrs 'corrected_range_noise_lut'
         self.sliced = False
         """True if dataset is a slice of original L1 dataset"""
 
@@ -319,11 +319,12 @@ class Sentinel1Dataset(BaseDataset):
         tt = dt['measurement']['time']
         i_jump = np.ravel(np.argwhere(np.diff(tt)<np.timedelta64(0))+1) # index of jumps
         line_jump_meas = dt['measurement']['line'][i_jump] # line number of jumps
-        line_jump_noise = np.ravel(dt['noise_range']['line'][1:-1].data) # annotated line number of burst begining
+        # line_jump_noise = np.ravel(dt['noise_range']['line'][1:-1].data) # annotated line number of burst begining, this one is corrupted for some S1 TOPS product
+        line_jump_noise = np.ravel(dt['noise_range']['line'][1:1+len(line_jump_meas)].data) # annoted line number of burst begining
         burst_first_lineshift = line_jump_meas-line_jump_noise
         if len(np.unique(burst_first_lineshift))==1:
             line_shift = int(np.unique(burst_first_lineshift)[0])
-            logging.info('line_shift: %s',line_shift)
+            logging.debug('line_shift: %s',line_shift)
         else:
             raise ValueError('Inconsistency in line shifting : {}'.format(burst_first_lineshift))
         res = dt['noise_range'].ds.assign_coords({'line':dt['noise_range']['line']+line_shift})
@@ -556,14 +557,14 @@ class Sentinel1Dataset(BaseDataset):
                                 'line': self._dataset.coords["line"], 'sample': self._dataset.coords["sample"]})
 
         # Supposons que dataset.swaths ait 45 éléments comme mentionné
-        for i in range(len(self.datatree['swath_merging'].swaths)):
+        for i in range(len(self.datatree['swath_merging'].ds['swaths'])):
             y_min, y_max = self.datatree['swath_merging']['firstAzimuthLine'][
                 i], self.datatree['swath_merging']['lastAzimuthLine'][i]
             x_min, x_max = self.datatree['swath_merging']['firstRangeSample'][
                 i], self.datatree['swath_merging']['lastRangeSample'][i]
 
             # Localisation des pixels appartenant à ce swath
-            swath_index = int(self.datatree['swath_merging'].swaths[i])
+            swath_index = int(self.datatree['swath_merging'].ds['swaths'][i])
 
             condition = (self._dataset.line >= y_min) & (self._dataset.line <= y_max) & (
                 self._dataset.sample >= x_min) & (self._dataset.sample <= x_max)

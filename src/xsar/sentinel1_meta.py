@@ -41,7 +41,10 @@ class Sentinel1Meta(BaseMeta):
 
     @timing
     def __init__(self, name):
-        from safe_s1.metadata import Sentinel1Reader
+        try:
+            from safe_s1.metadata import Sentinel1Reader
+        except:
+            from safe_s1.reader import Sentinel1Reader
         self.reader = Sentinel1Reader(name)
 
         if not name.startswith('SENTINEL1_DS:'):

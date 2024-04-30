@@ -13,7 +13,7 @@ from scipy.interpolate import interp1d
 from shapely.geometry import box
 
 from .utils import timing, map_blocks_coords, BlockingActorProxy, merge_yaml, \
-    to_lon180, config
+    to_lon180, config, datetime
 from .sentinel1_meta import Sentinel1Meta
 from .ipython_backends import repr_mimebundle
 import datatree
@@ -484,8 +484,23 @@ class Sentinel1Dataset(BaseDataset):
             self.add_swath_number()   
                 
             if self.apply_recalibration:
-                self.add_gains(config["auxiliary_names"][self.sar_meta.short_name.split(":")[-2][0:3]][self.aux_config_name]["AUX_CAL"],
-                               config["auxiliary_names"][self.sar_meta.short_name.split(":")[-2][0:3]][self.aux_config_name]["AUX_PP1"])
+                path_dataframe_aux = config["path_dataframe_aux"]
+                dataframe_aux = pd.read_csv(path_dataframe_aux)
+                
+                sel_cal = dataframe_aux.loc[(dataframe_aux.sat_name == self.sar_meta.manifest_attrs['satellite']) & 
+                                            (dataframe_aux.aux_type == "CAL") &
+                                            (dataframe_aux.validation_date <= self.sar_meta.start_date)]
+                sel_cal = sel_cal.sort_values(by = ["validation_date","generation_date"],ascending=False)
+                path_new_cal = sel_cal.iloc[0].aux_path
+                
+                sel_pp1 = dataframe_aux.loc[(dataframe_aux.sat_name == self.sar_meta.manifest_attrs['satellite']) & 
+                            (dataframe_aux.aux_type == "PP1") 
+                            & (dataframe_aux.validation_date <= self.sar_meta.start_date)]
+                sel_pp1 = sel_pp1.sort_values(by = ["validation_date","generation_date"],ascending=False)
+                path_new_pp1 = sel_pp1.iloc[0].aux_path
+                
+                self.add_gains(path_new_cal,
+                               path_new_pp1)
 
             rasters = self._load_rasters_vars()
             if rasters is not None:
@@ -574,11 +589,11 @@ class Sentinel1Dataset(BaseDataset):
         logger.debug(
             f"doing recalibration with AUX_CAL = {new_aux_cal_name} & AUX_PP1 = {new_aux_pp1_name}")
 
-        path_aux_cal_new = get_path_aux_cal(new_aux_cal_name)
+        path_aux_cal_new = get_path_aux_cal(os.path.basename(new_aux_cal_name))
         path_aux_cal_old = get_path_aux_cal(
             os.path.basename(self.sar_meta.manifest_attrs["aux_cal"]))
 
-        path_aux_pp1_new = get_path_aux_pp1(new_aux_pp1_name)
+        path_aux_pp1_new = get_path_aux_pp1(os.path.basename(new_aux_pp1_name))
         path_aux_pp1_old = get_path_aux_pp1(
             os.path.basename(self.sar_meta.manifest_attrs["aux_pp1"]))
 
@@ -691,7 +706,9 @@ class Sentinel1Dataset(BaseDataset):
 
         self.datatree['recalibration'] = self.datatree['recalibration'].assign(
             self._dataset_recalibration)
-
+        
+        self.datatree['recalibration'].attrs["path_aux_cal_new"] = path_aux_cal_new
+        self.datatree['recalibration'].attrs["path_aux_pp1_new"] = path_aux_pp1_new
         # return self._dataset
 
     def apply_calibration_and_denoising(self):

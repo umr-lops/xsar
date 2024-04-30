@@ -96,7 +96,7 @@ class Sentinel1Dataset(BaseDataset):
                  resampling=rasterio.enums.Resampling.rms,
                  luts=False, chunks={'line': 5000, 'sample': 5000},
                  dtypes=None, patch_variable=True, lazyloading=True,
-                 recalibration=False, aux_config_name='v_IPF_36'):
+                 recalibration=False):
         # default dtypes
         if dtypes is not None:
             self._dtypes.update(dtypes)
@@ -198,8 +198,6 @@ class Sentinel1Dataset(BaseDataset):
                                                      })
 
         # apply recalibration ?
-
-        self.aux_config_name = aux_config_name
         self.apply_recalibration = recalibration
         if self.apply_recalibration and (self.sar_meta.swath != "EW" and self.sar_meta.swath != "IW"):
             self.apply_recalibration = False

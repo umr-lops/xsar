@@ -707,6 +707,8 @@ class Sentinel1Dataset(BaseDataset):
         
         self.datatree['recalibration'].attrs["path_aux_cal_new"] = path_aux_cal_new
         self.datatree['recalibration'].attrs["path_aux_pp1_new"] = path_aux_pp1_new
+        self.datatree['recalibration'].attrs["path_aux_cal_old"] = path_aux_cal_old
+        self.datatree['recalibration'].attrs["path_aux_pp1_old"] = path_aux_pp1_old
         # return self._dataset
 
     def apply_calibration_and_denoising(self):

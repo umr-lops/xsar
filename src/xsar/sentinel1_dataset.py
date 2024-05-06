@@ -284,9 +284,10 @@ class Sentinel1Dataset(BaseDataset):
         self.datatree.attrs.update(self.sar_meta.to_dict("all"))
 
         # load land_mask by default for GRD products
+
+        self.add_high_resolution_variables(
+            patch_variable=patch_variable, luts=luts, lazy_loading=lazyloading)
         if 'GRD' in str(self.datatree.attrs['product']):
-            self.add_high_resolution_variables(
-                patch_variable=patch_variable, luts=luts, lazy_loading=lazyloading)
             if self.apply_recalibration:
                 self.select_gains()
             self.apply_calibration_and_denoising()
@@ -500,12 +501,12 @@ class Sentinel1Dataset(BaseDataset):
             self._dataset = self._dataset.merge(
                 self._load_from_geoloc(geoloc_vars, lazy_loading=lazy_loading))
 
-            
-            self.add_swath_number()   
-                
-            if self.apply_recalibration:
-                self.add_gains(config["auxiliary_names"][self.sar_meta.short_name.split(":")[-2][0:3]][self.aux_config_name]["AUX_CAL"],
-                               config["auxiliary_names"][self.sar_meta.short_name.split(":")[-2][0:3]][self.aux_config_name]["AUX_PP1"])
+            if 'GRD' in str(self.datatree.attrs['product']):
+                self.add_swath_number()
+
+                if self.apply_recalibration:
+                    self.add_gains(config["auxiliary_names"][self.sar_meta.short_name.split(":")[-2][0:3]][self.aux_config_name]["AUX_CAL"],
+                                   config["auxiliary_names"][self.sar_meta.short_name.split(":")[-2][0:3]][self.aux_config_name]["AUX_PP1"])
 
             rasters = self._load_rasters_vars()
             if rasters is not None:

@@ -99,7 +99,6 @@ class Sentinel1Dataset(BaseDataset):
         # default dtypes
         if dtypes is not None:
             self._dtypes.update(dtypes)
-
         # default meta for map_blocks output.
         # as asarray is imported from numpy, it's a numpy array.
         # but if later we decide to import asarray from cupy, il will be a cupy.array (gpu)
@@ -285,15 +284,19 @@ class Sentinel1Dataset(BaseDataset):
         self.datatree.attrs.update(self.sar_meta.to_dict("all"))
 
         # load land_mask by default for GRD products
+
+        self.add_high_resolution_variables(
+            patch_variable=patch_variable, luts=luts, lazy_loading=lazyloading)
         if 'GRD' in str(self.datatree.attrs['product']):
-            self.add_high_resolution_variables(
-                patch_variable=patch_variable, luts=luts, lazy_loading=lazyloading)
             if self.apply_recalibration:
                 self.select_gains()
             self.apply_calibration_and_denoising()
 
         # added 6 fev 23, to fill  empty attrs
         self.datatree['measurement'].attrs = self.datatree.attrs
+        if self.sar_meta.product == 'SLC' and 'WV' not in self.sar_meta.swath:  # TOPS cases
+            tmp = self.corrected_range_noise_lut(self.datatree)
+            self.datatree['noise_range'].ds = tmp # the corrcted noise_range dataset shold now contain an attrs 'corrected_range_noise_lut'
         self.sliced = False
         """True if dataset is a slice of original L1 dataset"""
 
@@ -302,6 +305,35 @@ class Sentinel1Dataset(BaseDataset):
 
         # save original bbox
         self._bbox_coords_ori = self._bbox_coords
+
+    def corrected_range_noise_lut(self,dt):
+        """
+        Patch F.Nouguier see https://jira-projects.cls.fr/browse/MPCS-3581 and https://github.com/umr-lops/xsar_slc/issues/175
+        Return range noise lut with corrected line numbering. This function should be used only on the full SLC dataset dt
+        Args:
+            dt (xarray.datatree) : datatree returned by xsar corresponding to one subswath
+        Return:
+            (xarray.dataset) : range noise lut with corrected line number
+        """
+        # Detection of azimuthTime jumps (linked to burst changes). Burst sensingTime should NOT be used since they have erroneous value too !
+        line_shift = 0
+        tt = dt['measurement']['time']
+        i_jump = np.ravel(np.argwhere(np.diff(tt)<np.timedelta64(0))+1) # index of jumps
+        line_jump_meas = dt['measurement']['line'][i_jump] # line number of jumps
+        # line_jump_noise = np.ravel(dt['noise_range']['line'][1:-1].data) # annotated line number of burst begining, this one is corrupted for some S1 TOPS product
+        line_jump_noise = np.ravel(dt['noise_range']['line'][1:1+len(line_jump_meas)].data) # annoted line number of burst begining
+        burst_first_lineshift = line_jump_meas-line_jump_noise
+        if len(np.unique(burst_first_lineshift))==1:
+            line_shift = int(np.unique(burst_first_lineshift)[0])
+            logging.debug('line_shift: %s',line_shift)
+        else:
+            raise ValueError('Inconsistency in line shifting : {}'.format(burst_first_lineshift))
+        res = dt['noise_range'].ds.assign_coords({'line':dt['noise_range']['line']+line_shift})
+        if line_shift==0:
+            res.attrs['corrected_range_noise_lut'] = 'no change'
+        else:
+            res.attrs['corrected_range_noise_lut'] = 'shift : %i lines'%line_shift
+        return res
 
     def select_gains(self):
         """
@@ -469,12 +501,12 @@ class Sentinel1Dataset(BaseDataset):
             self._dataset = self._dataset.merge(
                 self._load_from_geoloc(geoloc_vars, lazy_loading=lazy_loading))
 
-            
-            self.add_swath_number()   
-                
-            if self.apply_recalibration:
-                self.add_gains(config["auxiliary_names"][self.sar_meta.short_name.split(":")[-2][0:3]][self.aux_config_name]["AUX_CAL"],
-                               config["auxiliary_names"][self.sar_meta.short_name.split(":")[-2][0:3]][self.aux_config_name]["AUX_PP1"])
+            if 'GRD' in str(self.datatree.attrs['product']):
+                self.add_swath_number()
+
+                if self.apply_recalibration:
+                    self.add_gains(config["auxiliary_names"][self.sar_meta.short_name.split(":")[-2][0:3]][self.aux_config_name]["AUX_CAL"],
+                                   config["auxiliary_names"][self.sar_meta.short_name.split(":")[-2][0:3]][self.aux_config_name]["AUX_PP1"])
 
             rasters = self._load_rasters_vars()
             if rasters is not None:
@@ -526,14 +558,14 @@ class Sentinel1Dataset(BaseDataset):
                                 'line': self._dataset.coords["line"], 'sample': self._dataset.coords["sample"]})
 
         # Supposons que dataset.swaths ait 45 éléments comme mentionné
-        for i in range(len(self.datatree['swath_merging'].swaths)):
+        for i in range(len(self.datatree['swath_merging'].ds['swaths'])):
             y_min, y_max = self.datatree['swath_merging']['firstAzimuthLine'][
                 i], self.datatree['swath_merging']['lastAzimuthLine'][i]
             x_min, x_max = self.datatree['swath_merging']['firstRangeSample'][
                 i], self.datatree['swath_merging']['lastRangeSample'][i]
 
             # Localisation des pixels appartenant à ce swath
-            swath_index = int(self.datatree['swath_merging'].swaths[i])
+            swath_index = int(self.datatree['swath_merging'].ds['swaths'][i])
 
             condition = (self._dataset.line >= y_min) & (self._dataset.line <= y_max) & (
                 self._dataset.sample >= x_min) & (self._dataset.sample <= x_max)

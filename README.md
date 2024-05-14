@@ -3,7 +3,18 @@
 
 Synthetic Aperture Radar (SAR) Level-1 GRD python mapper for efficient xarray/dask based processing
 
- 
+This python library allow to apply different operation on SAR images such as:
+ - calibration
+ - de-noising
+ - re-sampling
+
+The library is working regardless it is a **Sentinel-1**, a **RadarSAT-2** or a **RCM** product.
+
+The library is providing variables such as `longitude` , `latitude`, `incidence_angle` or `sigma0` at native product resolution or coarser resolution.
+
+The library perform resampling that are suitable for GRD (i.e. ground projected) SAR images. The same method is used for WV SLC, and one can consider the approximation still valid because the WV image is only 20 km X 20 km.
+
+But for TOPS (IW or EW) SLC products we recommend to use [xsarslc](https://github.com/umr-lops/xsar_slc.git)
 
 # Install
 
@@ -12,7 +23,7 @@ Synthetic Aperture Radar (SAR) Level-1 GRD python mapper for efficient xarray/da
 1) Install `xsar` (without the readers)
 
 For a faster installation and less conflicts between packages, it is better
-to make the installation with `mamba`
+to make the installation with `micromamba`
 
 ```bash
 conda install -c conda-forge mamba
@@ -21,14 +32,14 @@ conda install -c conda-forge mamba
 2) install `xsar` (without the readers)
 
 ```bash
-mamba install -c conda-forge xsar
+micromamba install -c conda-forge xsar
 ```
 3) Add optional dependencies
 
 - Add use of Radarsat-2 :
 
 ```bash
-mamba install -c conda-forge xradarsat2
+micromamba install -c conda-forge xradarsat2
 ```
 
 - Add use of RCM (RadarSat Constellation Mission)
@@ -40,7 +51,7 @@ pip install xarray-safe-rcm
 - Add use of Sentinel-1
 
 ```bash
-mamba install -c conda-forge xarray-safe-s1
+micromamba install -c conda-forge xarray-safe-s1
 ```
 
 ## Pypi
@@ -125,4 +136,3 @@ Attributes: (12/14)
 # More information
 
 For more install options and to use xsar, see [documentation](https://cyclobs.ifremer.fr/static/sarwing_datarmor/xsar/)
-

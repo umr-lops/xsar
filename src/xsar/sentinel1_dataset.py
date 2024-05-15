@@ -13,7 +13,7 @@ from scipy.interpolate import interp1d
 from shapely.geometry import box
 
 from .utils import timing, map_blocks_coords, BlockingActorProxy, merge_yaml, \
-    to_lon180, config
+    to_lon180, config, datetime
 from .sentinel1_meta import Sentinel1Meta
 from .ipython_backends import repr_mimebundle
 import datatree
@@ -40,6 +40,7 @@ mapping_dataset_geoloc = {'latitude': 'latitude',
                           'altitude': 'height',
                           'azimuth_time': 'azimuthTime',
                           'slant_range_time': 'slantRangeTime',
+                          'offboresight': 'offboresightAngle',
                           }
 
 
@@ -95,7 +96,7 @@ class Sentinel1Dataset(BaseDataset):
                  resampling=rasterio.enums.Resampling.rms,
                  luts=False, chunks={'line': 5000, 'sample': 5000},
                  dtypes=None, patch_variable=True, lazyloading=True,
-                 recalibration=False, aux_config_name='v_IPF_36'):
+                 recalibration=False):
         # default dtypes
         if dtypes is not None:
             self._dtypes.update(dtypes)
@@ -138,6 +139,16 @@ class Sentinel1Dataset(BaseDataset):
         # geoloc
         geoloc = self.sar_meta.geoloc
         geoloc.attrs['history'] = 'annotations'
+        geoloc["offboresightAngle"] = geoloc.elevationAngle - \
+            (30.1833947 * geoloc.latitude ** 0 + \
+            0.0082998714 * geoloc.latitude ** 1 - \
+            0.00031181534 * geoloc.latitude ** 2 - \
+            0.0943533e-07 * geoloc.latitude ** 3 + \
+            3.0191435e-08 * geoloc.latitude ** 4 + \
+            4.968415428e-12 *geoloc.latitude ** 5 - \
+            9.315371305e-13 * geoloc.latitude ** 6) + 29.45
+        geoloc["offboresightAngle"].attrs['comment']='built from elevation angle and latitude'
+        
         # bursts
         bu = self.sar_meta._bursts
         bu.attrs['history'] = 'annotations'
@@ -186,8 +197,6 @@ class Sentinel1Dataset(BaseDataset):
                                                      })
 
         # apply recalibration ?
-
-        self.aux_config_name = aux_config_name
         self.apply_recalibration = recalibration
         if self.apply_recalibration and (self.sar_meta.swath != "EW" and self.sar_meta.swath != "IW"):
             self.apply_recalibration = False
@@ -492,7 +501,7 @@ class Sentinel1Dataset(BaseDataset):
             self._dataset = xr.merge(ds_merge_list)
             self._dataset.attrs = attrs
             geoloc_vars = ['altitude', 'azimuth_time', 'slant_range_time',
-                           'incidence', 'elevation', 'longitude', 'latitude']
+                           'incidence', 'elevation', 'longitude', 'latitude', 'offboresight']
 
             for vv in skip_variables:
                 if vv in geoloc_vars:
@@ -500,13 +509,27 @@ class Sentinel1Dataset(BaseDataset):
 
             self._dataset = self._dataset.merge(
                 self._load_from_geoloc(geoloc_vars, lazy_loading=lazy_loading))
-
+                         
             if 'GRD' in str(self.datatree.attrs['product']):
                 self.add_swath_number()
-
+                
                 if self.apply_recalibration:
-                    self.add_gains(config["auxiliary_names"][self.sar_meta.short_name.split(":")[-2][0:3]][self.aux_config_name]["AUX_CAL"],
-                                   config["auxiliary_names"][self.sar_meta.short_name.split(":")[-2][0:3]][self.aux_config_name]["AUX_PP1"])
+                    path_dataframe_aux = config["path_dataframe_aux"]
+                    dataframe_aux = pd.read_csv(path_dataframe_aux)
+
+                    sel_cal = dataframe_aux.loc[(dataframe_aux.sat_name == self.sar_meta.manifest_attrs['satellite']) & 
+                                                (dataframe_aux.aux_type == "CAL") &
+                                                (dataframe_aux.validation_date <= self.sar_meta.start_date)]
+                    sel_cal = sel_cal.sort_values(by = ["validation_date","generation_date"],ascending=False)
+                    path_new_cal = sel_cal.iloc[0].aux_path
+
+                    sel_pp1 = dataframe_aux.loc[(dataframe_aux.sat_name == self.sar_meta.manifest_attrs['satellite']) & 
+                                (dataframe_aux.aux_type == "PP1") 
+                                & (dataframe_aux.validation_date <= self.sar_meta.start_date)]
+                    sel_pp1 = sel_pp1.sort_values(by = ["validation_date","generation_date"],ascending=False)
+                    path_new_pp1 = sel_pp1.iloc[0].aux_path
+
+                    self.add_gains(path_new_cal, path_new_pp1)
 
             rasters = self._load_rasters_vars()
             if rasters is not None:
@@ -595,11 +618,11 @@ class Sentinel1Dataset(BaseDataset):
         logger.debug(
             f"doing recalibration with AUX_CAL = {new_aux_cal_name} & AUX_PP1 = {new_aux_pp1_name}")
 
-        path_aux_cal_new = get_path_aux_cal(new_aux_cal_name)
+        path_aux_cal_new = get_path_aux_cal(os.path.basename(new_aux_cal_name))
         path_aux_cal_old = get_path_aux_cal(
             os.path.basename(self.sar_meta.manifest_attrs["aux_cal"]))
 
-        path_aux_pp1_new = get_path_aux_pp1(new_aux_pp1_name)
+        path_aux_pp1_new = get_path_aux_pp1(os.path.basename(new_aux_pp1_name))
         path_aux_pp1_old = get_path_aux_pp1(
             os.path.basename(self.sar_meta.manifest_attrs["aux_pp1"]))
 
@@ -712,7 +735,11 @@ class Sentinel1Dataset(BaseDataset):
 
         self.datatree['recalibration'] = self.datatree['recalibration'].assign(
             self._dataset_recalibration)
-
+        
+        self.datatree['recalibration'].attrs["path_aux_cal_new"] = path_aux_cal_new
+        self.datatree['recalibration'].attrs["path_aux_pp1_new"] = path_aux_pp1_new
+        self.datatree['recalibration'].attrs["path_aux_cal_old"] = path_aux_cal_old
+        self.datatree['recalibration'].attrs["path_aux_pp1_old"] = path_aux_pp1_old
         # return self._dataset
 
     def apply_calibration_and_denoising(self):

@@ -167,7 +167,6 @@ class Sentinel1Dataset(BaseDataset):
 
         # noise levels LUTs
         ds_noise_range = self.sar_meta.get_noise_range_raw
-        ds_noise_range.attrs['history'] = 'noise'
         ds_noise_azi = self.sar_meta.get_noise_azi_raw
 
         # antenna pattern
@@ -182,7 +181,6 @@ class Sentinel1Dataset(BaseDataset):
             #                                                 'noise_lut'])  # patch applied here is distinct to same patch applied on interpolated noise LUT
             ds_noise_range['noise_lut'] = self._patch_lut(ds_noise_range[
                 'noise_lut'])  # patch applied here is distinct to same patch applied on interpolated noise LUT
-        ds_noise_azi.attrs['history'] = 'noise'
 
         self.datatree = datatree.DataTree.from_dict({'measurement': DN_tmp, 'geolocation_annotation': geoloc,
                                                      'bursts': bu, 'FMrate': FM, 'doppler_estimate': dop,

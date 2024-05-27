@@ -292,9 +292,10 @@ class Sentinel1Dataset(BaseDataset):
 
         # load land_mask by default for GRD products
 
-        self.add_high_resolution_variables(
-            patch_variable=patch_variable, luts=luts, lazy_loading=lazyloading)
+
         if 'GRD' in str(self.datatree.attrs['product']):
+            self.add_high_resolution_variables(
+                                   patch_variable=patch_variable, luts=luts, lazy_loading=lazyloading)
             if self.apply_recalibration:
                 self.select_gains()
             self.apply_calibration_and_denoising()

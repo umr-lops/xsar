@@ -191,7 +191,7 @@ def era5_0250_1h(fname, **kwargs):
     xarray.Dataset
     """
 
-    ds_era5 = xr.open_dataset(fname)
+    ds_era5 = xr.open_dataset(fname, chunks={'time': 1})
     ds_era5 = ds_era5[['u10', 'v10', 'latitude025', 'longitude025']]
     ds_era5 = ds_era5.sel(time=str(kwargs['date']))
     ds_era5 = ds_era5.drop('time')

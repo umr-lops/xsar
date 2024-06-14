@@ -28,7 +28,8 @@ logger = logging.getLogger('xsar.base_dataset')
 logger.addHandler(logging.NullHandler())
 
 # we know tiff as no geotransform : ignore warning
-warnings.filterwarnings("ignore", category=rasterio.errors.NotGeoreferencedWarning)
+warnings.filterwarnings(
+    "ignore", category=rasterio.errors.NotGeoreferencedWarning)
 
 # allow nan without warnings
 # some dask warnings are still non filtered: https://github.com/dask/dask/issues/3245
@@ -108,7 +109,8 @@ class BaseDataset(ABC):
         """
         Dataset bounding box, in line/sample coordinates
         """
-        bbox_ext = bbox_coords(self.dataset.line.values, self.dataset.sample.values)
+        bbox_ext = bbox_coords(self.dataset.line.values,
+                               self.dataset.sample.values)
         return bbox_ext
 
     @property
@@ -229,12 +231,15 @@ class BaseDataset(ABC):
         else:
             scalar = True
 
-        tolerance = np.max([np.percentile(np.diff(self.dataset[c].values), 90) / 2 for c in ['line', 'sample']]) + 1
+        tolerance = np.max([np.percentile(
+            np.diff(self.dataset[c].values), 90) / 2 for c in ['line', 'sample']]) + 1
         try:
             # select the nearest valid pixel in ds
-            ds_nearest = self.dataset.sel(line=line, sample=sample, method='nearest', tolerance=tolerance)
+            ds_nearest = self.dataset.sel(
+                line=line, sample=sample, method='nearest', tolerance=tolerance)
             if scalar:
-                (line, sample) = (ds_nearest.line.values.item(), ds_nearest.sample.values.item())
+                (line, sample) = (ds_nearest.line.values.item(),
+                                  ds_nearest.sample.values.item())
             else:
                 (line, sample) = (ds_nearest.line.values, ds_nearest.sample.values)
         except KeyError:
@@ -268,7 +273,8 @@ class BaseDataset(ABC):
                 # remove/reset some incorrect attrs set by rio
                 # (long_name is 'latitude', but it's incorrect for line axis ...)
                 for ax in ['line', 'sample']:
-                    [ds[v][ax].attrs.pop(k, None) for k in ['long_name', 'standard_name']]
+                    [ds[v][ax].attrs.pop(k, None)
+                     for k in ['long_name', 'standard_name']]
                     ds[v][ax].attrs['units'] = '1'
 
         if not want_dataset:
@@ -282,8 +288,10 @@ class BaseDataset(ABC):
     def _local_gcps(self):
         # get local gcps, for rioxarray.reproject (row and col are *index*, not coordinates)
         local_gcps = []
-        line_decimated = self.dataset.line.values[::int(self.dataset.line.size / 20) + 1]
-        sample_decimated = self.dataset.sample.values[::int(self.dataset.sample.size / 20) + 1]
+        line_decimated = self.dataset.line.values[::int(
+            self.dataset.line.size / 20) + 1]
+        sample_decimated = self.dataset.sample.values[::int(
+            self.dataset.sample.size / 20) + 1]
         XX, YY = np.meshgrid(line_decimated, sample_decimated)
         if self.sar_meta.product == 'SLC':
             logger.debug(
@@ -339,7 +347,8 @@ class BaseDataset(ABC):
                       ibur * line_per_burst + valind.max(), lvs[valind].max()]
             valid_locations[ibur, :] = valloc
         tmpda = xr.DataArray(dims=['burst', 'limits'],
-                             coords={'burst': self.datatree['bursts'].ds['burst'].values, 'limits': np.arange(4)},
+                             coords={
+                                 'burst': self.datatree['bursts'].ds['burst'].values, 'limits': np.arange(4)},
                              data=valid_locations,
                              name='valid_location',
                              attrs={
@@ -366,8 +375,11 @@ class BaseDataset(ABC):
 
         """
         if self.resolution is not None:
-            factor_range = self.dataset['sampleSpacing'].values / self.resolution  # eg 2.3/100
-            factor_azimuth = self.dataset['lineSpacing'].values / self.resolution
+            # eg 2.3/100
+            factor_range = self.dataset['sampleSpacing'].values / \
+                self.resolution
+            factor_azimuth = self.dataset['lineSpacing'].values / \
+                self.resolution
         else:
             factor_range = 1
             factor_azimuth = 1
@@ -378,14 +390,16 @@ class BaseDataset(ABC):
             for submeta in self.sar_meta._submeta:
                 block = submeta.bursts(only_valid_location=only_valid_location)
                 block['subswath'] = submeta.dsid
-                block = block.set_index('subswath', append=True).reorder_levels(['subswath', 'burst'])
+                block = block.set_index('subswath', append=True).reorder_levels(
+                    ['subswath', 'burst'])
                 blocks_list.append(block)
             blocks = pd.concat(blocks_list)
         else:
             # burst_list = self._bursts
             self.get_burst_valid_location()
             burst_list = self.datatree['bursts'].ds
-            nb_samples = int(self.datatree['image'].ds['numberOfSamples'] * factor_range)
+            nb_samples = int(
+                self.datatree['image'].ds['numberOfSamples'] * factor_range)
             if burst_list['burst'].size == 0:
                 blocks = gpd.GeoDataFrame()
             else:
@@ -394,20 +408,23 @@ class BaseDataset(ABC):
                 inds_burst, geoloc_azitime, geoloc_iburst, geoloc_line = self._get_indices_bursts()
                 for burst_ind, uu in enumerate(np.unique(inds_burst)):
                     if only_valid_location:
-                        extent = np.copy(burst_list['valid_location'].values[burst_ind, :])
+                        extent = np.copy(
+                            burst_list['valid_location'].values[burst_ind, :])
                         area = box(int(extent[0] * factor_azimuth), int(extent[1] * factor_range),
                                    int(extent[2] * factor_azimuth), int(extent[3] * factor_range))
                     else:
                         inds_one_val = np.where(inds_burst == uu)[0]
                         bursts_az_inds[uu] = inds_one_val
-                        area = box(bursts_az_inds[burst_ind][0], 0, bursts_az_inds[burst_ind][-1], nb_samples)
+                        area = box(
+                            bursts_az_inds[burst_ind][0], 0, bursts_az_inds[burst_ind][-1], nb_samples)
                     burst = pd.Series(dict([
                         ('geometry_image', area)]))
                     bursts.append(burst)
                 # to geopandas
                 blocks = pd.concat(bursts, axis=1).T
                 blocks = gpd.GeoDataFrame(blocks)
-                blocks['geometry'] = blocks['geometry_image'].apply(self.coords2ll)
+                blocks['geometry'] = blocks['geometry_image'].apply(
+                    self.coords2ll)
                 blocks.index.name = 'burst'
         return blocks
 
@@ -435,7 +452,8 @@ class BaseDataset(ABC):
             geoloc_line = self.sar_meta.geoloc['line'].values
             # geoloc_line = self.datatree['geolocation_annotation'].ds['line'].values
             # find the indice of the bursts in the geolocation grid
-            geoloc_iburst = np.floor(geoloc_line / float(burst_nlines)).astype('int32')
+            geoloc_iburst = np.floor(
+                geoloc_line / float(burst_nlines)).astype('int32')
             # find the indices of the bursts in the high resolution grid
             line = np.arange(0, self.sar_meta.image['numberOfLines'])
             # line = np.arange(0, self.datatree.attrs['numberOfLines'])
@@ -464,10 +482,12 @@ class BaseDataset(ABC):
             # chunk footprint polygon, in dataset coordinates (with buffer, to enlarge a little the footprint)
             chunk_footprint_coords = Polygon(chunk_coords).buffer(10)
             # chunk footprint polygon, in lon/lat
-            chunk_footprint_ll = self.sar_meta.coords2ll(chunk_footprint_coords)
+            chunk_footprint_ll = self.sar_meta.coords2ll(
+                chunk_footprint_coords)
 
             # get vector mask over chunk, in lon/lat
-            vector_mask_ll = self.sar_meta.get_mask(mask).intersection(chunk_footprint_ll)
+            vector_mask_ll = self.sar_meta.get_mask(
+                mask).intersection(chunk_footprint_ll)
 
             if vector_mask_ll.is_empty:
                 # no intersection with mask, return zeros
@@ -502,7 +522,8 @@ class BaseDataset(ABC):
                 func_kwargs={'mask': mask}
             )
             name = '%s_mask' % mask
-            da_mask.attrs['history'] = yaml.safe_dump({name: self.sar_meta.get_mask(mask, describe=True)})
+            da_mask.attrs['history'] = yaml.safe_dump(
+                {name: self.sar_meta.get_mask(mask, describe=True)})
             da_mask.attrs['meaning'] = '0: ocean , 1: land'
             da_list.append(da_mask.to_dataset(name=name))
 
@@ -544,7 +565,8 @@ class BaseDataset(ABC):
         if isinstance(lines, list) or isinstance(lines, np.ndarray):
             pass
         else:  # in case of a single point,
-            lines = [lines]  # to avoid error when declaring the da_line and da_sample below
+            # to avoid error when declaring the da_line and da_sample below
+            lines = [lines]
             samples = [samples]
         da_line = xr.DataArray(lines, dims='points')
         da_sample = xr.DataArray(samples, dims='points')
@@ -581,19 +603,25 @@ class BaseDataset(ABC):
             """
             chunk_coords = bbox_coords(line, sample, pad=None)
             # chunk footprint polygon, in dataset coordinates (with buffer, to enlarge a little the footprint)
-            chunk_footprint_coords = Polygon(chunk_coords)  # .buffer(1) #no buffer-> corruption of the polygon
+            # .buffer(1) #no buffer-> corruption of the polygon
+            chunk_footprint_coords = Polygon(chunk_coords)
             assert chunk_footprint_coords.is_valid
             lines, samples = chunk_footprint_coords.exterior.xy
             lines = np.array([hh for hh in lines]).astype(int)
-            lines = np.clip(lines, a_min=0, a_max=self.dataset['line'].max().values)
+            lines = np.clip(
+                lines, a_min=0, a_max=self.dataset['line'].max().values)
             samples = np.array([hh for hh in samples]).astype(int)
-            samples = np.clip(samples, a_min=0, a_max=self.dataset['sample'].max().values)
-            chunk_footprint_lon, chunk_footprint_lat = self.coords2ll_SLC(lines, samples)
-            chunk_footprint_ll = Polygon(np.vstack([chunk_footprint_lon, chunk_footprint_lat]).T)
+            samples = np.clip(samples, a_min=0,
+                              a_max=self.dataset['sample'].max().values)
+            chunk_footprint_lon, chunk_footprint_lat = self.coords2ll_SLC(
+                lines, samples)
+            chunk_footprint_ll = Polygon(
+                np.vstack([chunk_footprint_lon, chunk_footprint_lat]).T)
             if chunk_footprint_ll.is_valid is False:
                 chunk_footprint_ll = make_valid(chunk_footprint_ll)
             # get vector mask over chunk, in lon/lat
-            vector_mask_ll = self.sar_meta.get_mask(mask).intersection(chunk_footprint_ll)
+            vector_mask_ll = self.sar_meta.get_mask(
+                mask).intersection(chunk_footprint_ll)
             if vector_mask_ll.is_empty:
                 # no intersection with mask, return zeros
                 return np.zeros((line.size, sample.size))
@@ -603,15 +631,18 @@ class BaseDataset(ABC):
                 lons_ma, lats_ma = vector_mask_ll.exterior.xy
                 lons = np.array([hh for hh in lons_ma])
                 lats = np.array([hh for hh in lats_ma])
-                vector_mask_coords_lines, vector_mask_coords_samples = self.ll2coords_SLC(lons, lats)
-                vector_mask_coords = [Polygon(np.vstack([vector_mask_coords_lines, vector_mask_coords_samples]).T)]
+                vector_mask_coords_lines, vector_mask_coords_samples = self.ll2coords_SLC(
+                    lons, lats)
+                vector_mask_coords = [
+                    Polygon(np.vstack([vector_mask_coords_lines, vector_mask_coords_samples]).T)]
             else:  # multipolygon
                 vector_mask_coords = []  # to store polygons in image coordinates
                 for iio, onepoly in enumerate(vector_mask_ll.geoms):
                     lons_ma, lats_ma = onepoly.exterior.xy
                     lons = np.array([hh for hh in lons_ma])
                     lats = np.array([hh for hh in lats_ma])
-                    vector_mask_coords_lines, vector_mask_coords_samples = self.ll2coords_SLC(lons, lats)
+                    vector_mask_coords_lines, vector_mask_coords_samples = self.ll2coords_SLC(
+                        lons, lats)
                     vector_mask_coords.append(
                         Polygon(np.vstack([vector_mask_coords_lines, vector_mask_coords_samples]).T))
 
@@ -639,17 +670,22 @@ class BaseDataset(ABC):
         da_dict = {}  # dictionnary to store the DataArray of each mask and each burst
         for burst_id in range(len(all_bursts['geometry_image'])):
             a_burst_bbox = all_bursts['geometry_image'].iloc[burst_id]
-            line_index = np.array([int(jj) for jj in a_burst_bbox.exterior.xy[0]])
-            sample_index = np.array([int(jj) for jj in a_burst_bbox.exterior.xy[1]])
-            logger.debug('line_index : %s %s %s', line_index, line_index.min(), line_index.max())
+            line_index = np.array([int(jj)
+                                  for jj in a_burst_bbox.exterior.xy[0]])
+            sample_index = np.array([int(jj)
+                                    for jj in a_burst_bbox.exterior.xy[1]])
+            logger.debug('line_index : %s %s %s', line_index,
+                         line_index.min(), line_index.max())
             logger.debug('dataset shape %s', self.dataset.digital_number.shape)
             a_burst_subset = self.dataset.isel({'line': slice(line_index.min(), line_index.max()),
                                                 'sample': slice(sample_index.min(), sample_index.max()), 'pol': 0})
-            logger.debug('a_burst_subset %s', a_burst_subset.digital_number.shape)
+            logger.debug('a_burst_subset %s',
+                         a_burst_subset.digital_number.shape)
             # logging.info('burst : %s lines: %s samples: %s',burst_id,a_burst_subset.digital_number.line,a_burst_subset.digital_number.sample)
             da_tmpl = xr.DataArray(
                 dask.array.empty_like(
-                    np.empty((len(a_burst_subset.digital_number.line), len(a_burst_subset.digital_number.sample))),
+                    np.empty((len(a_burst_subset.digital_number.line),
+                             len(a_burst_subset.digital_number.sample))),
                     dtype=np.int8, name="empty_var_tmpl-%s" % dask.base.tokenize(self.sar_meta.name)),
                 dims=('line', 'sample'),
                 coords={
@@ -674,7 +710,8 @@ class BaseDataset(ABC):
                                                'line': a_burst_subset.digital_number.line,
                                                'sample': a_burst_subset.digital_number.sample, })
                 name = '%s_maskv2' % mask
-                da_mask.attrs['history'] = yaml.safe_dump({name: self.sar_meta.get_mask(mask, describe=True)})
+                da_mask.attrs['history'] = yaml.safe_dump(
+                    {name: self.sar_meta.get_mask(mask, describe=True)})
                 da_mask.attrs['meaning'] = '0: ocean , 1: land'
                 da_mask = da_mask.fillna(0)  # zero -> ocean
                 da_mask = da_mask.astype(np.int8)
@@ -699,7 +736,8 @@ class BaseDataset(ABC):
         tmpmerged = tmpmerged.rename({'land_maskv2': 'land_mask'})
         tmpmerged.attrs['land_mask_computed_by_burst'] = True
         self.dataset = tmpmerged
-        self.datatree['measurement'] = self.datatree['measurement'].assign(tmpmerged)
+        self.datatree['measurement'] = self.datatree['measurement'].assign(
+            tmpmerged)
         self.datatree['measurement'].attrs = tmpmerged.attrs
 
     @property
@@ -744,6 +782,7 @@ class BaseDataset(ABC):
                 raster_ds = raster_ds.reindex({coord: raster_ds[coord][::-1]})
 
         # from lon/lat box in xsar dataset, get the corresponding box in raster_ds (by index)
+        """
         ilon_range = [
             np.searchsorted(raster_ds.x.values, lon_range[0]),
             np.searchsorted(raster_ds.x.values, lon_range[1])
@@ -752,15 +791,29 @@ class BaseDataset(ABC):
             np.searchsorted(raster_ds.y.values, lat_range[0]),
             np.searchsorted(raster_ds.y.values, lat_range[1])
         ]
+        """  # for incomplete raster (not global like hwrf)
+        ilon_range = [
+            np.max([1, np.searchsorted(raster_ds.x.values, lon_range[0])]),
+            np.min([np.searchsorted(raster_ds.x.values,
+                   lon_range[1]), raster_ds.x.size])
+        ]
+        ilat_range = [
+            np.max([1, np.searchsorted(raster_ds.y.values, lat_range[0])]),
+            np.min([np.searchsorted(raster_ds.y.values,
+                   lat_range[1]), raster_ds.y.size])
+        ]
+
         # enlarge the raster selection range, for correct interpolation
-        ilon_range, ilat_range = [[rg[0] - 1, rg[1] + 1] for rg in (ilon_range, ilat_range)]
+        ilon_range, ilat_range = [[rg[0] - 1, rg[1] + 1]
+                                  for rg in (ilon_range, ilat_range)]
 
         # select the xsar box in the raster
         raster_ds = raster_ds.isel(x=slice(*ilon_range), y=slice(*ilat_range))
 
         # upscale coordinates, in original projection
         # 1D array of lons/lats, trying to have same spacing as dataset (if not to high)
-        num = min((self._dataset.sample.size + self._dataset.line.size) // 2, 1000)
+        num = min((self._dataset.sample.size +
+                  self._dataset.line.size) // 2, 1000)
         lons = np.linspace(*lon_range, num=num)
         lats = np.linspace(*lat_range, num=num)
 
@@ -779,7 +832,8 @@ class BaseDataset(ABC):
                 upscaled_da = raster_da.interp(x=lons, y=lats)
             else:
                 upscaled_da = map_blocks_coords(
-                    xr.DataArray(dims=['y', 'x'], coords={'x': lons, 'y': lats}).chunk(1000),
+                    xr.DataArray(dims=['y', 'x'], coords={
+                                 'x': lons, 'y': lats}).chunk(1000),
                     RectBivariateSpline(
                         raster_da.y.values,
                         raster_da.x.values,
@@ -829,7 +883,8 @@ class BaseDataset(ABC):
                 'footprint': self.sar_meta.footprint
             }
 
-            logger.debug('adding raster "%s" from resource "%s"' % (name, str(resource)))
+            logger.debug('adding raster "%s" from resource "%s"' %
+                         (name, str(resource)))
             if get_function is not None:
                 try:
                     resource_dec = get_function(resource, **kwargs_get)
@@ -851,10 +906,12 @@ class BaseDataset(ABC):
             if get_function is not None:
                 hist_res.update({'resource_decoded': resource_dec[1]})
 
-            reprojected_ds = self.map_raster(raster_ds).rename({v: '%s_%s' % (name, v) for v in raster_ds})
+            reprojected_ds = self.map_raster(raster_ds).rename(
+                {v: '%s_%s' % (name, v) for v in raster_ds})
 
             for v in reprojected_ds:
-                reprojected_ds[v].attrs['history'] = yaml.safe_dump({v: hist_res})
+                reprojected_ds[v].attrs['history'] = yaml.safe_dump({
+                                                                    v: hist_res})
 
             da_var_list.append(reprojected_ds)
         return xr.merge(da_var_list)
@@ -879,5 +936,6 @@ class BaseDataset(ABC):
         try:
             lut = self._luts[lut_name]
         except KeyError:
-            raise ValueError("can't find lut from name '%s' for variable '%s' " % (lut_name, var_name))
+            raise ValueError(
+                "can't find lut from name '%s' for variable '%s' " % (lut_name, var_name))
         return lut

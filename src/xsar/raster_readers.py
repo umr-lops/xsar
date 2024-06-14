@@ -6,13 +6,13 @@ from .utils import bind, url_get
 import pandas as pd
 
 
-def resource_strftime(resource, **kwargs):
+def resource_strftime_hh(resource, **kwargs):
     """
     From a resource string like '%Y/%j/myfile_%Y%m%d%H%M.nc' and a date like 'Timestamp('2018-10-13 06:23:22.317102')',
     returns a tuple composed of the closer available date and string like '/2018/286/myfile_201810130600.nc'
 
     If ressource string is an url (ie 'ftp://ecmwf/%Y/%j/myfile_%Y%m%d%H%M.nc'), fsspec will be used to retreive the file locally.
-   
+
     Parameters
     ----------
     resource: str
@@ -47,8 +47,47 @@ def resource_strftime(resource, **kwargs):
         second=0,
         microsecond=0
     )
+
     return date, url_get(date.strftime(resource))
 
+
+def resource_strftime_dd(resource, **kwargs):
+    """20210909T130650
+    From a resource string like '%Y/%m/myfile_%Y%m%d.nc' and a date like 'Timestamp('2021-09-09 13:06:50.00000')',
+    returns a tuple composed of the closer available date and string like '/2021/09/myfile_20210909.nc'
+
+    If ressource string is an url (ie 'ftp:/era5/'%Y/%m/myfile_%Y%m%d.nc'), fsspec will be used to retreive the file locally.
+
+    Parameters
+    ----------
+    resource: str
+
+        resource string, with strftime template
+
+    date: datetime
+
+        date to be used
+
+    Returns
+    -------
+    tuple : (datetime,str)
+
+    """
+    date = kwargs['date']
+    step = kwargs['step']
+
+    delta = datetime.timedelta(hours=step) / 2
+    date = date.replace(
+        year=(date+delta).year,
+        month=(date+delta).month,
+        day=(date+delta).day,
+        hour=(date+delta).hour // step * step,
+        minute=0,
+        second=0,
+        microsecond=0
+    )
+
+    return date, url_get(date.strftime(resource))
 
 
 def _to_lon180(ds):
@@ -61,22 +100,24 @@ def _to_lon180(ds):
 def ecmwf_0100_1h(fname, **kwargs):
     """
     ecmwf 0.1 deg 1h reader (ECMWF_FORECAST_0100_202109091300_10U_10V.nc)
-    
+
     Parameters
     ----------
     fname: str
-        
+
         hwrf filename
 
     Returns
     -------
     xarray.Dataset
     """
-    ecmwf_ds = xr.open_dataset(fname, chunks={'Longitude': 1000, 'Latitude': 1000}).isel(time=0)
-    ecmwf_ds.attrs['time'] = datetime.datetime.fromtimestamp(ecmwf_ds.time.item() // 1000000000)
+    ecmwf_ds = xr.open_dataset(
+        fname, chunks={'Longitude': 1000, 'Latitude': 1000}).isel(time=0)
+    ecmwf_ds.attrs['time'] = datetime.datetime.fromtimestamp(
+        ecmwf_ds.time.item() // 1000000000)
     if 'time' in ecmwf_ds:
         ecmwf_ds = ecmwf_ds.drop("time")
-    ecmwf_ds = ecmwf_ds[["Longitude","Latitude","10U","10V"]].rename(
+    ecmwf_ds = ecmwf_ds[["Longitude", "Latitude", "10U", "10V"]].rename(
         {
             'Longitude': 'x',
             'Latitude': 'y',
@@ -84,7 +125,8 @@ def ecmwf_0100_1h(fname, **kwargs):
             '10V': 'V10'
         }
     )
-    ecmwf_ds.attrs = {k: ecmwf_ds.attrs[k] for k in ['title', 'institution', 'time']}
+    ecmwf_ds.attrs = {k: ecmwf_ds.attrs[k]
+                      for k in ['title', 'institution', 'time']}
 
     # dataset is lon [0, 360], make it [-180,180]
     ecmwf_ds = _to_lon180(ecmwf_ds)
@@ -97,18 +139,19 @@ def ecmwf_0100_1h(fname, **kwargs):
 def ecmwf_0125_1h(fname, **kwargs):
     """
     ecmwf 0.125 deg 1h reader (ecmwf_201709071100.nc)
-    
+
     Parameters
     ----------
     fname: str
-        
+
         hwrf filename
 
     Returns
     -------
     xarray.Dataset
     """
-    ecmwf_ds = xr.open_dataset(fname, chunks={'longitude': 1000, 'latitude': 1000})
+    ecmwf_ds = xr.open_dataset(
+        fname, chunks={'longitude': 1000, 'latitude': 1000})
 
     ecmwf_ds = ecmwf_ds.rename(
         {'longitude': 'x', 'latitude': 'y'}
@@ -122,22 +165,23 @@ def ecmwf_0125_1h(fname, **kwargs):
     # dataset is lon [0, 360], make it [-180,180]
     ecmwf_ds = _to_lon180(ecmwf_ds)
 
-    ecmwf_ds.attrs['time'] = datetime.datetime.fromisoformat(ecmwf_ds.attrs['date'])
+    ecmwf_ds.attrs['time'] = datetime.datetime.fromisoformat(
+        ecmwf_ds.attrs['date'])
 
     ecmwf_ds.rio.write_crs("EPSG:4326", inplace=True)
 
     return ecmwf_ds
 
 
-def hwrf_0015_3h(fname,**kwargs):
+def hwrf_0015_3h(fname, **kwargs):
     """
     hwrf 0.015 deg 3h reader ()
-    
-    
+
+
     Parameters
     ----------
     fname: str
-        
+
         hwrf filename
 
     Returns
@@ -145,27 +189,65 @@ def hwrf_0015_3h(fname,**kwargs):
     xarray.Dataset
     """
     hwrf_ds = xr.open_dataset(fname)
-    try : 
-        hwrf_ds = hwrf_ds[['U','V','LON','LAT']]
+    try:
+        hwrf_ds = hwrf_ds[['U', 'V', 'LON', 'LAT']]
         hwrf_ds = hwrf_ds.squeeze('t', drop=True)
 
-    except Exception as e: 
-        raise ValueError("date '%s' can't be find in %s " % (kwargs['date'], fname))
-    
-    hwrf_ds.attrs['time'] = datetime.datetime.strftime(kwargs['date'],'%Y-%m-%d %H:%M:%S')
+    except Exception as e:
+        raise ValueError("date '%s' can't be find in %s " %
+                         (kwargs['date'], fname))
 
-    hwrf_ds = hwrf_ds.assign_coords({"x":hwrf_ds.LON.values[0,:],"y":hwrf_ds.LAT.values[:,0]}).drop_vars(['LON','LAT']).rename(
-            {
-                'U': 'U10',
-                'V': 'V10'
-            }
-        )
+    hwrf_ds.attrs['time'] = datetime.datetime.strftime(
+        kwargs['date'], '%Y-%m-%d %H:%M:%S')
 
-    #hwrf_ds.attrs = {k: hwrf_ds.attrs[k] for k in ['institution', 'time']}
+    hwrf_ds = hwrf_ds.assign_coords({"x": hwrf_ds.LON.values[0, :], "y": hwrf_ds.LAT.values[:, 0]}).drop_vars(['LON', 'LAT']).rename(
+        {
+            'U': 'U10',
+            'V': 'V10'
+        }
+    )
+
+    # hwrf_ds.attrs = {k: hwrf_ds.attrs[k] for k in ['institution', 'time']}
     hwrf_ds = _to_lon180(hwrf_ds)
     hwrf_ds.rio.write_crs("EPSG:4326", inplace=True)
 
     return hwrf_ds
+
+
+def era5_0250_1h(fname, **kwargs):
+    """
+    era5 0.250 deg 1h reader ()
+
+
+    Parameters
+    ----------
+    fname: str
+
+        era5 filename
+
+    Returns
+    -------
+    xarray.Dataset
+    """
+
+    ds_era5 = xr.open_dataset(fname)
+    ds_era5 = ds_era5[['u10', 'v10', 'latitude025', 'longitude025']]
+    ds_era5 = ds_era5.sel(time=str(kwargs['date']))
+    ds_era5 = ds_era5.drop('time')
+
+    ds_era5 = ds_era5.rename(
+        {
+            'longitude025': 'x',
+            'latitude025': 'y',
+            'u10': 'U10',
+            'v10': 'V10'
+        }
+    )
+
+    ds_era5.attrs['time'] = kwargs['date']
+    ds_era5 = _to_lon180(ds_era5)
+    ds_era5.rio.write_crs("EPSG:4326", inplace=True)
+    return ds_era5
 
 
 def gebco(gebco_files):
@@ -178,9 +260,16 @@ def gebco(gebco_files):
         ]
     )
 
+
 # list available rasters as a pandas dataframe
-available_rasters = pd.DataFrame(columns=['resource', 'read_function', 'get_function'])
+available_rasters = pd.DataFrame(
+    columns=['resource', 'read_function', 'get_function'])
 available_rasters.loc['gebco'] = [None, gebco, glob.glob]
-available_rasters.loc['ecmwf_0100_1h'] = [None, ecmwf_0100_1h, bind(resource_strftime, ..., step=1)]
-available_rasters.loc['ecmwf_0125_1h'] = [None, ecmwf_0125_1h, bind(resource_strftime, ..., step=1)]
-available_rasters.loc['hwrf_0015_3h'] = [None, hwrf_0015_3h, bind(resource_strftime, ..., step=3)]
+available_rasters.loc['ecmwf_0100_1h'] = [
+    None, ecmwf_0100_1h, bind(resource_strftime_hh, ..., step=1)]
+available_rasters.loc['ecmwf_0125_1h'] = [
+    None, ecmwf_0125_1h, bind(resource_strftime_hh, ..., step=1)]
+available_rasters.loc['hwrf_0015_3h'] = [
+    None, hwrf_0015_3h, bind(resource_strftime_hh, ..., step=3)]
+available_rasters.loc['era5_0250_1h'] = [
+    None, era5_0250_1h, bind(resource_strftime_dd, ..., step=1)]

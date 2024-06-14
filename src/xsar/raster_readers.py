@@ -6,7 +6,7 @@ from .utils import bind, url_get
 import pandas as pd
 
 
-def resource_strftime_hh(resource, **kwargs):
+def resource_strftime(resource, **kwargs):
     """
     From a resource string like '%Y/%j/myfile_%Y%m%d%H%M.nc' and a date like 'Timestamp('2018-10-13 06:23:22.317102')',
     returns a tuple composed of the closer available date and string like '/2018/286/myfile_201810130600.nc'
@@ -34,45 +34,6 @@ def resource_strftime_hh(resource, **kwargs):
 
     """
 
-    date = kwargs['date']
-    step = kwargs['step']
-
-    delta = datetime.timedelta(hours=step) / 2
-    date = date.replace(
-        year=(date+delta).year,
-        month=(date+delta).month,
-        day=(date+delta).day,
-        hour=(date+delta).hour // step * step,
-        minute=0,
-        second=0,
-        microsecond=0
-    )
-
-    return date, url_get(date.strftime(resource))
-
-
-def resource_strftime_dd(resource, **kwargs):
-    """20210909T130650
-    From a resource string like '%Y/%m/myfile_%Y%m%d.nc' and a date like 'Timestamp('2021-09-09 13:06:50.00000')',
-    returns a tuple composed of the closer available date and string like '/2021/09/myfile_20210909.nc'
-
-    If ressource string is an url (ie 'ftp:/era5/'%Y/%m/myfile_%Y%m%d.nc'), fsspec will be used to retreive the file locally.
-
-    Parameters
-    ----------
-    resource: str
-
-        resource string, with strftime template
-
-    date: datetime
-
-        date to be used
-
-    Returns
-    -------
-    tuple : (datetime,str)
-
-    """
     date = kwargs['date']
     step = kwargs['step']
 
@@ -266,10 +227,10 @@ available_rasters = pd.DataFrame(
     columns=['resource', 'read_function', 'get_function'])
 available_rasters.loc['gebco'] = [None, gebco, glob.glob]
 available_rasters.loc['ecmwf_0100_1h'] = [
-    None, ecmwf_0100_1h, bind(resource_strftime_hh, ..., step=1)]
+    None, ecmwf_0100_1h, bind(resource_strftime, ..., step=1)]
 available_rasters.loc['ecmwf_0125_1h'] = [
-    None, ecmwf_0125_1h, bind(resource_strftime_hh, ..., step=1)]
+    None, ecmwf_0125_1h, bind(resource_strftime, ..., step=1)]
 available_rasters.loc['hwrf_0015_3h'] = [
-    None, hwrf_0015_3h, bind(resource_strftime_hh, ..., step=3)]
+    None, hwrf_0015_3h, bind(resource_strftime, ..., step=3)]
 available_rasters.loc['era5_0250_1h'] = [
-    None, era5_0250_1h, bind(resource_strftime_dd, ..., step=1)]
+    None, era5_0250_1h, bind(resource_strftime, ..., step=1)]

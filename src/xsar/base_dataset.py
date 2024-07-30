@@ -1,3 +1,4 @@
+import pdb
 import warnings
 from abc import ABC
 from datetime import datetime
@@ -292,10 +293,12 @@ class BaseDataset(ABC):
         #     lon_s = lon_s.values
         #     lat_s = lat_s.values
         cpt = 0
-        for line in line_decimated:
-            for sample in sample_decimated:
+        for line in line_decimated.astype(int):
+            for sample in sample_decimated.astype(int):
                 irow = np.argmin(np.abs(self.dataset.line.values - line))
+                irow = int(irow)
                 icol = np.argmin(np.abs(self.dataset.sample.values - sample))
+                icol = int(icol)
                 # if self.s1meta.product == 'SLC':
                 #     #lon, lat = self.coords2ll_SLC(line,sample)
                 #     lon = lon_s[cpt]

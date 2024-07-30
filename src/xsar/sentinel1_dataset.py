@@ -252,7 +252,7 @@ class Sentinel1Dataset(BaseDataset):
         # dataset no-pol template for function evaluation on coordinates (*no* values used)
         # what's matter here is the shape of the image, not the values.
         with warnings.catch_warnings():
-            warnings.simplefilter("ignore", np.ComplexWarning)
+            # warnings.simplefilter("ignore", np.ComplexWarning) # deprecated in numpy>=2.0.0
             if self.sar_meta._bursts['burst'].size != 0:
                 # SLC TOPS, tune the high res grid because of bursts overlapping
                 # line_time = self._burst_azitime

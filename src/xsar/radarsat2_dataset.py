@@ -191,7 +191,7 @@ class RadarSat2Dataset(BaseDataset):
         # dataset no-pol template for function evaluation on coordinates (*no* values used)
         # what's matter here is the shape of the image, not the values.
         with warnings.catch_warnings():
-            warnings.simplefilter("ignore", np.ComplexWarning)
+            # warnings.simplefilter("ignore", np.ComplexWarning)
             self._da_tmpl = xr.DataArray(
                 dask.array.empty_like(
                     self._dataset.digital_number.isel(pol=0).drop('pol'),

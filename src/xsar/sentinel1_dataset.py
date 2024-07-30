@@ -139,16 +139,18 @@ class Sentinel1Dataset(BaseDataset):
         # geoloc
         geoloc = self.sar_meta.geoloc
         geoloc.attrs['history'] = 'annotations'
+
+        #  offboresight angle
         geoloc["offboresightAngle"] = geoloc.elevationAngle - \
-            (30.1833947 * geoloc.latitude ** 0 + \
-            0.0082998714 * geoloc.latitude ** 1 - \
-            0.00031181534 * geoloc.latitude ** 2 - \
-            0.0943533e-07 * geoloc.latitude ** 3 + \
-            3.0191435e-08 * geoloc.latitude ** 4 + \
-            4.968415428e-12 *geoloc.latitude ** 5 - \
-            9.315371305e-13 * geoloc.latitude ** 6) + 29.45
-        geoloc["offboresightAngle"].attrs['comment']='built from elevation angle and latitude'
-        
+            (30.1833947 * geoloc.latitude ** 0 +
+             0.0082998714 * geoloc.latitude ** 1 -
+             0.00031181534 * geoloc.latitude ** 2 -
+             0.0943533e-07 * geoloc.latitude ** 3 +
+             3.0191435e-08 * geoloc.latitude ** 4 +
+             4.968415428e-12 * geoloc.latitude ** 5 -
+             9.315371305e-13 * geoloc.latitude ** 6) + 29.45
+        geoloc["offboresightAngle"].attrs['comment'] = 'built from elevation angle and latitude'
+
         # bursts
         bu = self.sar_meta._bursts
         bu.attrs['history'] = 'annotations'
@@ -292,10 +294,9 @@ class Sentinel1Dataset(BaseDataset):
 
         # load land_mask by default for GRD products
 
-
         if 'GRD' in str(self.datatree.attrs['product']):
             self.add_high_resolution_variables(
-                                   patch_variable=patch_variable, luts=luts, lazy_loading=lazyloading)
+                patch_variable=patch_variable, luts=luts, lazy_loading=lazyloading)
             if self.apply_recalibration:
                 self.select_gains()
             self.apply_calibration_and_denoising()
@@ -304,7 +305,8 @@ class Sentinel1Dataset(BaseDataset):
         self.datatree['measurement'].attrs = self.datatree.attrs
         if self.sar_meta.product == 'SLC' and 'WV' not in self.sar_meta.swath:  # TOPS cases
             tmp = self.corrected_range_noise_lut(self.datatree)
-            self.datatree['noise_range'].ds = tmp # the corrcted noise_range dataset shold now contain an attrs 'corrected_range_noise_lut'
+            # the corrcted noise_range dataset shold now contain an attrs 'corrected_range_noise_lut'
+            self.datatree['noise_range'].ds = tmp
         self.sliced = False
         """True if dataset is a slice of original L1 dataset"""
 
@@ -314,7 +316,7 @@ class Sentinel1Dataset(BaseDataset):
         # save original bbox
         self._bbox_coords_ori = self._bbox_coords
 
-    def corrected_range_noise_lut(self,dt):
+    def corrected_range_noise_lut(self, dt):
         """
         Patch F.Nouguier see https://jira-projects.cls.fr/browse/MPCS-3581 and https://github.com/umr-lops/xsar_slc/issues/175
         Return range noise lut with corrected line numbering. This function should be used only on the full SLC dataset dt
@@ -326,21 +328,27 @@ class Sentinel1Dataset(BaseDataset):
         # Detection of azimuthTime jumps (linked to burst changes). Burst sensingTime should NOT be used since they have erroneous value too !
         line_shift = 0
         tt = dt['measurement']['time']
-        i_jump = np.ravel(np.argwhere(np.diff(tt)<np.timedelta64(0))+1) # index of jumps
-        line_jump_meas = dt['measurement']['line'][i_jump] # line number of jumps
+        i_jump = np.ravel(np.argwhere(
+            np.diff(tt) < np.timedelta64(0))+1)  # index of jumps
+        # line number of jumps
+        line_jump_meas = dt['measurement']['line'][i_jump]
         # line_jump_noise = np.ravel(dt['noise_range']['line'][1:-1].data) # annotated line number of burst begining, this one is corrupted for some S1 TOPS product
-        line_jump_noise = np.ravel(dt['noise_range']['line'][1:1+len(line_jump_meas)].data) # annoted line number of burst begining
+        # annoted line number of burst begining
+        line_jump_noise = np.ravel(
+            dt['noise_range']['line'][1:1+len(line_jump_meas)].data)
         burst_first_lineshift = line_jump_meas-line_jump_noise
-        if len(np.unique(burst_first_lineshift))==1:
+        if len(np.unique(burst_first_lineshift)) == 1:
             line_shift = int(np.unique(burst_first_lineshift)[0])
-            logging.debug('line_shift: %s',line_shift)
+            logging.debug('line_shift: %s', line_shift)
         else:
-            raise ValueError('Inconsistency in line shifting : {}'.format(burst_first_lineshift))
-        res = dt['noise_range'].ds.assign_coords({'line':dt['noise_range']['line']+line_shift})
-        if line_shift==0:
+            raise ValueError(
+                'Inconsistency in line shifting : {}'.format(burst_first_lineshift))
+        res = dt['noise_range'].ds.assign_coords(
+            {'line': dt['noise_range']['line']+line_shift})
+        if line_shift == 0:
             res.attrs['corrected_range_noise_lut'] = 'no change'
         else:
-            res.attrs['corrected_range_noise_lut'] = 'shift : %i lines'%line_shift
+            res.attrs['corrected_range_noise_lut'] = 'shift : %i lines' % line_shift
         return res
 
     def select_gains(self):
@@ -508,24 +516,26 @@ class Sentinel1Dataset(BaseDataset):
 
             self._dataset = self._dataset.merge(
                 self._load_from_geoloc(geoloc_vars, lazy_loading=lazy_loading))
-                         
+
             if 'GRD' in str(self.datatree.attrs['product']):
                 self.add_swath_number()
-                
+
                 if self.apply_recalibration:
                     path_dataframe_aux = config["path_dataframe_aux"]
                     dataframe_aux = pd.read_csv(path_dataframe_aux)
 
-                    sel_cal = dataframe_aux.loc[(dataframe_aux.sat_name == self.sar_meta.manifest_attrs['satellite']) & 
+                    sel_cal = dataframe_aux.loc[(dataframe_aux.sat_name == self.sar_meta.manifest_attrs['satellite']) &
                                                 (dataframe_aux.aux_type == "CAL") &
                                                 (dataframe_aux.validation_date <= self.sar_meta.start_date)]
-                    sel_cal = sel_cal.sort_values(by = ["validation_date","generation_date"],ascending=False)
+                    sel_cal = sel_cal.sort_values(
+                        by=["validation_date", "generation_date"], ascending=False)
                     path_new_cal = sel_cal.iloc[0].aux_path
 
-                    sel_pp1 = dataframe_aux.loc[(dataframe_aux.sat_name == self.sar_meta.manifest_attrs['satellite']) & 
-                                (dataframe_aux.aux_type == "PP1") 
-                                & (dataframe_aux.validation_date <= self.sar_meta.start_date)]
-                    sel_pp1 = sel_pp1.sort_values(by = ["validation_date","generation_date"],ascending=False)
+                    sel_pp1 = dataframe_aux.loc[(dataframe_aux.sat_name == self.sar_meta.manifest_attrs['satellite']) &
+                                                (dataframe_aux.aux_type == "PP1")
+                                                & (dataframe_aux.validation_date <= self.sar_meta.start_date)]
+                    sel_pp1 = sel_pp1.sort_values(
+                        by=["validation_date", "generation_date"], ascending=False)
                     path_new_pp1 = sel_pp1.iloc[0].aux_path
 
                     self.add_gains(path_new_cal, path_new_pp1)
@@ -734,7 +744,7 @@ class Sentinel1Dataset(BaseDataset):
 
         self.datatree['recalibration'] = self.datatree['recalibration'].assign(
             self._dataset_recalibration)
-        
+
         self.datatree['recalibration'].attrs["path_aux_cal_new"] = path_aux_cal_new
         self.datatree['recalibration'].attrs["path_aux_pp1_new"] = path_aux_pp1_new
         self.datatree['recalibration'].attrs["path_aux_cal_old"] = path_aux_cal_old

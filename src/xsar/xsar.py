@@ -189,9 +189,9 @@ def product_info(path, columns='minimal', include_multi=False):
     return df
 
 
-def get_test_file(fname):
+def get_test_file(fname, base_url='https://cyclobs.ifremer.fr/static/sarwing_datarmor/xsardata'):
     """
-    get test file from  https://cyclobs.ifremer.fr/static/sarwing_datarmor/xsardata/
+    get test file from base_url(https://cyclobs.ifremer.fr/static/sarwing_datarmor/xsardata/)
     file is unzipped and extracted to `config['data_dir']`
 
     Parameters
@@ -206,7 +206,6 @@ def get_test_file(fname):
 
     """
     res_path = config['data_dir']
-    base_url = 'https://cyclobs.ifremer.fr/static/sarwing_datarmor/xsardata'
     file_url = '%s/%s.zip' % (base_url, fname)
     if not os.path.exists(os.path.join(res_path, fname)):
         warnings.warn("Downloading %s" % file_url)

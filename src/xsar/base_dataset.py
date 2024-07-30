@@ -60,6 +60,7 @@ class BaseDataset(ABC):
         'elevation': 'f4',
         'altitude': 'f4',
         'ground_heading': 'f4',
+        'offboresight': 'f4',
         'nesz': None,
         'negz': None,
         'sigma0_raw': None,

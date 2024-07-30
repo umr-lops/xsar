@@ -526,14 +526,16 @@ class Sentinel1Dataset(BaseDataset):
 
                     sel_cal = dataframe_aux.loc[(dataframe_aux.sat_name == self.sar_meta.manifest_attrs['satellite']) &
                                                 (dataframe_aux.aux_type == "CAL") &
+                                                (dataframe_aux.icid == int(self.sar_meta.manifest_attrs['icid'])) &
                                                 (dataframe_aux.validation_date <= self.sar_meta.start_date)]
                     sel_cal = sel_cal.sort_values(
                         by=["validation_date", "generation_date"], ascending=False)
                     path_new_cal = sel_cal.iloc[0].aux_path
 
                     sel_pp1 = dataframe_aux.loc[(dataframe_aux.sat_name == self.sar_meta.manifest_attrs['satellite']) &
-                                                (dataframe_aux.aux_type == "PP1")
-                                                & (dataframe_aux.validation_date <= self.sar_meta.start_date)]
+                                                (dataframe_aux.aux_type == "PP1") &
+                                                (dataframe_aux.icid == int(self.sar_meta.manifest_attrs['icid'])) &
+                                                (dataframe_aux.validation_date <= self.sar_meta.start_date)]
                     sel_pp1 = sel_pp1.sort_values(
                         by=["validation_date", "generation_date"], ascending=False)
                     path_new_pp1 = sel_pp1.iloc[0].aux_path

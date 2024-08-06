@@ -123,6 +123,10 @@ class RcmDataset(BaseDataset):
 
         self._dataset = self.datatree['measurement'].to_dataset()
 
+        # merge the datatree with the reader
+        for group in self.sar_meta.dt:
+            self.datatree[group] = self.sar_meta.dt[group]
+
         # dict mapping for calibration type in the reader
         self._map_calibration_type = {
             'sigma0': 'Sigma Nought',
@@ -232,6 +236,7 @@ class RcmDataset(BaseDataset):
         self.datatree['measurement'] = self.datatree['measurement'].assign(
             self._dataset)
         # merge the datatree with the reader
+
         self.reconfigure_reader_datatree()
         self._dataset.attrs.update(self.sar_meta.to_dict("all"))
         self.datatree.attrs.update(self.sar_meta.to_dict("all"))
@@ -437,22 +442,43 @@ class RcmDataset(BaseDataset):
         xarray.DataSet
             dataset with denoised vars
         """
+        already_denoised = self.datatree['imageGenerationParameters'][
+            'sarProcessingInformation'].attrs['noiseSubtractionPerformed']
+
         if vars is None:
             vars = ['sigma0', 'beta0', 'gamma0']
         for varname in vars:
+
             varname_raw = varname + '_raw'
             noise = 'ne%sz' % varname[0]
             if varname_raw not in ds:
                 continue
             else:
-                denoised = ds[varname_raw] - ds[noise]
 
-                if clip:
-                    denoised = denoised.clip(min=0)
-                    denoised.attrs['comment'] = 'clipped, no values <0'
+                if not already_denoised:
+                    denoised = ds[varname_raw] - ds[noise]
+                    if clip:
+                        denoised = denoised.clip(min=0)
+                        denoised.attrs['comment'] = 'clipped, no values <0'
+                    else:
+                        denoised.attrs['comment'] = 'not clipped, some values can be <0'
+                    ds[varname] = denoised
+
                 else:
-                    denoised.attrs['comment'] = 'not clipped, some values can be <0'
-                ds[varname] = denoised
+                    logging.debug(
+                        "product was already denoised (noiseSubtractionPerformed = True), noise added back")
+                    denoised = ds[varname_raw]
+                    denoised.attrs['denoising information'] = 'already denoised by Canadian Agency'
+                    if clip:
+                        denoised = denoised.clip(min=0)
+                        denoised.attrs['comment'] = 'clipped, no values <0'
+                    else:
+                        denoised.attrs['comment'] = 'not clipped, some values can be <0'
+                    ds[varname] = denoised
+
+                    ds[varname_raw] = denoised + ds[noise]
+                    ds[varname_raw].attrs['denoising information'] = 'product was already denoised, noise added back'
+
         return ds
 
     def _load_incidence_from_lut(self):
@@ -868,11 +894,8 @@ class RcmDataset(BaseDataset):
 
     def reconfigure_reader_datatree(self):
         """
-        Merge self.datatree with the reader's one.
         Merge attributes of the reader's datatree in the attributes of self.datatree
         """
-        for group in self.sar_meta.dt:
-            self.datatree[group] = self.sar_meta.dt[group]
         self.datatree.attrs |= self.sar_meta.dt.attrs
         return
 

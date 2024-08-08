@@ -22,7 +22,8 @@ logger = logging.getLogger('xsar.radarsat2_dataset')
 logger.addHandler(logging.NullHandler())
 
 # we know tiff as no geotransform : ignore warning
-warnings.filterwarnings("ignore", category=rasterio.errors.NotGeoreferencedWarning)
+warnings.filterwarnings(
+    "ignore", category=rasterio.errors.NotGeoreferencedWarning)
 
 # allow nan without warnings
 # some dask warnings are still non filtered: https://github.com/dask/dask/issues/3245
@@ -94,7 +95,8 @@ class RcmDataset(BaseDataset):
             # assert isinstance(rs2meta.coords2ll(100, 100),tuple)
         else:
             # we want self.rs2meta to be a dask actor on a worker
-            self.sar_meta = BlockingActorProxy(RcmMeta.from_dict, dataset_id.dict)
+            self.sar_meta = BlockingActorProxy(
+                RcmMeta.from_dict, dataset_id.dict)
         del dataset_id
 
         if self.sar_meta.multidataset:
@@ -103,15 +105,16 @@ class RcmDataset(BaseDataset):
             )
 
         # build datatree
-        DN_tmp = self.load_digital_number(resolution=resolution, resampling=resampling, chunks=chunks)
+        DN_tmp = self.load_digital_number(
+            resolution=resolution, resampling=resampling, chunks=chunks)
         DN_tmp = self.flip_sample_da(DN_tmp)
         DN_tmp = self.flip_line_da(DN_tmp)
 
-        ### geoloc
+        # geoloc
         geoloc = self.sar_meta.geoloc
         geoloc.attrs['history'] = 'annotations'
 
-        ### orbitInformation
+        # orbitInformation
         orbit = self.sar_meta.orbit
         orbit.attrs['history'] = 'annotations'
 
@@ -119,6 +122,10 @@ class RcmDataset(BaseDataset):
                                                      })
 
         self._dataset = self.datatree['measurement'].to_dataset()
+
+        # merge the datatree with the reader
+        for group in self.sar_meta.dt:
+            self.datatree[group] = self.sar_meta.dt[group]
 
         # dict mapping for calibration type in the reader
         self._map_calibration_type = {
@@ -134,8 +141,7 @@ class RcmDataset(BaseDataset):
         }
 
         geoloc_vars = ['latitude', 'longitude', 'altitude',
-                       'incidence', 'elevation'
-                       ]
+                       'incidence', 'elevation']
         for vv in skip_variables:
             if vv in geoloc_vars:
                 geoloc_vars.remove(vv)
@@ -151,26 +157,29 @@ class RcmDataset(BaseDataset):
         # self._load_incidence_from_lut()
         refe_spacing = 'slant'
         if resolution is not None:
-            refe_spacing = 'ground'  # if the data sampling changed it means that the quantities are projected on ground
+            # if the data sampling changed it means that the quantities are projected on ground
+            refe_spacing = 'ground'
             if isinstance(resolution, str):
                 value_res_sample = float(resolution.replace('m', ''))
                 value_res_line = value_res_sample
             elif isinstance(resolution, dict):
-                value_res_sample = self.sar_meta.pixel_sample_m * resolution['sample']
-                value_res_line = self.sar_meta.pixel_line_m * resolution['line']
+                value_res_sample = self.sar_meta.pixel_sample_m * \
+                    resolution['sample']
+                value_res_line = self.sar_meta.pixel_line_m * \
+                    resolution['line']
             else:
                 logger.warning('resolution type not handle (%s) should be str or dict -> sampleSpacing'
                                ' and lineSpacing are not correct', type(resolution))
         self._dataset['sampleSpacing'] = \
             xr.DataArray(value_res_sample,
                          attrs={'referential': refe_spacing} |
-                               self.sar_meta
-                                        .dt['imageReferenceAttributes/rasterAttributes']['sampledPixelSpacing'].attrs
+                         self.sar_meta
+                         .dt['imageReferenceAttributes/rasterAttributes']['sampledPixelSpacing'].attrs
                          )
         self._dataset['lineSpacing'] = \
             xr.DataArray(value_res_line,
                          attrs=self.sar_meta
-                                        .dt['imageReferenceAttributes/rasterAttributes']['sampledLineSpacing'].attrs
+                         .dt['imageReferenceAttributes/rasterAttributes']['sampledLineSpacing'].attrs
                          )
 
         # dataset no-pol template for function evaluation on coordinates (*no* values used)
@@ -190,35 +199,44 @@ class RcmDataset(BaseDataset):
             self._dataset = xr.merge([
                 xr.DataArray(data=self.sar_meta.samples_flipped,
                              attrs={'meaning':
-                                        'xsar convention : increasing incidence values along samples axis'}
+                                    'xsar convention : increasing incidence values along samples axis'}
                              ).to_dataset(name='samples_flipped'),
                 self._dataset
             ])
             self._dataset = xr.merge([
                 xr.DataArray(data=self.sar_meta.lines_flipped,
                              attrs={'meaning':
-                                        'xsar convention : increasing time along line axis '
-                                        '(whatever ascending or descending pass direction)'}
+                                    'xsar convention : increasing time along line axis '
+                                    '(whatever ascending or descending pass direction)'}
                              ).to_dataset(name='lines_flipped'),
                 self._dataset
             ])
 
         self._luts = self.lazy_load_luts()
         self._noise_luts = self.lazy_load_noise_luts()
-        self._noise_luts = self._noise_luts.drop(['pixelFirstNoiseValue', 'stepSize'])
+        self._noise_luts = self._noise_luts.drop(
+            ['pixelFirstNoiseValue', 'stepSize'])
         self.apply_calibration_and_denoising()
-        self._dataset = xr.merge([self.load_from_geoloc(geoloc_vars, lazy_loading=lazyloading), self._dataset])
+        self._dataset = xr.merge([self.load_from_geoloc(
+            geoloc_vars, lazy_loading=lazyloading), self._dataset])
+        # compute offboresight in self._dataset
+        self._get_offboresight_from_elevation()
+
         rasters = self._load_rasters_vars()
         if rasters is not None:
             self._dataset = xr.merge([self._dataset, rasters])
         if 'ground_heading' not in skip_variables:
-            self._dataset = xr.merge([self.load_ground_heading(), self._dataset])
+            self._dataset = xr.merge(
+                [self.load_ground_heading(), self._dataset])
         if 'velocity' not in skip_variables:
-            self._dataset = xr.merge([self.get_sensor_velocity(), self._dataset])
+            self._dataset = xr.merge(
+                [self.get_sensor_velocity(), self._dataset])
         self._rasterized_masks = self.load_rasterized_masks()
         self._dataset = xr.merge([self._rasterized_masks, self._dataset])
-        self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
+        self.datatree['measurement'] = self.datatree['measurement'].assign(
+            self._dataset)
         # merge the datatree with the reader
+
         self.reconfigure_reader_datatree()
         self._dataset.attrs.update(self.sar_meta.to_dict("all"))
         self.datatree.attrs.update(self.sar_meta.to_dict("all"))
@@ -239,14 +257,16 @@ class RcmDataset(BaseDataset):
                 lut = self.sar_meta.lut.lookup_tables.sel(sarCalibrationType=value, pole=pola)\
                     .rename({
                         'pixel': 'sample',
-                        }
-                    )
+                    }
+                )
                 values_nb = lut.attrs['numberOfValues']
                 lut_f_delayed = dask.delayed()(lut)
-                ar = dask.array.from_delayed(lut_f_delayed.data, (values_nb,), lut.dtype)
+                ar = dask.array.from_delayed(
+                    lut_f_delayed.data, (values_nb,), lut.dtype)
                 da = xr.DataArray(data=ar, dims=['sample'], coords={'sample': lut.sample},
                                   attrs=lut.attrs)
-                da = self._interpolate_var(da).assign_coords(pole=pola).rename({'pole': 'pol'})
+                da = self._interpolate_var(da).assign_coords(
+                    pole=pola).rename({'pole': 'pol'})
                 list_da.append(da)
             full_da = xr.concat(list_da, dim='pol')
             full_da.attrs = lut.attrs
@@ -271,10 +291,11 @@ class RcmDataset(BaseDataset):
                 lut = self.sar_meta.noise_lut.noiseLevelValues.sel(sarCalibrationType=value, pole=pola)\
                     .rename({
                         'pixel': 'sample',
-                        }
-                    )
+                    }
+                )
                 lut_f_delayed = dask.delayed()(lut)
-                ar = dask.array.from_delayed(lut_f_delayed.data, (values_nb,), lut.dtype)
+                ar = dask.array.from_delayed(
+                    lut_f_delayed.data, (values_nb,), lut.dtype)
                 da = xr.DataArray(data=ar, dims=['sample'], coords={'sample': lut.sample},
                                   attrs=lut.attrs)
                 da = self._interpolate_var(da, type='noise').assign_coords(pole=pola)\
@@ -308,7 +329,8 @@ class RcmDataset(BaseDataset):
         """
         accepted_types = ["lut", "noise", "incidence"]
         if type not in accepted_types:
-            raise ValueError("Please enter a type accepted ('lut', 'noise', 'incidence')")
+            raise ValueError(
+                "Please enter a type accepted ('lut', 'noise', 'incidence')")
         lines = self.sar_meta.geoloc.line
         samples = var.sample
         var_type = None
@@ -321,7 +343,8 @@ class RcmDataset(BaseDataset):
         elif type == 'incidence':
             var_type = self._dtypes[type]
         var_2d = np.tile(var, (lines.shape[0], 1))
-        interp_func = dask.delayed(RectBivariateSpline)(x=lines, y=samples, z=var_2d, kx=1, ky=1)
+        interp_func = dask.delayed(RectBivariateSpline)(
+            x=lines, y=samples, z=var_2d, kx=1, ky=1)
         da_var = map_blocks_coords(
             self._da_tmpl.astype(var_type),
             interp_func
@@ -373,7 +396,8 @@ class RcmDataset(BaseDataset):
         try:
             lut = self._noise_luts[lut_name]
         except KeyError:
-            raise ValueError("can't find noise lut from name '%s' for variable '%s' " % (lut_name, var_name))
+            raise ValueError(
+                "can't find noise lut from name '%s' for variable '%s' " % (lut_name, var_name))
         return lut.to_dataset(name=name)
 
     def apply_calibration_and_denoising(self):
@@ -387,13 +411,16 @@ class RcmDataset(BaseDataset):
         for var_name, lut_name in self._map_var_lut.items():
             if lut_name in self._luts:
                 # merge var_name into dataset (not denoised)
-                self._dataset = self._dataset.merge(self._apply_calibration_lut(var_name))
+                self._dataset = self._dataset.merge(
+                    self._apply_calibration_lut(var_name))
                 # merge noise equivalent for var_name (named 'ne%sz' % var_name[0)
                 self._dataset = self._dataset.merge(self._get_noise(var_name))
             else:
-                logger.debug("Skipping variable '%s' ('%s' lut is missing)" % (var_name, lut_name))
+                logger.debug("Skipping variable '%s' ('%s' lut is missing)" % (
+                    var_name, lut_name))
         self._dataset = self._add_denoised(self._dataset)
-        self.datatree['measurement'] = self.datatree['measurement'].assign(self._dataset)
+        self.datatree['measurement'] = self.datatree['measurement'].assign(
+            self._dataset)
         # self._dataset = self.datatree[
         #     'measurement'].to_dataset()  # test oct 22 to see if then I can modify variables of the dt
         return
@@ -415,22 +442,43 @@ class RcmDataset(BaseDataset):
         xarray.DataSet
             dataset with denoised vars
         """
+        already_denoised = self.datatree['imageGenerationParameters'][
+            'sarProcessingInformation'].attrs['noiseSubtractionPerformed']
+
         if vars is None:
             vars = ['sigma0', 'beta0', 'gamma0']
         for varname in vars:
+
             varname_raw = varname + '_raw'
             noise = 'ne%sz' % varname[0]
             if varname_raw not in ds:
                 continue
             else:
-                denoised = ds[varname_raw] - ds[noise]
 
-                if clip:
-                    denoised = denoised.clip(min=0)
-                    denoised.attrs['comment'] = 'clipped, no values <0'
+                if not already_denoised:
+                    denoised = ds[varname_raw] - ds[noise]
+                    if clip:
+                        denoised = denoised.clip(min=0)
+                        denoised.attrs['comment'] = 'clipped, no values <0'
+                    else:
+                        denoised.attrs['comment'] = 'not clipped, some values can be <0'
+                    ds[varname] = denoised
+
                 else:
-                    denoised.attrs['comment'] = 'not clipped, some values can be <0'
-                ds[varname] = denoised
+                    logging.debug(
+                        "product was already denoised (noiseSubtractionPerformed = True), noise added back")
+                    denoised = ds[varname_raw]
+                    denoised.attrs['denoising information'] = 'already denoised by Canadian Agency'
+                    if clip:
+                        denoised = denoised.clip(min=0)
+                        denoised.attrs['comment'] = 'clipped, no values <0'
+                    else:
+                        denoised.attrs['comment'] = 'not clipped, some values can be <0'
+                    ds[varname] = denoised
+
+                    ds[varname_raw] = denoised + ds[noise]
+                    ds[varname_raw].attrs['denoising information'] = 'product was already denoised, noise added back'
+
         return ds
 
     def _load_incidence_from_lut(self):
@@ -446,7 +494,8 @@ class RcmDataset(BaseDataset):
         angles = incidence.angles
         values_nb = incidence.attrs['numberOfValues']
         lut_f_delayed = dask.delayed()(angles)
-        ar = dask.array.from_delayed(lut_f_delayed.data, (values_nb,), self._dtypes['incidence'])
+        ar = dask.array.from_delayed(
+            lut_f_delayed.data, (values_nb,), self._dtypes['incidence'])
         da = xr.DataArray(data=ar, dims=['sample'], coords={'sample': angles.sample},
                           attrs=angles.attrs)
         da = self._interpolate_var(da, type='incidence')
@@ -472,6 +521,25 @@ class RcmDataset(BaseDataset):
         angle_rad = np.sin(np.radians(incidence))
         inside = angle_rad * earth_radius / (earth_radius + satellite_height)
         return np.degrees(np.arcsin(inside))
+
+    @timing
+    def _get_offboresight_from_elevation(self):
+        """
+        Compute offboresight angle.
+
+        Returns
+        -------
+
+        """
+        self._dataset["offboresight"] = self._dataset.elevation - \
+            (30.1833947 * self._dataset.latitude ** 0 +
+             0.0082998714 * self._dataset.latitude ** 1 -
+             0.00031181534 * self._dataset.latitude ** 2 -
+             0.0943533e-07 * self._dataset.latitude ** 3 +
+             3.0191435e-08 * self._dataset.latitude ** 4 +
+             4.968415428e-12 * self._dataset.latitude ** 5 -
+             9.315371305e-13 * self._dataset.latitude ** 6) + 29.45
+        self._dataset["offboresight"].attrs['comment'] = 'built from elevation angle and latitude'
 
     @timing
     def load_from_geoloc(self, varnames, lazy_loading=True):
@@ -508,6 +576,7 @@ class RcmDataset(BaseDataset):
                 da = self._load_elevation_from_lut()
                 da.name = varname
                 da_list.append(da)
+
             else:
                 if varname == 'longitude':
                     z_values = self.sar_meta.geoloc[varname]
@@ -529,7 +598,8 @@ class RcmDataset(BaseDataset):
                         interp_func
                     )
                 else:
-                    da_val = interp_func(self._dataset.digital_number.line, self._dataset.digital_number.sample)
+                    da_val = interp_func(
+                        self._dataset.digital_number.line, self._dataset.digital_number.sample)
                     da_var = xr.DataArray(data=da_val, dims=['line', 'sample'],
                                           coords={'line': self._dataset.digital_number.line,
                                                   'sample': self._dataset.digital_number.sample})
@@ -563,7 +633,8 @@ class RcmDataset(BaseDataset):
         lines = self.sar_meta.geoloc.line
         samples = self.sar_meta.geoloc.pixel
         time_values_2d = np.tile(times, (samples.shape[0], 1)).transpose()
-        interp_func = RectBivariateSpline(x=lines, y=samples, z=time_values_2d.astype(float), kx=1, ky=1)
+        interp_func = RectBivariateSpline(
+            x=lines, y=samples, z=time_values_2d.astype(float), kx=1, ky=1)
         da_var = map_blocks_coords(
             self._da_tmpl.astype('datetime64[ns]'),
             interp_func
@@ -585,7 +656,8 @@ class RcmDataset(BaseDataset):
         vels = np.sqrt(np.sum(velos, axis=0))
         interp_f = interp1d(azimuth_times.astype(float), vels)
         _vels = interp_f(self.interpolate_times['time'].astype(float))
-        res = xr.DataArray(_vels, dims=['line'], coords={'line': self.dataset.line})
+        res = xr.DataArray(_vels, dims=['line'], coords={
+                           'line': self.dataset.line})
         return xr.Dataset({'velocity': res})
 
     @timing
@@ -662,7 +734,8 @@ class RcmDataset(BaseDataset):
 
         chunks['pol'] = 1
         # sort chunks keys like map_dims
-        chunks = dict(sorted(chunks.items(), key=lambda pair: list(map_dims.keys()).index(pair[0])))
+        chunks = dict(sorted(chunks.items(), key=lambda pair: list(
+            map_dims.keys()).index(pair[0])))
         chunks_rio = {map_dims[d]: chunks[d] for d in map_dims.keys()}
         self.resolution = None
         if resolution is None:
@@ -729,9 +802,11 @@ class RcmDataset(BaseDataset):
             ).chunk(chunks)
 
             # create coordinates at box center
-            translate = Affine.translation((resolution['sample'] - 1) / 2, (resolution['line'] - 1) / 2)
+            translate = Affine.translation(
+                (resolution['sample'] - 1) / 2, (resolution['line'] - 1) / 2)
             scale = Affine.scale(
-                rio.width // resolution['sample'] * resolution['sample'] / out_shape[1],
+                rio.width // resolution['sample'] *
+                resolution['sample'] / out_shape[1],
                 rio.height // resolution['line'] * resolution['line'] / out_shape[0])
             sample, _ = translate * scale * (dn.sample, 0)
             _, line = translate * scale * (0, dn.line)
@@ -787,7 +862,8 @@ class RcmDataset(BaseDataset):
         pass_direction = self.sar_meta.dt['sourceAttributes/orbitAndAttitude/orbitInformation'].attrs['passDirection']
         flipped_cases = [('Left', 'Ascending'), ('Right', 'Descending')]
         if (antenna_pointing, pass_direction) in flipped_cases:
-            new_ds = ds.copy().isel(sample=slice(None, None, -1)).assign_coords(sample=ds.sample)
+            new_ds = ds.copy().isel(sample=slice(None, None, -1)
+                                    ).assign_coords(sample=ds.sample)
         else:
             new_ds = ds
         return new_ds
@@ -818,11 +894,8 @@ class RcmDataset(BaseDataset):
 
     def reconfigure_reader_datatree(self):
         """
-        Merge self.datatree with the reader's one.
         Merge attributes of the reader's datatree in the attributes of self.datatree
         """
-        for group in self.sar_meta.dt:
-            self.datatree[group] = self.sar_meta.dt[group]
         self.datatree.attrs |= self.sar_meta.dt.attrs
         return
 

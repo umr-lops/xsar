@@ -22,7 +22,8 @@ logger = logging.getLogger('xsar.base_meta')
 logger.addHandler(logging.NullHandler())
 
 # we know tiff as no geotransform : ignore warning
-warnings.filterwarnings("ignore", category=rasterio.errors.NotGeoreferencedWarning)
+warnings.filterwarnings(
+    "ignore", category=rasterio.errors.NotGeoreferencedWarning)
 
 # allow nan without warnings
 # some dask warnings are still non filtered: https://github.com/dask/dask/issues/3245
@@ -41,8 +42,6 @@ class BaseMeta(BaseDataset):
         'land': cartopy.feature.NaturalEarthFeature('physical', 'land', '10m')
     }
 
-    rasters = available_rasters.iloc[0:0].copy()
-
     _mask_features = {}
     _mask_intersecting_geometries = {}
     _mask_geometry = {}
@@ -60,6 +59,9 @@ class BaseMeta(BaseDataset):
     dsid = None
     safe = None
     geoloc = None
+
+    def __init__(self):
+        self.rasters = available_rasters.iloc[0:0].copy()
 
     def _get_mask_feature(self, name):
         # internal method that returns a cartopy feature from a mask name
@@ -80,14 +82,16 @@ class BaseMeta(BaseDataset):
                     except KeyError:
                         crs_in = fshp.crs
                     crs_in = pyproj.CRS(crs_in)
-                proj_transform = pyproj.Transformer.from_crs(pyproj.CRS('EPSG:4326'), crs_in, always_xy=True).transform
+                proj_transform = pyproj.Transformer.from_crs(
+                    pyproj.CRS('EPSG:4326'), crs_in, always_xy=True).transform
                 footprint_crs = transform(proj_transform, self.footprint)
 
                 with warnings.catch_warnings():
                     # ignore "RuntimeWarning: Sequential read of iterator was interrupted. Resetting iterator."
                     warnings.simplefilter("ignore", RuntimeWarning)
                     feature = cartopy.feature.ShapelyFeature(
-                        gpd.read_file(feature, mask=footprint_crs).to_crs(epsg=4326).geometry,
+                        gpd.read_file(feature, mask=footprint_crs).to_crs(
+                            epsg=4326).geometry,
                         cartopy.crs.PlateCarree()
                     )
             if not isinstance(feature, cartopy.feature.Feature):
@@ -160,7 +164,8 @@ class BaseMeta(BaseDataset):
             descr = self._mask_features_raw[name]
             try:
                 # nice repr for a class (like 'cartopy.feature.NaturalEarthFeature land')
-                descr = '%s.%s %s' % (descr.__module__, descr.__class__.__name__, descr.name)
+                descr = '%s.%s %s' % (
+                    descr.__module__, descr.__class__.__name__, descr.name)
             except AttributeError:
                 pass
             return descr
@@ -343,11 +348,14 @@ class BaseMeta(BaseDataset):
         lon, lat = args
 
         # approximation with global inaccurate transform
-        line_approx, sample_approx = ~self.approx_transform * (np.asarray(lon), np.asarray(lat))
+        line_approx, sample_approx = ~self.approx_transform * \
+            (np.asarray(lon), np.asarray(lat))
 
         # Theoretical identity. It should be the same, but the difference show the error.
-        lon_identity, lat_identity = self.coords2ll(line_approx, sample_approx, to_grid=False)
-        line_identity, sample_identity = ~self.approx_transform * (lon_identity, lat_identity)
+        lon_identity, lat_identity = self.coords2ll(
+            line_approx, sample_approx, to_grid=False)
+        line_identity, sample_identity = ~self.approx_transform * \
+            (lon_identity, lat_identity)
 
         # we are now able to compute the error, and make a correction
         line_error = line_identity - line_approx
@@ -381,8 +389,10 @@ class BaseMeta(BaseDataset):
 
         """
 
-        lon1, lat1 = self.coords2ll(lines - 1, samples, to_grid=to_grid, approx=approx)
-        lon2, lat2 = self.coords2ll(lines + 1, samples, to_grid=to_grid, approx=approx)
+        lon1, lat1 = self.coords2ll(
+            lines - 1, samples, to_grid=to_grid, approx=approx)
+        lon2, lat2 = self.coords2ll(
+            lines + 1, samples, to_grid=to_grid, approx=approx)
         _, heading = haversine(lon1, lat1, lon2, lat2)
         return heading
 
@@ -424,9 +434,12 @@ class BaseMeta(BaseDataset):
         default = available_rasters.loc[name:name]
 
         # set from params, or from default
-        self_or_cls.rasters.loc[name, 'resource'] = resource or default.loc[name, 'resource']
-        self_or_cls.rasters.loc[name, 'read_function'] = read_function or default.loc[name, 'read_function']
-        self_or_cls.rasters.loc[name, 'get_function'] = get_function or default.loc[name, 'get_function']
+        self_or_cls.rasters.loc[name,
+                                'resource'] = resource or default.loc[name, 'resource']
+        self_or_cls.rasters.loc[name,
+                                'read_function'] = read_function or default.loc[name, 'read_function']
+        self_or_cls.rasters.loc[name,
+                                'get_function'] = get_function or default.loc[name, 'get_function']
 
         return
 

@@ -41,6 +41,8 @@ class Sentinel1Meta(BaseMeta):
 
     @timing
     def __init__(self, name):
+        super().__init__()  # Ceci appelle le constructeur de BaseMeta
+
         try:
             from safe_s1.metadata import Sentinel1Reader
         except:
@@ -48,10 +50,10 @@ class Sentinel1Meta(BaseMeta):
         self.reader = Sentinel1Reader(name)
 
         if not name.startswith('SENTINEL1_DS:'):
-            name = name.rstrip('/') # remove trailing space
+            name = name.rstrip('/')  # remove trailing space
             name = 'SENTINEL1_DS:%s:' % name
         else:
-            name = name.replace('/:',':')
+            name = name.replace('/:', ':')
         self.name = name
         """Gdal dataset name"""
         name_parts = self.name.split(':')
@@ -95,15 +97,20 @@ class Sentinel1Meta(BaseMeta):
             self.short_name = self.short_name + self.dsid
         if self.reader.files.empty:
             try:
-                self.subdatasets = gpd.GeoDataFrame(geometry=self.manifest_attrs['footprints'], index=datasets_names)
+                self.subdatasets = gpd.GeoDataFrame(
+                    geometry=self.manifest_attrs['footprints'], index=datasets_names)
             except ValueError:
                 # not as many footprints than subdatasets count. (probably TOPS product)
-                self._submeta = [ Sentinel1Meta(subds) for subds in datasets_names ]
-                sub_footprints = [ submeta.footprint for submeta in self._submeta ]
-                self.subdatasets = gpd.GeoDataFrame(geometry=sub_footprints, index=datasets_names)
+                self._submeta = [Sentinel1Meta(subds)
+                                 for subds in datasets_names]
+                sub_footprints = [
+                    submeta.footprint for submeta in self._submeta]
+                self.subdatasets = gpd.GeoDataFrame(
+                    geometry=sub_footprints, index=datasets_names)
             self.multidataset = True
 
-        self.platform = self.manifest_attrs['mission'] + self.manifest_attrs['satellite']
+        self.platform = self.manifest_attrs['mission'] + \
+            self.manifest_attrs['satellite']
         """Mission platform"""
         self._time_range = None
         for name, feature in self.__class__._mask_features_raw.items():
@@ -130,7 +137,8 @@ class Sentinel1Meta(BaseMeta):
 
     def _get_time_range(self):
         if self.multidataset:
-            time_range = [self.manifest_attrs['start_date'], self.manifest_attrs['stop_date']]
+            time_range = [self.manifest_attrs['start_date'],
+                          self.manifest_attrs['stop_date']]
         else:
             time_range = self.reader.time_range
         return pd.Interval(left=pd.Timestamp(time_range[0]), right=pd.Timestamp(time_range[-1]), closed='both')
@@ -141,7 +149,7 @@ class Sentinel1Meta(BaseMeta):
             'minimal': ['ipf', 'platform', 'swath', 'product', 'pols']
         }
         info_keys['all'] = info_keys['minimal'] + ['name', 'start_date', 'stop_date', 'footprint', 'coverage',
-                                                   'orbit_pass', 'platform_heading'] #  'pixel_line_m', 'pixel_sample_m',
+                                                   'orbit_pass', 'platform_heading']  # 'pixel_line_m', 'pixel_sample_m',
 
         if isinstance(keys, str):
             keys = info_keys[keys]
@@ -153,7 +161,8 @@ class Sentinel1Meta(BaseMeta):
             elif k in self.manifest_attrs.keys():
                 res_dict[k] = self.manifest_attrs[k]
             else:
-                raise KeyError('Unable to find key/attr "%s" in Sentinel1Meta' % k)
+                raise KeyError(
+                    'Unable to find key/attr "%s" in Sentinel1Meta' % k)
         return res_dict
 
     def annotation_angle(self, line, sample, angle):
@@ -220,7 +229,8 @@ class Sentinel1Meta(BaseMeta):
                 footprint_dict[ll] = [
                     self._geoloc[ll].isel(line=a, sample=x).values for a, x in [(0, 0), (0, -1), (-1, -1), (-1, 0)]
                 ]
-            corners = list(zip(footprint_dict['longitude'], footprint_dict['latitude']))
+            corners = list(
+                zip(footprint_dict['longitude'], footprint_dict['latitude']))
             p = Polygon(corners)
             self._geoloc.attrs['footprint'] = p
 
@@ -231,7 +241,7 @@ class Sentinel1Meta(BaseMeta):
             acq_line_meters, _ = haversine(*corners[1], *corners[2])
             self._geoloc.attrs['coverage'] = "%dkm * %dkm (line * sample )" % (
                 acq_line_meters / 1000, acq_sample_meters / 1000)
-            
+
             # compute self._geoloc.attrs['approx_transform'], from gcps
             # we need to convert self._geoloc to  a list of GroundControlPoint
             def _to_rio_gcp(pt_geoloc):
@@ -249,10 +259,12 @@ class Sentinel1Meta(BaseMeta):
                 for line in self._geoloc.line for sample in self._geoloc.sample
             ]
             # approx transform, from all gcps (inaccurate)
-            self._geoloc.attrs['approx_transform'] = rasterio.transform.from_gcps(gcps)
+            self._geoloc.attrs['approx_transform'] = rasterio.transform.from_gcps(
+                gcps)
             for vv in self._geoloc:
                 if vv in self.xsd_definitions:
-                    self._geoloc[vv].attrs['definition'] = str(self.xsd_definitions[vv])
+                    self._geoloc[vv].attrs['definition'] = str(
+                        self.xsd_definitions[vv])
 
         return self._geoloc
 
@@ -358,7 +370,8 @@ class Sentinel1Meta(BaseMeta):
         idx_line = np.array(geoloc.line)
 
         for ll in ['longitude', 'latitude']:
-            resdict[ll] = RectBivariateSpline(idx_line, idx_sample, np.asarray(geoloc[ll]), kx=1, ky=1)
+            resdict[ll] = RectBivariateSpline(
+                idx_line, idx_sample, np.asarray(geoloc[ll]), kx=1, ky=1)
 
         return resdict
 
@@ -434,12 +447,11 @@ class Sentinel1Meta(BaseMeta):
     @property
     def get_noise_range_raw(self):
         return self.dt['noise_range_raw'].to_dataset()
-    
+
     @property
     def get_antenna_pattern(self):
         return self.dt['antenna_pattern'].to_dataset()
 
-    
     @property
     def get_swath_merging(self):
         return self.dt['swath_merging'].to_dataset()

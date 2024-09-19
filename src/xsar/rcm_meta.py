@@ -27,6 +27,8 @@ class RcmMeta(BaseMeta):
 
     @timing
     def __init__(self, name):
+        super().__init__()  # Ceci appelle le constructeur de BaseMeta
+
         from safe_rcm import api
         if ':' in name:
             self.dt = api.open_rcm(name.split(':')[1])
@@ -68,7 +70,8 @@ class RcmMeta(BaseMeta):
         # replace `coefficients` dim by `pixel` in the datatree
         var_with_coeff = ['noise_lut', 'lut', 'incidence']
         for var in var_with_coeff:
-            self.dt[self._xpath[var]] = self.dt[self._xpath[var]].rename({'coefficients': 'pixel'})
+            self.dt[self._xpath[var]] = self.dt[self._xpath[var]].rename(
+                {'coefficients': 'pixel'})
         # build pixels coords
         self.assign_index(var_with_coeff)
 
@@ -182,7 +185,8 @@ class RcmMeta(BaseMeta):
             return
 
         if not all(item in ['lut', 'noise_lut', 'incidence'] for item in ds_list):
-            raise ValueError("Please enter accepted dataset names ('lut', 'noise_lut', 'incidence')")
+            raise ValueError(
+                "Please enter accepted dataset names ('lut', 'noise_lut', 'incidence')")
         if 'lut' in ds_list:
             _assign_index_lut()
         if 'noise_lut' in ds_list:
@@ -205,7 +209,8 @@ class RcmMeta(BaseMeta):
             footprint_dict[ll] = [
                 self.geoloc[ll].isel(line=a, pixel=x).values for a, x in [(0, 0), (0, -1), (-1, -1), (-1, 0)]
             ]
-        corners = list(zip(footprint_dict['longitude'], footprint_dict['latitude']))
+        corners = list(
+            zip(footprint_dict['longitude'], footprint_dict['latitude']))
         p = Polygon(corners)
         self.geoloc.attrs['footprint'] = p
         dic["footprints"] = p
@@ -319,7 +324,8 @@ class RcmMeta(BaseMeta):
 
     def _get_time_range(self):
         if self.multidataset:
-            time_range = [self.manifest_attrs['start_date'], self.manifest_attrs['stop_date']]
+            time_range = [self.manifest_attrs['start_date'],
+                          self.manifest_attrs['stop_date']]
         else:
             time_range = self.orbit.timeStamp
         return pd.Interval(left=pd.Timestamp(time_range.values[0]), right=pd.Timestamp(time_range.values[-1]), closed='both')
@@ -349,7 +355,8 @@ class RcmMeta(BaseMeta):
         idx_line = np.array(geoloc.line)
 
         for ll in ['longitude', 'latitude']:
-            resdict[ll] = RectBivariateSpline(idx_line, idx_sample, np.asarray(geoloc[ll]), kx=1, ky=1)
+            resdict[ll] = RectBivariateSpline(
+                idx_line, idx_sample, np.asarray(geoloc[ll]), kx=1, ky=1)
 
         return resdict
 
@@ -357,7 +364,7 @@ class RcmMeta(BaseMeta):
 
         info_keys = {
             'minimal': [
-                #'platform',
+                # 'platform',
                 'swath', 'product', 'pols']
         }
         info_keys['all'] = info_keys['minimal'] + ['name', 'start_date', 'stop_date',
@@ -366,8 +373,8 @@ class RcmMeta(BaseMeta):
                                                    'pixel_line_m', 'pixel_sample_m',
                                                    'approx_transform',
 
-                                                   #'orbit_pass',
-                                                   #'platform_heading'
+                                                   # 'orbit_pass',
+                                                   # 'platform_heading'
                                                    ]
 
         if isinstance(keys, str):

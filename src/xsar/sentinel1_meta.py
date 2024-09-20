@@ -41,7 +41,7 @@ class Sentinel1Meta(BaseMeta):
 
     @timing
     def __init__(self, name):
-        super().__init__()  # Ceci appelle le constructeur de BaseMeta
+        super().__init__()
 
         try:
             from safe_s1.metadata import Sentinel1Reader

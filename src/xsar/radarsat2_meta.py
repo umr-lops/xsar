@@ -30,7 +30,7 @@ class RadarSat2Meta(BaseMeta):
 
     @timing
     def __init__(self, name):
-        super().__init__()  # Ceci appelle le constructeur de BaseMeta
+        super().__init__()
 
         from xradarsat2 import rs2_reader
         if ':' in name:

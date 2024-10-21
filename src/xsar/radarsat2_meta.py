@@ -30,6 +30,8 @@ class RadarSat2Meta(BaseMeta):
 
     @timing
     def __init__(self, name):
+        super().__init__()
+
         from xradarsat2 import rs2_reader
         if ':' in name:
             self.dt = rs2_reader(name.split(':')[1])
@@ -95,7 +97,8 @@ class RadarSat2Meta(BaseMeta):
             footprint_dict[ll] = [
                 self.geoloc[ll].isel(line=a, pixel=x).values for a, x in [(0, 0), (0, -1), (-1, -1), (-1, 0)]
             ]
-        corners = list(zip(footprint_dict['longitude'], footprint_dict['latitude']))
+        corners = list(
+            zip(footprint_dict['longitude'], footprint_dict['latitude']))
         p = Polygon(corners)
         self.geoloc.attrs['footprint'] = p
         dic["footprints"] = p
@@ -158,7 +161,7 @@ class RadarSat2Meta(BaseMeta):
 
         info_keys = {
             'minimal': [
-                #'platform',
+                # 'platform',
                 'swath', 'product', 'pols']
         }
         info_keys['all'] = info_keys['minimal'] + ['name', 'start_date', 'stop_date',
@@ -167,8 +170,8 @@ class RadarSat2Meta(BaseMeta):
                                                    'pixel_line_m', 'pixel_sample_m',
                                                    'approx_transform',
 
-                                                   #'orbit_pass',
-                                                   #'platform_heading'
+                                                   # 'orbit_pass',
+                                                   # 'platform_heading'
                                                    ]
 
         if isinstance(keys, str):
@@ -181,7 +184,8 @@ class RadarSat2Meta(BaseMeta):
             elif k in self.manifest_attrs.keys():
                 res_dict[k] = self.manifest_attrs[k]
             else:
-                raise KeyError('Unable to find key/attr "%s" in RadarSat2Meta' % k)
+                raise KeyError(
+                    'Unable to find key/attr "%s" in RadarSat2Meta' % k)
         return res_dict
 
     @property
@@ -214,7 +218,8 @@ class RadarSat2Meta(BaseMeta):
 
     def _get_time_range(self):
         if self.multidataset:
-            time_range = [self.manifest_attrs['start_date'], self.manifest_attrs['stop_date']]
+            time_range = [self.manifest_attrs['start_date'],
+                          self.manifest_attrs['stop_date']]
         else:
             time_range = self.orbit_and_attitude.timeStamp
         return pd.Interval(left=pd.Timestamp(time_range.values[0]), right=pd.Timestamp(time_range.values[-1]), closed='both')
@@ -275,7 +280,8 @@ class RadarSat2Meta(BaseMeta):
         idx_line = np.array(geoloc.line)
 
         for ll in ['longitude', 'latitude']:
-            resdict[ll] = RectBivariateSpline(idx_line, idx_sample, np.asarray(geoloc[ll]), kx=1, ky=1)
+            resdict[ll] = RectBivariateSpline(
+                idx_line, idx_sample, np.asarray(geoloc[ll]), kx=1, ky=1)
 
         return resdict
 
@@ -291,7 +297,8 @@ class RadarSat2Meta(BaseMeta):
         if (antenna_pointing, pass_direction) in flipped_cases:
             for ds_name in samples_depending_ds:
                 if 'radar' in ds_name:
-                    self.dt[ds_name] = self.dt[ds_name].rename({'NbOfNoiseLevelValues': 'pixel'})
+                    self.dt[ds_name] = self.dt[ds_name].rename(
+                        {'NbOfNoiseLevelValues': 'pixel'})
                 self.dt[ds_name] = self.dt[ds_name].copy().isel(pixel=slice(None, None, -1))\
                     .assign_coords(pixel=self.dt[ds_name].ds.pixel)
             self.samples_flipped = True
@@ -313,6 +320,3 @@ class RadarSat2Meta(BaseMeta):
                     .assign_coords(line=self.dt[ds_name].ds.line)
             self.lines_flipped = True
         return
-
-
-

@@ -538,7 +538,7 @@ class Sentinel1Dataset(BaseDataset):
                                 f"Cannot recalibrate - No matching CAL data found for your data : start_date : {self.sar_meta.start_date}.")
                         else:
                             raise ValueError(f"Cannot recalibrate - No matching CAL data found for your data: start_date: {self.sar_meta.start_date} & \
-                                             miniumum validation date in active aux files: {sel_.sort_values(by=['validation_date'], ascending=False).validation_date.values[0]}.")
+                                miniumum validation date in active aux files: {sel_.sort_values(by=['validation_date'], ascending=False).validation_date.values[0]}.")
 
                     sel_cal = sel_cal.sort_values(
                         by=["validation_date", "generation_date"], ascending=False)
@@ -560,7 +560,7 @@ class Sentinel1Dataset(BaseDataset):
                                 f"Cannot recalibrate - No matching PP1 data found for your data : start_date : {self.sar_meta.start_date}.")
                         else:
                             raise ValueError(f"Cannot recalibrate - No matching PP1 data found for your data: start_date: {self.sar_meta.start_date} & \
-                                             miniumum validation date in active aux files: {sel_.sort_values(by=['validation_date'], ascending=False).validation_date.values[0]}.")
+                                miniumum validation date in active aux files: {sel_.sort_values(by=['validation_date'], ascending=False).validation_date.values[0]}.")
 
                     sel_pp1 = sel_pp1.sort_values(
                         by=["validation_date", "generation_date"], ascending=False)

@@ -206,7 +206,7 @@ class Sentinel1Dataset(BaseDataset):
         if self.apply_recalibration and np.all(np.isnan(self.datatree.antenna_pattern['roll'].values)):
             self.apply_recalibration = False
             raise ValueError(
-                f"Recalibration can't be done without roll angle. You probably work with an old file for which roll angle is not auxiliary file.")
+                f"Recalibration can't be done without roll angle. You probably work with an old file for which roll angle is not in auxiliary file.")
 
         # self.datatree['measurement'].ds = .from_dict({'measurement':self._load_digital_number(resolution=resolution, resampling=resampling, chunks=chunks)
         # self._dataset = self.datatree['measurement'].ds #the two variables should be linked then.
@@ -528,14 +528,40 @@ class Sentinel1Dataset(BaseDataset):
                                                 (dataframe_aux.aux_type == "CAL") &
                                                 (dataframe_aux.icid == int(self.sar_meta.manifest_attrs['icid'])) &
                                                 (dataframe_aux.validation_date <= self.sar_meta.start_date)]
+                    # Check if sel_cal is empty
+                    if sel_cal.empty:
+                        sel_ = dataframe_aux.loc[(dataframe_aux.sat_name == self.sar_meta.manifest_attrs['satellite']) &
+                                                 (dataframe_aux.aux_type == "CAL") &
+                                                 (dataframe_aux.icid == int(self.sar_meta.manifest_attrs['icid']))]
+                        if sel_.empty:
+                            raise ValueError(
+                                f"Cannot recalibrate - No matching CAL data found for your data : start_date : {self.sar_meta.start_date}.")
+                        else:
+                            raise ValueError(f"Cannot recalibrate - No matching CAL data found for your data: start_date: {self.sar_meta.start_date} & \
+                                             miniumum validation date in active aux files: {sel_.sort_values(by=['validation_date'], ascending=False).validation_date.values[0]}.")
+
                     sel_cal = sel_cal.sort_values(
                         by=["validation_date", "generation_date"], ascending=False)
+
                     path_new_cal = sel_cal.iloc[0].aux_path
 
                     sel_pp1 = dataframe_aux.loc[(dataframe_aux.sat_name == self.sar_meta.manifest_attrs['satellite']) &
                                                 (dataframe_aux.aux_type == "PP1") &
                                                 (dataframe_aux.icid == int(self.sar_meta.manifest_attrs['icid'])) &
                                                 (dataframe_aux.validation_date <= self.sar_meta.start_date)]
+
+                    # Check if sel_pp1 is empty
+                    if sel_pp1.empty:
+                        sel_ = dataframe_aux.loc[(dataframe_aux.sat_name == self.sar_meta.manifest_attrs['satellite']) &
+                                                 (dataframe_aux.aux_type == "PP1") &
+                                                 (dataframe_aux.icid == int(self.sar_meta.manifest_attrs['icid']))]
+                        if sel_.empty:
+                            raise ValueError(
+                                f"Cannot recalibrate - No matching PP1 data found for your data : start_date : {self.sar_meta.start_date}.")
+                        else:
+                            raise ValueError(f"Cannot recalibrate - No matching PP1 data found for your data: start_date: {self.sar_meta.start_date} & \
+                                             miniumum validation date in active aux files: {sel_.sort_values(by=['validation_date'], ascending=False).validation_date.values[0]}.")
+
                     sel_pp1 = sel_pp1.sort_values(
                         by=["validation_date", "generation_date"], ascending=False)
                     path_new_pp1 = sel_pp1.iloc[0].aux_path

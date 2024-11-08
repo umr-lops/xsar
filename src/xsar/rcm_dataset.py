@@ -13,7 +13,6 @@ import numpy as np
 from .utils import timing, map_blocks_coords, BlockingActorProxy, to_lon180, get_glob
 from scipy.interpolate import RectBivariateSpline, interp1d
 import dask
-import datatree
 import xarray as xr
 import rioxarray
 from .base_dataset import BaseDataset
@@ -118,7 +117,7 @@ class RcmDataset(BaseDataset):
         orbit = self.sar_meta.orbit
         orbit.attrs['history'] = 'annotations'
 
-        self.datatree = datatree.DataTree.from_dict({'measurement': DN_tmp, 'geolocation_annotation': geoloc
+        self.datatree = xr.DataTree.from_dict({'measurement': DN_tmp, 'geolocation_annotation': geoloc
                                                      })
 
         self._dataset = self.datatree['measurement'].to_dataset()

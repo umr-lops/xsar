@@ -20,7 +20,6 @@ setup(
         'cartopy',
         'fiona',
         'pyproj',
-        'xarray-datatree>=0.0.9',
         'numpy',
         'scipy',
         'shapely',

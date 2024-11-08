@@ -16,7 +16,6 @@ from .utils import timing, map_blocks_coords, BlockingActorProxy, merge_yaml, \
     to_lon180, config, datetime
 from .sentinel1_meta import Sentinel1Meta
 from .ipython_backends import repr_mimebundle
-import datatree
 from .base_dataset import BaseDataset
 import pandas as pd
 import geopandas as gpd
@@ -184,7 +183,7 @@ class Sentinel1Dataset(BaseDataset):
             ds_noise_range['noise_lut'] = self._patch_lut(ds_noise_range[
                 'noise_lut'])  # patch applied here is distinct to same patch applied on interpolated noise LUT
 
-        self.datatree = datatree.DataTree.from_dict({'measurement': DN_tmp, 'geolocation_annotation': geoloc,
+        self.datatree = xr.DataTree.from_dict({'measurement': DN_tmp, 'geolocation_annotation': geoloc,
                                                      'bursts': bu, 'FMrate': FM, 'doppler_estimate': dop,
                                                      # 'image_information':
                                                      'orbit': self.sar_meta.orbit,
@@ -214,7 +213,7 @@ class Sentinel1Dataset(BaseDataset):
             'measurement'].to_dataset()  # test oct 22 to see if then I can modify variables of the dt
 
         # create a datatree for variables used in recalibration
-        self.datatree["recalibration"] = datatree.DataTree()
+        self.datatree["recalibration"] = xr.DataTree()
         self._dataset_recalibration = xr.Dataset(
             coords=self.datatree["measurement"].coords)
 

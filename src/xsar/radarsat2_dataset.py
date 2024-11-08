@@ -10,7 +10,6 @@ import rasterio.features
 import xarray as xr
 from scipy.interpolate import RectBivariateSpline, interp1d
 import dask
-import datatree
 from .base_dataset import BaseDataset
 
 logger = logging.getLogger('xsar.radarsat2_dataset')
@@ -134,7 +133,7 @@ class RadarSat2Dataset(BaseDataset):
         lut = self.sar_meta.lut
         lut.attrs['history'] = 'annotations'
 
-        self.datatree = datatree.DataTree.from_dict({'measurement': DN_tmp, 'geolocation_annotation': geoloc
+        self.datatree = xr.DataTree.from_dict({'measurement': DN_tmp, 'geolocation_annotation': geoloc
                                                      })
 
         self._dataset = self.datatree['measurement'].to_dataset()
@@ -710,7 +709,7 @@ class RadarSat2Dataset(BaseDataset):
 
         Returns
         -------
-        datatree.Datatree
+        xarray.Datatree
         """
 
         dic = {'measurement': self.datatree['measurement'],
@@ -745,7 +744,7 @@ class RadarSat2Dataset(BaseDataset):
             'noiseLevelValues_SigmaNought': 'sigma0_noise_lut',
             'noiseLevelValues_Gamma': 'gamma0_noise_lut'
         }
-        new_dt = datatree.DataTree.from_dict(dic)
+        new_dt = xr.DataTree.from_dict(dic)
 
         dt = self.sar_meta.dt
 
@@ -771,7 +770,7 @@ class RadarSat2Dataset(BaseDataset):
         for key in dt.copy():
             if key not in exclude:
                 if key == 'imageGenerationParameters':
-                    new_dt[key] = datatree.DataTree(
+                    new_dt[key] = xr.DataTree(
                         parent=None, children=copy_dt[key])
                 else:
                     new_dt[key] = copy_dt[key]

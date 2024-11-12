@@ -1,4 +1,21 @@
-__all__ = ['open_dataset', 'product_info', 'Sentinel1Meta', 'Sentinel1Dataset', 'RadarSat2Dataset', 'RadarSat2Meta', 'RcmMeta', 'RcmDataset', 'BaseDataset', 'BaseMeta']
+__all__ = [
+    # "open_dataset",
+    # "product_info",
+    "Sentinel1Meta",
+    "Sentinel1Dataset",
+    "RadarSat2Dataset",
+    "RadarSat2Meta",
+    "RcmMeta",
+    "RcmDataset",
+    "BaseDataset",
+    "BaseMeta",
+]
 
-from .xsar import *
-from .xsar import __version__
+from xsar.radarsat2_dataset import RadarSat2Dataset
+from xsar.sentinel1_dataset import Sentinel1Dataset
+from xsar.sentinel1_meta import Sentinel1Meta
+from rcm_meta import RcmMeta
+from xsar.radarsat2_meta import RadarSat2Meta
+from xsar.rcm_dataset import RcmDataset
+from xsar.base_dataset import BaseDataset
+from xsar.base_meta import BaseMeta

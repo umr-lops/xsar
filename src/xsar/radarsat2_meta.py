@@ -1,3 +1,5 @@
+import pdb
+
 import pandas as pd
 import rasterio
 from rasterio.control import GroundControlPoint

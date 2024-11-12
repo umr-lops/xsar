@@ -14,7 +14,7 @@ setup(
         'GDAL',
         'dask[array]',
         'distributed',
-        'xarray',
+        "xarray>=2024.10.0",
         'affine',
         'rasterio',
         'cartopy',

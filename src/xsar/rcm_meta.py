@@ -70,7 +70,7 @@ class RcmMeta(BaseMeta):
         # replace `coefficients` dim by `pixel` in the datatree
         var_with_coeff = ['noise_lut', 'lut', 'incidence']
         for var in var_with_coeff:
-            self.dt[self._xpath[var]] = self.dt[self._xpath[var]].rename(
+            self.dt[self._xpath[var]] = self.dt[self._xpath[var]].ds.rename(
                 {'coefficients': 'pixel'})
         # build pixels coords
         self.assign_index(var_with_coeff)
@@ -109,7 +109,7 @@ class RcmMeta(BaseMeta):
         samples_depending_ds = ['geolocationGrid']
         if (antenna_pointing, pass_direction) in flipped_cases:
             for ds_name in samples_depending_ds:
-                self.dt[self._xpath[ds_name]] = self.dt[self._xpath[ds_name]].copy().isel(pixel=slice(None, None, -1))\
+                self.dt[self._xpath[ds_name]] = self.dt[self._xpath[ds_name]].ds.copy().isel(pixel=slice(None, None, -1))\
                     .assign_coords(pixel=self.dt[self._xpath[ds_name]].ds.pixel)
             self.samples_flipped = True
         return
@@ -124,7 +124,7 @@ class RcmMeta(BaseMeta):
         samples_depending_ds = ['geolocationGrid']
         if pass_direction == 'Ascending':
             for ds_name in samples_depending_ds:
-                self.dt[self._xpath[ds_name]] = self.dt[self._xpath[ds_name]].copy().isel(line=slice(None, None, -1))\
+                self.dt[self._xpath[ds_name]] = self.dt[self._xpath[ds_name]].ds.copy().isel(line=slice(None, None, -1))\
                     .assign_coords(line=self.dt[self._xpath[ds_name]].ds.line)
             self.lines_flipped = True
         return
@@ -155,7 +155,7 @@ class RcmMeta(BaseMeta):
             # we want increasing indexes
             if step < 0:
                 indexes = indexes[::-1]
-            self.dt[xpath] = self.dt[xpath].assign_coords(pixel=indexes)
+            self.dt[xpath] = self.dt[xpath].ds.assign_coords(pixel=indexes)
             return
 
         def _assign_index_noise_lut():
@@ -168,7 +168,7 @@ class RcmMeta(BaseMeta):
             # we want increasing indexes
             if step < 0:
                 indexes = indexes[::-1]
-            self.dt[xpath] = self.dt[xpath].assign_coords(pixel=indexes)
+            self.dt[xpath] = self.dt[xpath].ds.assign_coords(pixel=indexes)
             return
 
         def _assign_index_incidence():
@@ -181,7 +181,7 @@ class RcmMeta(BaseMeta):
             # we want increasing indexes
             if step < 0:
                 indexes = indexes[::-1]
-            self.dt[xpath] = self.dt[xpath].assign_coords(pixel=indexes)
+            self.dt[xpath] = self.dt[xpath].ds.assign_coords(pixel=indexes)
             return
 
         if not all(item in ['lut', 'noise_lut', 'incidence'] for item in ds_list):

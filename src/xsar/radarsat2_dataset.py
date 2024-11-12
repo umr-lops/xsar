@@ -749,10 +749,10 @@ class RadarSat2Dataset(BaseDataset):
         dt = self.sar_meta.dt
 
         # rename lut
-        new_dt['lut'] = dt['lut'].rename(rename_lut)
+        new_dt['lut'] = dt['lut'].ds.rename(rename_lut)
 
         # extract noise_lut, rename and put these in a dataset
-        new_dt['noise_lut'] = dt['radarParameters'].rename(
+        new_dt['noise_lut'] = dt['radarParameters'].ds.rename(
             rename_radarParameters)
         new_dt['noise_lut'].attrs = {}  # reset attributes
         delete_list = get_list_keys_delete(
@@ -771,7 +771,7 @@ class RadarSat2Dataset(BaseDataset):
             if key not in exclude:
                 if key == 'imageGenerationParameters':
                     new_dt[key] = xr.DataTree(
-                        parent=None, children=copy_dt[key])
+                        children=copy_dt[key])
                 else:
                     new_dt[key] = copy_dt[key]
         self.datatree = new_dt

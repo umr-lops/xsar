@@ -296,11 +296,13 @@ class RadarSat2Meta(BaseMeta):
         samples_depending_ds = ['geolocationGrid', 'lut', 'radarParameters']
         if (antenna_pointing, pass_direction) in flipped_cases:
             for ds_name in samples_depending_ds:
+                ds = self.dt[ds_name].ds
                 if 'radar' in ds_name:
-                    self.dt[ds_name] = self.dt[ds_name].rename(
+                    ds = ds.rename(
                         {'NbOfNoiseLevelValues': 'pixel'})
-                self.dt[ds_name] = self.dt[ds_name].copy().isel(pixel=slice(None, None, -1))\
-                    .assign_coords(pixel=self.dt[ds_name].ds.pixel)
+                ds = ds.copy().isel(pixel=slice(None, None, -1))\
+                    .assign_coords(pixel=ds.pixel)
+                self.dt[ds_name] = ds
             self.samples_flipped = True
         return
 
@@ -316,7 +318,9 @@ class RadarSat2Meta(BaseMeta):
         samples_depending_ds = ['geolocationGrid']
         if pass_direction == 'Ascending':
             for ds_name in samples_depending_ds:
-                self.dt[ds_name] = self.dt[ds_name].copy().isel(line=slice(None, None, -1))\
-                    .assign_coords(line=self.dt[ds_name].ds.line)
+                ds = self.dt[ds_name].ds
+                ds = ds.copy().isel(line=slice(None, None, -1))\
+                    .assign_coords(line=ds.line)
+                self.dt[ds_name] = ds
             self.lines_flipped = True
         return

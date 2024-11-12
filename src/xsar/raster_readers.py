@@ -73,7 +73,7 @@ def ecmwf_0100_1h(fname, **kwargs):
     xarray.Dataset
     """
     ecmwf_ds = xr.open_dataset(
-        fname, chunks={'Longitude': 1000, 'Latitude': 1000}).isel(time=0)
+        fname, chunks={'time': 1, 'latitude': 901, 'longitude': 1800}).isel(time=0)
     ecmwf_ds.attrs['time'] = datetime.datetime.fromtimestamp(
         ecmwf_ds.time.item() // 1000000000)
     if 'time' in ecmwf_ds:
@@ -149,7 +149,7 @@ def hwrf_0015_3h(fname, **kwargs):
     -------
     xarray.Dataset
     """
-    hwrf_ds = xr.open_dataset(fname)
+    hwrf_ds = xr.open_dataset(fname, chunks={'t': 1, 'LAT': 700, 'LON': 700})
     try:
         hwrf_ds = hwrf_ds[['U', 'V', 'LON', 'LAT']]
         hwrf_ds = hwrf_ds.squeeze('t', drop=True)
@@ -191,7 +191,8 @@ def era5_0250_1h(fname, **kwargs):
     xarray.Dataset
     """
 
-    ds_era5 = xr.open_dataset(fname, chunks={'time': 1})
+    ds_era5 = xr.open_dataset(
+        fname, chunks={'time': 6, 'latitude025': 721, 'longitude025': 1440})
     ds_era5 = ds_era5[['u10', 'v10', 'latitude025', 'longitude025']]
     ds_era5 = ds_era5.sel(time=str(kwargs['date']), method="nearest")
     ds_era5 = ds_era5.drop('time')

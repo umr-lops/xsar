@@ -4,10 +4,6 @@ requires-python = ">= 3.10"
 license = { text = "MIT" }
 authors = [
   { name = "Olivier Archer", email = "olivier.archer@ifremer.fr" },
-  { name = "Antoine Grouazel", email = "antoine.grouazel@ifremer.fr" },
-  { name = "Alexandre Levieux", email = "alexandre.levieux@gmail.com" },
-  { name = "Yann Reynaud", email = "yann.reynaud@ifremer.fr" },
-  { name = 'Vincent Lheureux', email = "vinc.lheureux@gmail.com" },
 ]
 description = "Python xarray library to use Level-1 GRD Synthetic Aperture Radar products"
 readme = "README.md"

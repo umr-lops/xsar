@@ -68,7 +68,6 @@ jobs:
           create-args: >-
             python=${{ matrix.python-version }}
             pytest-reportlog
-            conda
 
       - name: install upstream-dev dependencies
         run: bash ci/install-upstream-dev.sh

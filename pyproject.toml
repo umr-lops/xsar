@@ -26,6 +26,11 @@ dependencies = [
   'rioxarray',
   'lxml',
 ]
+[project.optional-dependencies]
+RS2 = ["xradarsat2"]
+RCM = ["xarray-safe-rcm"]
+S1 = ["xarray-safe-s1"]
+
 keywords = [
   "xarray",
   "earth-observation",
@@ -41,10 +46,8 @@ classifiers = [
   "Development Status :: 4 - Beta",
   "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
-  "Programming Language :: Python",
-  "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
   "Intended Audience :: Science/Research",
   "Topic :: Scientific/Engineering",
 ]
@@ -57,7 +60,6 @@ repository = "https://github.com/umr-lops/xsar"
 changelog = "https://xsar.readthedocs.io/en/latest/changelog.html"
 
 [project.scripts]
-ceos-alos2-create-cache = "ceos_alos2.sar_image.cli:main"
 xarray.backends = "xsar.xarray_backends:XsarXarrayBackend"
 
 [build-system]

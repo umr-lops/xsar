@@ -2,6 +2,13 @@
 name = "xsar"
 requires-python = ">= 3.10"
 license = { text = "MIT" }
+authors = [
+  { name = "Olivier Archer", email = "olivier.archer@ifremer.fr" },
+  { name = "Antoine Grouazel", email = "antoine.grouazel@ifremer.fr" },
+  { name = "Alexandre Levieux", email = "alexandre.levieux@gmail.com" },
+  { name = "Yann Reynaud", email = "yann.reynaud@ifremer.fr" },
+  { name = 'Vincent Lheureux', email = "vinc.lheureux@gmail.com" },
+]
 description = "Python xarray library to use Level-1 GRD Synthetic Aperture Radar products"
 readme = "README.md"
 dependencies = [
@@ -60,7 +67,7 @@ repository = "https://github.com/umr-lops/xsar"
 changelog = "https://xsar.readthedocs.io/en/latest/changelog.html"
 
 [project.scripts]
-xarray.backends = "xsar.xarray_backends:XsarXarrayBackend"
+#xsar = "xsar.xarray_backends:XsarXarrayBackend"
 
 [build-system]
 requires = ["setuptools>=64.0", "setuptools-scm"]

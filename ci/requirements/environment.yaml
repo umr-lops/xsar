@@ -17,4 +17,3 @@ dependencies:
   - dask
   - distributed
   - aiohttp
-  - requests

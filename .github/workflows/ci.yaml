@@ -16,8 +16,9 @@ jobs:
     name: "Detect CI Trigger: [skip-ci]"
     if: |
       github.repository == 'umr-lops/xsar'
-      && github.event_name == 'push'
-      || github.event_name == 'pull_request'
+      && (
+          github.event_name == 'push' || github.event_name == 'pull_request'
+      )
     runs-on: ubuntu-latest
     outputs:
       triggered: ${{ steps.detect-trigger.outputs.trigger-found }}

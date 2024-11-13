@@ -21,3 +21,14 @@ from xsar.rcm_dataset import RcmDataset
 from xsar.base_dataset import BaseDataset
 from xsar.base_meta import BaseMeta
 from xsar.xsar import open_dataset,open_datatree,product_info
+
+
+import xsar
+try:
+    from importlib import metadata
+except ImportError: # for Python<3.8
+    import importlib_metadata as metadata
+try:
+    __version__ = metadata.version("xsar")
+except Exception:
+    __version__ = "999"

@@ -11,6 +11,29 @@ authors = [
 ]
 description = "Python xarray library to use Level-1 GRD Synthetic Aperture Radar products"
 readme = "README.md"
+keywords = [
+  "xarray",
+  "earth-observation",
+  "remote-sensing",
+  "satellite-imagery",
+  "Sentinel-1",
+  "RCM",
+  "RadarSat2",
+  "sar",
+  "synthetic-aperture-radar",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering",
+]
+dynamic = ["version"]
 dependencies = [
   'GDAL',
   'dask[array]',
@@ -38,27 +61,7 @@ RS2 = ["xradarsat2"]
 RCM = ["xarray-safe-rcm"]
 S1 = ["xarray-safe-s1"]
 
-keywords = [
-  "xarray",
-  "earth-observation",
-  "remote-sensing",
-  "satellite-imagery",
-  "Sentinel-1",
-  "RCM",
-  "RadarSat2",
-  "sar",
-  "synthetic-aperture-radar",
-]
-classifiers = [
-  "Development Status :: 4 - Beta",
-  "License :: OSI Approved :: MIT License",
-  "Operating System :: OS Independent",
-  "Programming Language :: Python :: 3.11",
-  "Programming Language :: Python :: 3.12",
-  "Intended Audience :: Science/Research",
-  "Topic :: Scientific/Engineering",
-]
-dynamic = ["version"]
+
 
 [project.urls]
 homepage = "https://github.com/umr-lops/xsar.readthedocs.io"
@@ -75,6 +78,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 packages = ["xsar"]
+package-dir = {"" = "src"}
 
 [tool.setuptools_scm]
 fallback_version = "999"

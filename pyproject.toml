@@ -1,42 +1,42 @@
 [project]
 name = "xsar"
 requires-python = ">= 3.10"
-license = {text = "MIT"}
+license = { text = "MIT" }
 description = "Python xarray library to use Level-1 GRD Synthetic Aperture Radar products"
 readme = "README.md"
 dependencies = [
-   'GDAL',
-    'dask[array]',
-    'distributed',
-    "xarray>=2024.10.0",
-    'affine',
-    'rasterio',
-    'cartopy',
-    'fiona',
-    'pyproj',
-    'numpy',
-    'scipy',
-    'shapely',
-    'geopandas',
-    'fsspec',
-    'aiohttp',
-    'pytz',
-    'psutil',
-    'jinja2',
-    'rioxarray',
-    'lxml'
+  'GDAL',
+  'dask[array]',
+  'distributed',
+  "xarray>=2024.10.0",
+  'affine',
+  'rasterio',
+  'cartopy',
+  'fiona',
+  'pyproj',
+  'numpy',
+  'scipy',
+  'shapely',
+  'geopandas',
+  'fsspec',
+  'aiohttp',
+  'pytz',
+  'psutil',
+  'jinja2',
+  'rioxarray',
+  'lxml',
 ]
 keywords = [
-    "xarray",
-    "earth-observation",
-    "remote-sensing",
-    "satellite-imagery",
-    "Sentinel-1",
-    "RCM",
-    "RadarSat2",
-    "sar",
-    "synthetic-aperture-radar",
-    ]
+  "xarray",
+  "earth-observation",
+  "remote-sensing",
+  "satellite-imagery",
+  "Sentinel-1",
+  "RCM",
+  "RadarSat2",
+  "sar",
+  "synthetic-aperture-radar",
+]
 classifiers = [
   "Development Status :: 4 - Beta",
   "License :: OSI Approved :: MIT License",

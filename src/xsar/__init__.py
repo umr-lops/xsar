@@ -10,6 +10,7 @@ __all__ = [
     "RcmDataset",
     "BaseDataset",
     "BaseMeta",
+    "get_test_file",
 ]
 
 from xsar.radarsat2_dataset import RadarSat2Dataset
@@ -21,7 +22,7 @@ from xsar.rcm_dataset import RcmDataset
 from xsar.base_dataset import BaseDataset
 from xsar.base_meta import BaseMeta
 from xsar.xsar import open_dataset,open_datatree,product_info
-
+from xsar.xsar import get_test_file
 
 import xsar
 try:

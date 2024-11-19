@@ -62,7 +62,7 @@ jobs:
           echo "CONDA_ENV_FILE=ci/requirements/environment.yaml" >> $GITHUB_ENV
 
       - name: Setup micromamba
-        uses: mamba-org/setup-micromamba@v1
+        uses: mamba-org/setup-micromamba@v2
         with:
           environment-file: ${{ env.CONDA_ENV_FILE }}
           environment-name: xsar-tests

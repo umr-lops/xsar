@@ -6,7 +6,6 @@ import cartopy
 import rasterio
 import shapely
 from shapely.geometry import Polygon
-from shapely import ops
 import numpy as np
 from datetime import datetime
 
@@ -18,28 +17,27 @@ import geopandas as gpd
 
 from .utils import class_or_instancemethod, to_lon180, haversine
 
-logger = logging.getLogger('xsar.base_meta')
+logger = logging.getLogger("xsar.base_meta")
 logger.addHandler(logging.NullHandler())
 
 # we know tiff as no geotransform : ignore warning
-warnings.filterwarnings(
-    "ignore", category=rasterio.errors.NotGeoreferencedWarning)
+warnings.filterwarnings("ignore", category=rasterio.errors.NotGeoreferencedWarning)
 
 # allow nan without warnings
 # some dask warnings are still non filtered: https://github.com/dask/dask/issues/3245
-np.errstate(invalid='ignore')
+np.errstate(invalid="ignore")
 
 
 class BaseMeta(BaseDataset):
     """
-        Abstract class that defines necessary common functions for the computation of different SAR metadata
-        (Radarsat2, Sentinel1, RCM...).
-        This also permit a better maintenance, because these functions aren't redefined many times.
+    Abstract class that defines necessary common functions for the computation of different SAR metadata
+    (Radarsat2, Sentinel1, RCM...).
+    This also permit a better maintenance, because these functions aren't redefined many times.
     """
 
     # default mask feature (see self.set_mask_feature and cls.set_mask_feature)
     _mask_features_raw = {
-        'land': cartopy.feature.NaturalEarthFeature('physical', 'land', '10m')
+        "land": cartopy.feature.NaturalEarthFeature("physical", "land", "10m")
     }
 
     _mask_features = {}
@@ -74,28 +72,31 @@ class BaseMeta(BaseDataset):
                 import fiona
                 import pyproj
                 from shapely.ops import transform
+
                 with fiona.open(feature) as fshp:
                     try:
                         # proj6 give a " FutureWarning: '+init=<authority>:<code>' syntax is deprecated. "
                         # '<authority>:<code>' is the preferred initialization method"
-                        crs_in = fshp.crs['init']
+                        crs_in = fshp.crs["init"]
                     except KeyError:
                         crs_in = fshp.crs
                     crs_in = pyproj.CRS(crs_in)
                 proj_transform = pyproj.Transformer.from_crs(
-                    pyproj.CRS('EPSG:4326'), crs_in, always_xy=True).transform
+                    pyproj.CRS("EPSG:4326"), crs_in, always_xy=True
+                ).transform
                 footprint_crs = transform(proj_transform, self.footprint)
 
                 with warnings.catch_warnings():
                     # ignore "RuntimeWarning: Sequential read of iterator was interrupted. Resetting iterator."
                     warnings.simplefilter("ignore", RuntimeWarning)
                     feature = cartopy.feature.ShapelyFeature(
-                        gpd.read_file(feature, mask=footprint_crs).to_crs(
-                            epsg=4326).geometry,
-                        cartopy.crs.PlateCarree()
+                        gpd.read_file(feature, mask=footprint_crs)
+                        .to_crs(epsg=4326)
+                        .geometry,
+                        cartopy.crs.PlateCarree(),
                     )
             if not isinstance(feature, cartopy.feature.Feature):
-                raise TypeError('Expected a cartopy.feature.Feature type')
+                raise TypeError("Expected a cartopy.feature.Feature type")
             self._mask_features[name] = feature
 
         return self._mask_features[name]
@@ -117,14 +118,14 @@ class BaseMeta(BaseDataset):
         --------
             Add an 'ocean' mask at class level (ie as default mask):
             ```
-            >>> xsar.RadarSat2Meta.set_mask_feature('ocean', cartopy.feature.OCEAN)
-            >>> xsar.Sentinel1Meta.set_mask_feature('ocean', cartopy.feature.OCEAN)
+            >>> xsar.RadarSat2Meta.set_mask_feature("ocean", cartopy.feature.OCEAN)
+            >>> xsar.Sentinel1Meta.set_mask_feature("ocean", cartopy.feature.OCEAN)
             ```
 
             Add an 'ocean' mask at instance level (ie only for this self Sentinel1Meta (or RadarSat2Meta instance):
             ```
-            >>> xsar.RadarSat2Meta.set_mask_feature('ocean', cartopy.feature.OCEAN)
-            >>> xsar.Sentinel1Meta.set_mask_feature('ocean', cartopy.feature.OCEAN)
+            >>> xsar.RadarSat2Meta.set_mask_feature("ocean", cartopy.feature.OCEAN)
+            >>> xsar.Sentinel1Meta.set_mask_feature("ocean", cartopy.feature.OCEAN)
             ```
 
 
@@ -164,16 +165,20 @@ class BaseMeta(BaseDataset):
             descr = self._mask_features_raw[name]
             try:
                 # nice repr for a class (like 'cartopy.feature.NaturalEarthFeature land')
-                descr = '%s.%s %s' % (
-                    descr.__module__, descr.__class__.__name__, descr.name)
+                descr = "%s.%s %s" % (
+                    descr.__module__,
+                    descr.__class__.__name__,
+                    descr.name,
+                )
             except AttributeError:
                 pass
             return descr
 
         if self._mask_geometry[name] is None:
             if self._get_mask_intersecting_geometries(name).unary_union:
-                poly = self._get_mask_intersecting_geometries(name) \
-                    .unary_union.intersection(self.footprint)
+                poly = self._get_mask_intersecting_geometries(
+                    name
+                ).unary_union.intersection(self.footprint)
 
             else:
                 poly = Polygon()
@@ -208,13 +213,14 @@ class BaseMeta(BaseDataset):
     @property
     def cross_antemeridian(self):
         """True if footprint cross antemeridian"""
-        return ((np.max(self.geoloc['longitude']) - np.min(
-            self.geoloc['longitude'])) > 180).item()
+        return (
+            (np.max(self.geoloc["longitude"]) - np.min(self.geoloc["longitude"])) > 180
+        ).item()
 
     @property
     def swath(self):
         """string like 'EW', 'IW', 'WV', etc ..."""
-        return self.manifest_attrs['swath_type']
+        return self.manifest_attrs["swath_type"]
 
     @property
     @abstractmethod
@@ -267,7 +273,7 @@ class BaseMeta(BaseDataset):
         lines, samples = args
 
         scalar = True
-        if hasattr(lines, '__iter__'):
+        if hasattr(lines, "__iter__"):
             scalar = False
 
         if approx:
@@ -280,20 +286,20 @@ class BaseMeta(BaseDataset):
         else:
             dict_coords2ll = self._dict_coords2ll
             if to_grid:
-                lon = dict_coords2ll['longitude'](lines, samples)
-                lat = dict_coords2ll['latitude'](lines, samples)
+                lon = dict_coords2ll["longitude"](lines, samples)
+                lat = dict_coords2ll["latitude"](lines, samples)
             else:
-                lon = dict_coords2ll['longitude'].ev(lines, samples)
-                lat = dict_coords2ll['latitude'].ev(lines, samples)
+                lon = dict_coords2ll["longitude"].ev(lines, samples)
+                lat = dict_coords2ll["latitude"].ev(lines, samples)
 
         if self.cross_antemeridian:
             lon = to_lon180(lon)
 
-        if scalar and hasattr(lon, '__iter__'):
+        if scalar and hasattr(lon, "__iter__"):
             lon = lon.item()
             lat = lat.item()
 
-        if hasattr(lon, '__iter__') and type(lon) is not type(lines):
+        if hasattr(lon, "__iter__") and type(lon) is not type(lines):
             lon = type(lines)(lon)
             lat = type(lines)(lat)
 
@@ -331,7 +337,7 @@ class BaseMeta(BaseDataset):
         --------
             get nearest (line,sample) from (lon,lat) = (84.81, 21.32) in ds, without bounds checks
 
-            >>> (line, sample) = self.ll2coords(84.81, 21.32) # (lon, lat)
+            >>> (line, sample) = self.ll2coords(84.81, 21.32)  # (lon, lat)
             >>> (line, sample)
             (9752.766349989339, 17852.571322887554)
 
@@ -348,14 +354,19 @@ class BaseMeta(BaseDataset):
         lon, lat = args
 
         # approximation with global inaccurate transform
-        line_approx, sample_approx = ~self.approx_transform * \
-            (np.asarray(lon), np.asarray(lat))
+        line_approx, sample_approx = ~self.approx_transform * (
+            np.asarray(lon),
+            np.asarray(lat),
+        )
 
         # Theoretical identity. It should be the same, but the difference show the error.
         lon_identity, lat_identity = self.coords2ll(
-            line_approx, sample_approx, to_grid=False)
-        line_identity, sample_identity = ~self.approx_transform * \
-            (lon_identity, lat_identity)
+            line_approx, sample_approx, to_grid=False
+        )
+        line_identity, sample_identity = ~self.approx_transform * (
+            lon_identity,
+            lat_identity,
+        )
 
         # we are now able to compute the error, and make a correction
         line_error = line_identity - line_approx
@@ -363,11 +374,6 @@ class BaseMeta(BaseDataset):
 
         line = line_approx - line_error
         sample = sample_approx - sample_error
-
-        if hasattr(lon, '__iter__'):
-            scalar = False
-        else:
-            scalar = True
 
         return line, sample
 
@@ -389,10 +395,8 @@ class BaseMeta(BaseDataset):
 
         """
 
-        lon1, lat1 = self.coords2ll(
-            lines - 1, samples, to_grid=to_grid, approx=approx)
-        lon2, lat2 = self.coords2ll(
-            lines + 1, samples, to_grid=to_grid, approx=approx)
+        lon1, lat1 = self.coords2ll(lines - 1, samples, to_grid=to_grid, approx=approx)
+        lon2, lat2 = self.coords2ll(lines + 1, samples, to_grid=to_grid, approx=approx)
         _, heading = haversine(lon1, lat1, lon2, lat2)
         return heading
 
@@ -411,22 +415,22 @@ class BaseMeta(BaseDataset):
     @property
     def start_date(self):
         """start date, as datetime.datetime"""
-        out_format = '%Y-%m-%d %H:%M:%S.%f'
+        out_format = "%Y-%m-%d %H:%M:%S.%f"
         date = self.time_range.left
         try:
-            return '%s' % datetime.strptime('%s' % date, out_format)
+            return "%s" % datetime.strptime("%s" % date, out_format)
         except ValueError:
-            return '%s' % date.strftime(out_format)
+            return "%s" % date.strftime(out_format)
 
     @property
     def stop_date(self):
         """stop date, as datetime.datetime"""
-        out_format = '%Y-%m-%d %H:%M:%S.%f'
+        out_format = "%Y-%m-%d %H:%M:%S.%f"
         date = self.time_range.right
         try:
-            return '%s' % datetime.strptime('%s' % date, out_format)
+            return "%s" % datetime.strptime("%s" % date, out_format)
         except ValueError:
-            return '%s' % date.strftime(out_format)
+            return "%s" % date.strftime(out_format)
 
     @class_or_instancemethod
     def set_raster(self_or_cls, name, resource, read_function=None, get_function=None):
@@ -434,12 +438,15 @@ class BaseMeta(BaseDataset):
         default = available_rasters.loc[name:name]
 
         # set from params, or from default
-        self_or_cls.rasters.loc[name,
-                                'resource'] = resource or default.loc[name, 'resource']
-        self_or_cls.rasters.loc[name,
-                                'read_function'] = read_function or default.loc[name, 'read_function']
-        self_or_cls.rasters.loc[name,
-                                'get_function'] = get_function or default.loc[name, 'get_function']
+        self_or_cls.rasters.loc[name, "resource"] = (
+            resource or default.loc[name, "resource"]
+        )
+        self_or_cls.rasters.loc[name, "read_function"] = (
+            read_function or default.loc[name, "read_function"]
+        )
+        self_or_cls.rasters.loc[name, "get_function"] = (
+            get_function or default.loc[name, "get_function"]
+        )
 
         return
 
@@ -449,27 +456,27 @@ class BaseMeta(BaseDataset):
         # to reconstruct another instance of self
         #
         minidict = {
-            'name': self.name,
-            '_mask_features_raw': self._mask_features_raw,
-            '_mask_features': {},
-            '_mask_intersecting_geometries': {},
-            '_mask_geometry': {},
-            'rasters': self.rasters
+            "name": self.name,
+            "_mask_features_raw": self._mask_features_raw,
+            "_mask_features": {},
+            "_mask_intersecting_geometries": {},
+            "_mask_geometry": {},
+            "rasters": self.rasters,
         }
-        for name in minidict['_mask_features_raw'].keys():
-            minidict['_mask_intersecting_geometries'][name] = None
-            minidict['_mask_geometry'][name] = None
-            minidict['_mask_features'][name] = None
+        for name in minidict["_mask_features_raw"].keys():
+            minidict["_mask_intersecting_geometries"][name] = None
+            minidict["_mask_geometry"][name] = None
+            minidict["_mask_features"][name] = None
         return minidict
 
     @classmethod
     def from_dict(cls, minidict):
         # like copy constructor, but take a dict from Sentinel1Meta.dict
         # https://github.com/umr-lops/xsar/issues/23
-        for name in minidict['_mask_features_raw'].keys():
-            assert minidict['_mask_geometry'][name] is None
-            assert minidict['_mask_features'][name] is None
+        for name in minidict["_mask_features_raw"].keys():
+            assert minidict["_mask_geometry"][name] is None
+            assert minidict["_mask_features"][name] is None
         minidict = copy.copy(minidict)
-        new = cls(minidict['name'])
+        new = cls(minidict["name"])
         new.__dict__.update(minidict)
         return new

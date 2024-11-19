@@ -1,0 +1,98 @@
+[project]
+name = "xsar"
+requires-python = ">= 3.10"
+license = { text = "MIT" }
+authors = [
+  { name = "Olivier Archer", email = "olivier.archer@ifremer.fr" },
+]
+description = "Python xarray library to use Level-1 GRD Synthetic Aperture Radar products"
+readme = "README.md"
+keywords = [
+  "xarray",
+  "earth-observation",
+  "remote-sensing",
+  "satellite-imagery",
+  "Sentinel-1",
+  "RCM",
+  "RadarSat2",
+  "sar",
+  "synthetic-aperture-radar",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Intended Audience :: Science/Research",
+  "Topic :: Scientific/Engineering",
+]
+dynamic = ["version"]
+dependencies = [
+  'GDAL',
+  'dask[array]',
+  'distributed',
+  "xarray>=2024.10.0",
+  'affine',
+  'rasterio',
+  'cartopy',
+  'fiona',
+  'pyproj',
+  'numpy',
+  'scipy',
+  'shapely',
+  'geopandas',
+  'fsspec',
+  'aiohttp',
+  'pytz',
+  'psutil',
+  'jinja2',
+  'rioxarray',
+  'lxml',
+]
+[project.optional-dependencies]
+RS2 = ["xradarsat2"]
+RCM = ["xarray-safe-rcm"]
+S1 = ["xarray-safe-s1"]
+
+
+
+[project.urls]
+homepage = "https://github.com/umr-lops/xsar.readthedocs.io"
+documentation = "https://xsar.readthedocs.io"
+repository = "https://github.com/umr-lops/xsar"
+changelog = "https://xsar.readthedocs.io/en/latest/changelog.html"
+
+[project.scripts]
+#xsar = "xsar.xarray_backends:XsarXarrayBackend"
+
+[build-system]
+requires = ["setuptools>=64.0", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["xsar"]
+package-dir = {"" = "src"}
+
+[tool.setuptools_scm]
+fallback_version = "999"
+
+[tool.isort]
+profile = "black"
+skip_gitignore = true
+float_to_top = true
+default_section = "THIRDPARTY"
+known_first_party = "xsar"
+
+[tool.black]
+line-length = 100
+
+[tool.coverage.run]
+source = ["xsar"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+exclude_lines = ["pragma: no cover", "if TYPE_CHECKING"]

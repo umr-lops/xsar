@@ -1,0 +1,19 @@
+name: xsar-tests
+channels:
+  - conda-forge
+dependencies:
+  - ipython
+  - pre-commit
+  - pytest
+  - pytest-reportlog
+  - pytest-cov
+  - numpy
+  - toolz
+  - cytoolz
+  - python-dateutil
+  - construct
+  - fsspec
+  - xarray
+  - dask
+  - distributed
+  - aiohttp

@@ -1,0 +1,8 @@
+name: xsar-docs
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - sphinx>=4
+  - sphinx_book_theme
+  - ipython

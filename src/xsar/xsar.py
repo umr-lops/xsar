@@ -3,10 +3,10 @@ TODO: this docstring is the main xsar module documentation shown to the user. It
 """
 
 import warnings
-import xarray
 
 from importlib import metadata
-__version__ = metadata.version('xsar')
+
+__version__ = metadata.version("xsar")
 
 import logging
 from .utils import timing, config, url_get
@@ -22,13 +22,8 @@ from .radarsat2_meta import RadarSat2Meta
 from .radarsat2_dataset import RadarSat2Dataset
 from .rcm_meta import RcmMeta
 from .rcm_dataset import RcmDataset
-from .base_dataset import BaseDataset
-from .base_meta import BaseMeta
 
-logger = logging.getLogger('xsar')
-"""
-TODO: inform the user how to handle logging
-"""
+logger = logging.getLogger("xsar")
 logger.addHandler(logging.NullHandler())
 
 os.environ["GDAL_CACHEMAX"] = "128"
@@ -64,11 +59,23 @@ def open_dataset(*args, **kwargs):
     """
     dataset_id = args[0]
     # TODO: check product type (S1, RS2), and call specific reader
-    if isinstance(dataset_id, Sentinel1Meta) or isinstance(dataset_id, str) and "S1" in dataset_id:
+    if (
+        isinstance(dataset_id, Sentinel1Meta)
+        or isinstance(dataset_id, str)
+        and "S1" in dataset_id
+    ):
         sar_obj = Sentinel1Dataset(*args, **kwargs)
-    elif isinstance(dataset_id, RadarSat2Meta) or isinstance(dataset_id, str) and "RS2" in dataset_id:
+    elif (
+        isinstance(dataset_id, RadarSat2Meta)
+        or isinstance(dataset_id, str)
+        and "RS2" in dataset_id
+    ):
         sar_obj = RadarSat2Dataset(*args, **kwargs)
-    elif isinstance(dataset_id, RcmMeta) or isinstance(dataset_id, str) and "RCM" in dataset_id:
+    elif (
+        isinstance(dataset_id, RcmMeta)
+        or isinstance(dataset_id, str)
+        and "RCM" in dataset_id
+    ):
         sar_obj = RcmDataset(*args, **kwargs)
     else:
         raise TypeError("Unknown dataset type from %s" % str(dataset_id))
@@ -105,11 +112,23 @@ def open_datatree(*args, **kwargs):
     """
     dataset_id = args[0]
     # Check product type (S1, RS2), and call specific reader
-    if isinstance(dataset_id, Sentinel1Meta) or isinstance(dataset_id, str) and "S1" in dataset_id:
+    if (
+        isinstance(dataset_id, Sentinel1Meta)
+        or isinstance(dataset_id, str)
+        and "S1" in dataset_id
+    ):
         sar_obj = Sentinel1Dataset(*args, **kwargs)
-    elif isinstance(dataset_id, RadarSat2Meta) or isinstance(dataset_id, str) and "RS2" in dataset_id:
+    elif (
+        isinstance(dataset_id, RadarSat2Meta)
+        or isinstance(dataset_id, str)
+        and "RS2" in dataset_id
+    ):
         sar_obj = RadarSat2Dataset(*args, **kwargs)
-    elif isinstance(dataset_id, RcmMeta) or isinstance(dataset_id, str) and "RCM" in dataset_id:
+    elif (
+        isinstance(dataset_id, RcmMeta)
+        or isinstance(dataset_id, str)
+        and "RCM" in dataset_id
+    ):
         sar_obj = RcmDataset(*args, **kwargs)
     else:
         raise TypeError("Unknown dataset type from %s" % str(dataset_id))
@@ -117,7 +136,7 @@ def open_datatree(*args, **kwargs):
     return dt
 
 
-def product_info(path, columns='minimal', include_multi=False):
+def product_info(path, columns="minimal", include_multi=False):
     """
 
     Parameters
@@ -143,25 +162,25 @@ def product_info(path, columns='minimal', include_multi=False):
     """
 
     info_keys = {
-        'minimal': ['name', 'ipf', 'platform', 'swath', 'product', 'pols', 'meta']
+        "minimal": ["name", "ipf", "platform", "swath", "product", "pols", "meta"]
     }
-    info_keys['spatial'] = info_keys['minimal'] + ['time_range', 'geometry']
+    info_keys["spatial"] = info_keys["minimal"] + ["time_range", "geometry"]
 
     if isinstance(columns, str):
         columns = info_keys[columns]
 
     # 'meta' column is not a Sentinel1Meta attribute
-    real_cols = [c for c in columns if c != 'meta']
+    real_cols = [c for c in columns if c != "meta"]
     add_cols = []
-    if 'path' not in real_cols:
-        add_cols.append('path')
-    if 'dsid' not in real_cols:
-        add_cols.append('dsid')
+    if "path" not in real_cols:
+        add_cols.append("path")
+    if "dsid" not in real_cols:
+        add_cols.append("dsid")
 
     def _meta2df(meta):
         df = pd.Series(data=meta.to_dict(add_cols + real_cols)).to_frame().T
-        if 'meta' in columns:
-            df['meta'] = meta
+        if "meta" in columns:
+            df["meta"] = meta
         return df
 
     if isinstance(path, str):
@@ -179,17 +198,19 @@ def product_info(path, columns='minimal', include_multi=False):
                 s1meta = Sentinel1Meta(n)
                 df_list.append(_meta2df(s1meta))
     df = pd.concat(df_list).reset_index(drop=True)
-    if 'geometry' in df:
+    if "geometry" in df:
         df = gpd.GeoDataFrame(df).set_crs(epsg=4326)
 
-    df = df.set_index(['path', 'dsid'], drop=False)
+    df = df.set_index(["path", "dsid"], drop=False)
     if add_cols:
         df = df.drop(columns=add_cols)
 
     return df
 
 
-def get_test_file(fname, base_url='https://cyclobs.ifremer.fr/static/sarwing_datarmor/xsardata'):
+def get_test_file(
+    fname, base_url="https://cyclobs.ifremer.fr/static/sarwing_datarmor/xsardata"
+):
     """
     get test file from base_url(https://cyclobs.ifremer.fr/static/sarwing_datarmor/xsardata/)
     file is unzipped and extracted to `config['data_dir']`
@@ -205,12 +226,12 @@ def get_test_file(fname, base_url='https://cyclobs.ifremer.fr/static/sarwing_dat
         path to file, relative to `config['data_dir']`
 
     """
-    res_path = config['data_dir']
-    file_url = '%s/%s.zip' % (base_url, fname)
+    res_path = config["data_dir"]
+    file_url = "%s/%s.zip" % (base_url, fname)
     if not os.path.exists(os.path.join(res_path, fname)):
         warnings.warn("Downloading %s" % file_url)
         local_file = url_get(file_url)
         warnings.warn("Unzipping %s" % os.path.join(res_path, fname))
-        with zipfile.ZipFile(local_file, 'r') as zip_ref:
+        with zipfile.ZipFile(local_file, "r") as zip_ref:
             zip_ref.extractall(res_path)
     return os.path.join(res_path, fname)

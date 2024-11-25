@@ -30,7 +30,8 @@ logger = logging.getLogger("xsar.sentinel1_dataset")
 logger.addHandler(logging.NullHandler())
 
 # we know tiff as no geotransform : ignore warning
-warnings.filterwarnings("ignore", category=rasterio.errors.NotGeoreferencedWarning)
+warnings.filterwarnings(
+    "ignore", category=rasterio.errors.NotGeoreferencedWarning)
 
 # allow nan without warnings
 # some dask warnings are still non filtered: https://github.com/dask/dask/issues/3245
@@ -126,7 +127,8 @@ class Sentinel1Dataset(BaseDataset):
             # assert isinstance(sar_meta.coords2ll(100, 100),tuple)
         else:
             # we want self.sar_meta to be a dask actor on a worker
-            self.sar_meta = BlockingActorProxy(Sentinel1Meta.from_dict, dataset_id.dict)
+            self.sar_meta = BlockingActorProxy(
+                Sentinel1Meta.from_dict, dataset_id.dict)
         del dataset_id
 
         if self.sar_meta.multidataset:
@@ -244,7 +246,6 @@ class Sentinel1Dataset(BaseDataset):
             raise ValueError(
                 f"Recalibration can't be done without roll angle. You probably work with an old file for which roll angle is not in auxiliary file.")
 
-
         # self.datatree['measurement'].ds = .from_dict({'measurement':self._load_digital_number(resolution=resolution, resampling=resampling, chunks=chunks)
         # self._dataset = self.datatree['measurement'].ds #the two variables should be linked then.
         self._dataset = self.datatree[
@@ -277,10 +278,12 @@ class Sentinel1Dataset(BaseDataset):
                 value_res_line = value_res_sample
             elif isinstance(resolution, dict):
                 value_res_sample = (
-                    self.sar_meta.image["slantRangePixelSpacing"] * resolution["sample"]
+                    self.sar_meta.image["slantRangePixelSpacing"] *
+                    resolution["sample"]
                 )
                 value_res_line = (
-                    self.sar_meta.image["azimuthPixelSpacing"] * resolution["line"]
+                    self.sar_meta.image["azimuthPixelSpacing"] *
+                    resolution["line"]
                 )
             else:
                 logger.warning(
@@ -396,7 +399,7 @@ class Sentinel1Dataset(BaseDataset):
         # line_jump_noise = np.ravel(dt['noise_range']['line'][1:-1].data) # annotated line number of burst begining, this one is corrupted for some S1 TOPS product
         # annoted line number of burst begining
         line_jump_noise = np.ravel(
-            dt["noise_range"]["line"][1 : 1 + len(line_jump_meas)].data
+            dt["noise_range"]["line"][1: 1 + len(line_jump_meas)].data
         )
         burst_first_lineshift = line_jump_meas - line_jump_noise
         if len(np.unique(burst_first_lineshift)) == 1:
@@ -404,7 +407,8 @@ class Sentinel1Dataset(BaseDataset):
             logging.debug("line_shift: %s", line_shift)
         else:
             raise ValueError(
-                "Inconsistency in line shifting : {}".format(burst_first_lineshift)
+                "Inconsistency in line shifting : {}".format(
+                    burst_first_lineshift)
             )
         res = dt["noise_range"].ds.assign_coords(
             {"line": dt["noise_range"]["line"] + line_shift}
@@ -674,7 +678,8 @@ class Sentinel1Dataset(BaseDataset):
             if "velocity" not in skip_variables:
                 self._dataset = self._dataset.merge(self.get_sensor_velocity())
             if "range_ground_spacing" not in skip_variables:
-                self._dataset = self._dataset.merge(self._range_ground_spacing())
+                self._dataset = self._dataset.merge(
+                    self._range_ground_spacing())
 
             # set miscellaneous attrs
             for var, attrs in attrs_dict.items():
@@ -703,7 +708,8 @@ class Sentinel1Dataset(BaseDataset):
                     # self.land_mask_slc_per_bursts(
                     #    lazy_loading=lazy_loading)  # replace "GRD" like (Affine transform) land_mask by a burst-by-burst rasterised land mask
                 else:
-                    logger.debug("not a TOPS product -> land_mask already available.")
+                    logger.debug(
+                        "not a TOPS product -> land_mask already available.")
         return
 
     def add_swath_number(self):
@@ -752,7 +758,8 @@ class Sentinel1Dataset(BaseDataset):
 
             # Marquer les pixels déjà vus
             flag_tab = xr.where(
-                (flag_tab == 1) & condition & (swath_tab == swath_index), 2, flag_tab
+                (flag_tab == 1) & condition & (
+                    swath_tab == swath_index), 2, flag_tab
             )
 
             # Affecter le swath actuel
@@ -806,7 +813,8 @@ class Sentinel1Dataset(BaseDataset):
         )
 
         self._dataset_recalibration = self._dataset_recalibration.assign(
-            rollAngle=(["line", "sample"], interp_roll(self._dataset.azimuth_time))
+            rollAngle=(["line", "sample"], interp_roll(
+                self._dataset.azimuth_time))
         )
         self._dataset_recalibration = self._dataset_recalibration.assign(
             offboresigthAngle=(
@@ -926,14 +934,17 @@ class Sentinel1Dataset(BaseDataset):
                         self._dataset_recalibration[keyf] = xr.DataArray(
                             np.nan,
                             dims=["pol"],
-                            coords={"pol": self._dataset_recalibration.coords["pol"]},
+                            coords={
+                                "pol": self._dataset_recalibration.coords["pol"]},
                         )
                         self._dataset_recalibration[keyf].attrs["aux_path"] = (
                             os.path.join(
                                 os.path.basename(
-                                    os.path.dirname(os.path.dirname(path_aux_pp1_old))
+                                    os.path.dirname(
+                                        os.path.dirname(path_aux_pp1_old))
                                 ),
-                                os.path.basename(os.path.dirname(path_aux_pp1_old)),
+                                os.path.basename(
+                                    os.path.dirname(path_aux_pp1_old)),
                                 os.path.basename(path_aux_pp1_old),
                             )
                         )
@@ -953,14 +964,17 @@ class Sentinel1Dataset(BaseDataset):
                         self._dataset_recalibration[keyf] = xr.DataArray(
                             np.nan,
                             dims=["pol"],
-                            coords={"pol": self._dataset_recalibration.coords["pol"]},
+                            coords={
+                                "pol": self._dataset_recalibration.coords["pol"]},
                         )
                         self._dataset_recalibration[keyf].attrs["aux_path"] = (
                             os.path.join(
                                 os.path.basename(
-                                    os.path.dirname(os.path.dirname(path_aux_pp1_new))
+                                    os.path.dirname(
+                                        os.path.dirname(path_aux_pp1_new))
                                 ),
-                                os.path.basename(os.path.dirname(path_aux_pp1_new)),
+                                os.path.basename(
+                                    os.path.dirname(path_aux_pp1_new)),
                                 os.path.basename(path_aux_pp1_new),
                             )
                         )
@@ -1012,8 +1026,10 @@ class Sentinel1Dataset(BaseDataset):
                     var_dB
                     + 10 * np.log10(self._dataset_recalibration["old_geap"])
                     - 10 * np.log10(self._dataset_recalibration["new_geap"])
-                    - 2 * 10 * np.log10(self._dataset_recalibration["old_gproc"])
-                    + 2 * 10 * np.log10(self._dataset_recalibration["new_gproc"])
+                    - 2 * 10 *
+                    np.log10(self._dataset_recalibration["old_gproc"])
+                    + 2 * 10 *
+                    np.log10(self._dataset_recalibration["new_gproc"])
                 )
 
                 self._dataset_recalibration[var + "__corrected"] = 10 ** (
@@ -1024,6 +1040,19 @@ class Sentinel1Dataset(BaseDataset):
             )
 
         self._dataset = self._add_denoised(self._dataset)
+        
+        for var_name, lut_name in self._map_var_lut.items():
+            var_name_raw = var_name + "_raw"
+            if var_name_raw in self._dataset:
+                self._dataset[var_name_raw] = self._dataset[var_name_raw].where(
+                    self._dataset[var_name_raw] > 0, 0)
+            else:
+                logger.debug(
+                    "Skipping variable '%s' ('%s' lut is missing)"
+                    % (var_name, lut_name)
+                )
+                
+                
         self.datatree["measurement"] = self.datatree["measurement"].assign(
             self._dataset
         )
@@ -1162,8 +1191,10 @@ class Sentinel1Dataset(BaseDataset):
                         (sub_a_min, sub_x_min, sub_a_max, sub_x_max) = map(
                             int, block.geometry.bounds
                         )
-                        sub_a = lines[(lines >= sub_a_min) & (lines <= sub_a_max)]
-                        sub_x = samples[(samples >= sub_x_min) & (samples <= sub_x_max)]
+                        sub_a = lines[(lines >= sub_a_min) &
+                                      (lines <= sub_a_max)]
+                        sub_x = samples[(samples >= sub_x_min)
+                                        & (samples <= sub_x_max)]
                         noise.loc[dict(line=sub_a, sample=sub_x)] = block.lut_f(
                             sub_a, sub_x
                         )
@@ -1228,7 +1259,8 @@ class Sentinel1Dataset(BaseDataset):
                 lines_start, lines_stop, samples, noiseLuts
             ):
                 lut_f = Lut_box_range(a_start, a_stop, x, lll)
-                block = pd.Series(dict([("lut_f", lut_f), ("geometry", lut_f.area)]))
+                block = pd.Series(
+                    dict([("lut_f", lut_f), ("geometry", lut_f.area)]))
                 blocks.append(block)
 
             # to geopandas
@@ -1305,8 +1337,10 @@ class Sentinel1Dataset(BaseDataset):
                 sample_stop,
                 noise_lut,
             ):
-                lut_f = Lut_box_azi(sw, a, a_start, a_stop, x_start, x_stop, lut)
-                block = pd.Series(dict([("lut_f", lut_f), ("geometry", lut_f.area)]))
+                lut_f = Lut_box_azi(sw, a, a_start, a_stop,
+                                    x_start, x_stop, lut)
+                block = pd.Series(
+                    dict([("lut_f", lut_f), ("geometry", lut_f.area)]))
                 blocks.append(block)
 
             if len(blocks) == 0:
@@ -1432,7 +1466,8 @@ class Sentinel1Dataset(BaseDataset):
         for varname in varnames:
             varname_in_geoloc = mapping_dataset_geoloc[varname]
             if varname in ["azimuth_time"]:
-                z_values = self.sar_meta.geoloc[varname_in_geoloc].astype(float)
+                z_values = self.sar_meta.geoloc[varname_in_geoloc].astype(
+                    float)
             elif varname == "longitude":
                 z_values = self.sar_meta.geoloc[varname_in_geoloc]
                 if self.sar_meta.cross_antemeridian:
@@ -1480,7 +1515,8 @@ class Sentinel1Dataset(BaseDataset):
                 else:
                     line_time = self.get_burst_azitime
                     XX, YY = np.meshgrid(
-                        line_time.astype(float), self._dataset.digital_number.sample
+                        line_time.astype(
+                            float), self._dataset.digital_number.sample
                     )
                     da_var = rbs(XX, YY, grid=False)
                     da_var = xr.DataArray(
@@ -1493,7 +1529,8 @@ class Sentinel1Dataset(BaseDataset):
                     )
             else:
                 if lazy_loading:
-                    da_var = map_blocks_coords(self._da_tmpl.astype(typee), interp_func)
+                    da_var = map_blocks_coords(
+                        self._da_tmpl.astype(typee), interp_func)
                 else:
                     da_var = interp_func(
                         self._dataset.digital_number.line,
@@ -1572,14 +1609,13 @@ class Sentinel1Dataset(BaseDataset):
         """
         lut = self._get_lut(var_name)
         res = np.abs(self._dataset.digital_number) ** 2.0 / (lut**2)
-        # dn default value is 0: convert to Nan
-        res = res.where(res > 0)
         astype = self._dtypes.get(var_name)
         if astype is not None:
             res = res.astype(astype)
 
         res.attrs.update(lut.attrs)
-        res.attrs["history"] = merge_yaml([lut.attrs["history"]], section=var_name)
+        res.attrs["history"] = merge_yaml(
+            [lut.attrs["history"]], section=var_name)
         res.attrs["references"] = (
             "https://sentinel.esa.int/web/sentinel/radiometric-calibration-of-level-1-products"
         )
@@ -1618,7 +1654,8 @@ class Sentinel1Dataset(BaseDataset):
             )
 
         if self.sar_meta.product != "GRD":
-            raise ValueError("SAR product must be GRD. Not implemented for SLC")
+            raise ValueError(
+                "SAR product must be GRD. Not implemented for SLC")
 
         # Retrieve the variable data array and corresponding LUT
         da_var = self._dataset[var_name]
@@ -1707,7 +1744,8 @@ class Sentinel1Dataset(BaseDataset):
                 ds[varname] = ds[varname_raw]
             elif len(set(self.sar_meta.denoised.values())) != 1:
                 # TODO: to be implemented
-                raise NotImplementedError("semi denoised products not yet implemented")
+                raise NotImplementedError(
+                    "semi denoised products not yet implemented")
             else:
                 varname_raw_corrected = varname_raw + "__corrected"
                 if (self.apply_recalibration) & (
@@ -1717,7 +1755,8 @@ class Sentinel1Dataset(BaseDataset):
                         self._dataset_recalibration[varname_raw_corrected] - ds[noise]
                     )
                     denoised.attrs["history"] = merge_yaml(
-                        [ds[varname_raw].attrs["history"], ds[noise].attrs["history"]],
+                        [ds[varname_raw].attrs["history"],
+                            ds[noise].attrs["history"]],
                         section=varname,
                     )
                     denoised.attrs["comment_recalibration"] = (
@@ -1726,7 +1765,8 @@ class Sentinel1Dataset(BaseDataset):
                 else:
                     denoised = ds[varname_raw] - ds[noise]
                     denoised.attrs["history"] = merge_yaml(
-                        [ds[varname_raw].attrs["history"], ds[noise].attrs["history"]],
+                        [ds[varname_raw].attrs["history"],
+                            ds[noise].attrs["history"]],
                         section=varname,
                     )
                     denoised.attrs["comment_recalibration"] = (
@@ -1780,7 +1820,8 @@ class Sentinel1Dataset(BaseDataset):
         vels = np.sqrt(np.sum(velos, axis=0))
         interp_f = interp1d(azi_times.astype(float), vels)
         _vels = interp_f(azimuth_times.astype(float))
-        res = xr.DataArray(_vels, dims=["line"], coords={"line": self.dataset.line})
+        res = xr.DataArray(_vels, dims=["line"], coords={
+                           "line": self.dataset.line})
         return xr.Dataset({"velocity": res})
 
     def _range_ground_spacing(self):
@@ -1812,11 +1853,13 @@ class Sentinel1Dataset(BaseDataset):
                     "line": int(len(line_tmp) / 2),
                 }
             )
-            range_ground_spacing_vect = ground_spacing[1] / np.sin(np.radians(inc))
+            range_ground_spacing_vect = ground_spacing[1] / \
+                np.sin(np.radians(inc))
             range_ground_spacing_vect.attrs["history"] = ""
 
         else:  # GRD
-            valuess = np.ones((len(self._dataset["sample"]))) * ground_spacing[1]
+            valuess = np.ones(
+                (len(self._dataset["sample"]))) * ground_spacing[1]
             range_ground_spacing_vect = xr.DataArray(
                 valuess, coords={"sample": self._dataset["sample"]}, dims=["sample"]
             )

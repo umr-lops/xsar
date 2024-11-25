@@ -1,16 +1,4 @@
 # default data dir for tests and examples
 data_dir: /tmp
 auxiliary_dir:
-path_auxiliary_df: 
-
-auxiliary_names:    
-    S1B:     
-        v_IPF_36:
-            AUX_PP1: 'S1B_AUX_PP1_V20160422T000000_G20220323T140710.SAFE'
-            AUX_CAL: 'S1B_AUX_CAL_V20160422T000000_G20210104T140113.SAFE'
-            #AUX_INS: 'S1B_AUX_INS_V20160422T000000_G20211027T134314.SAFE'
-    S1A:
-        v_IPF_36:
-            AUX_PP1: 'S1A_AUX_PP1_V20190228T092500_G20220323T153041.SAFE'
-            AUX_CAL: 'S1A_AUX_CAL_V20190228T092500_G20210104T141310.SAFE'
-            #AUX_INS: 'S1A_AUX_INS_V20190228T092500_G20211103T111906.SAFE'}
+path_auxiliary_df:

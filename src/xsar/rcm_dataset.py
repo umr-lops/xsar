@@ -21,7 +21,8 @@ logger = logging.getLogger("xsar.radarsat2_dataset")
 logger.addHandler(logging.NullHandler())
 
 # we know tiff as no geotransform : ignore warning
-warnings.filterwarnings("ignore", category=rasterio.errors.NotGeoreferencedWarning)
+warnings.filterwarnings(
+    "ignore", category=rasterio.errors.NotGeoreferencedWarning)
 
 # allow nan without warnings
 # some dask warnings are still non filtered: https://github.com/dask/dask/issues/3245
@@ -99,7 +100,8 @@ class RcmDataset(BaseDataset):
             # assert isinstance(rs2meta.coords2ll(100, 100),tuple)
         else:
             # we want self.rs2meta to be a dask actor on a worker
-            self.sar_meta = BlockingActorProxy(RcmMeta.from_dict, dataset_id.dict)
+            self.sar_meta = BlockingActorProxy(
+                RcmMeta.from_dict, dataset_id.dict)
         del dataset_id
 
         if self.sar_meta.multidataset:
@@ -146,7 +148,8 @@ class RcmDataset(BaseDataset):
             "beta0": "beta0",
         }
 
-        geoloc_vars = ["latitude", "longitude", "altitude", "incidence", "elevation"]
+        geoloc_vars = ["latitude", "longitude",
+                       "altitude", "incidence", "elevation"]
         for vv in skip_variables:
             if vv in geoloc_vars:
                 geoloc_vars.remove(vv)
@@ -168,8 +171,10 @@ class RcmDataset(BaseDataset):
                 value_res_sample = float(resolution.replace("m", ""))
                 value_res_line = value_res_sample
             elif isinstance(resolution, dict):
-                value_res_sample = self.sar_meta.pixel_sample_m * resolution["sample"]
-                value_res_line = self.sar_meta.pixel_line_m * resolution["line"]
+                value_res_sample = self.sar_meta.pixel_sample_m * \
+                    resolution["sample"]
+                value_res_line = self.sar_meta.pixel_line_m * \
+                    resolution["line"]
             else:
                 logger.warning(
                     "resolution type not handle (%s) should be str or dict -> sampleSpacing"
@@ -198,7 +203,8 @@ class RcmDataset(BaseDataset):
                 dask.array.empty_like(
                     self._dataset.digital_number.isel(pol=0).drop("pol"),
                     dtype=np.int8,
-                    name="empty_var_tmpl-%s" % dask.base.tokenize(self.sar_meta.name),
+                    name="empty_var_tmpl-%s" % dask.base.tokenize(
+                        self.sar_meta.name),
                 ),
                 dims=("line", "sample"),
                 coords={
@@ -234,7 +240,8 @@ class RcmDataset(BaseDataset):
 
         self._luts = self.lazy_load_luts()
         self._noise_luts = self.lazy_load_noise_luts()
-        self._noise_luts = self._noise_luts.drop(["pixelFirstNoiseValue", "stepSize"])
+        self._noise_luts = self._noise_luts.drop(
+            ["pixelFirstNoiseValue", "stepSize"])
         self.apply_calibration_and_denoising()
         self._dataset = xr.merge(
             [
@@ -249,9 +256,11 @@ class RcmDataset(BaseDataset):
         if rasters is not None:
             self._dataset = xr.merge([self._dataset, rasters])
         if "ground_heading" not in skip_variables:
-            self._dataset = xr.merge([self.load_ground_heading(), self._dataset])
+            self._dataset = xr.merge(
+                [self.load_ground_heading(), self._dataset])
         if "velocity" not in skip_variables:
-            self._dataset = xr.merge([self.get_sensor_velocity(), self._dataset])
+            self._dataset = xr.merge(
+                [self.get_sensor_velocity(), self._dataset])
         self._rasterized_masks = self.load_rasterized_masks()
         self._dataset = xr.merge([self._rasterized_masks, self._dataset])
         self.datatree["measurement"] = self.datatree["measurement"].assign(
@@ -410,7 +419,6 @@ class RcmDataset(BaseDataset):
         lut = self._get_lut(var_name)
         offset = lut.attrs["offset"]
         res = ((self._dataset.digital_number**2.0) + offset) / lut
-        res = res.where(res > 0)
         res.attrs.update(lut.attrs)
         return res.to_dataset(name=var_name + "_raw")
 
@@ -464,10 +472,22 @@ class RcmDataset(BaseDataset):
                     "Skipping variable '%s' ('%s' lut is missing)"
                     % (var_name, lut_name)
                 )
+
         self._dataset = self._add_denoised(self._dataset)
+
+        for var_name, lut_name in self._map_var_lut.items():
+            var_name_raw = var_name + "_raw"
+            if var_name_raw in self._dataset:
+                self._dataset[var_name_raw] = self._dataset[var_name_raw].where(
+                    self._dataset[var_name_raw] > 0, 0)
+            else:
+                logger.debug(
+                    "Skipping variable '%s' ('%s' lut is missing)"
+                    % (var_name, lut_name)
+                )
         self.datatree["measurement"] = self.datatree["measurement"].assign(
-            self._dataset
-        )
+            self._dataset)
+
         # self._dataset = self.datatree[
         #     'measurement'].to_dataset()  # test oct 22 to see if then I can modify variables of the dt
         return
@@ -496,7 +516,6 @@ class RcmDataset(BaseDataset):
         if vars is None:
             vars = ["sigma0", "beta0", "gamma0"]
         for varname in vars:
-
             varname_raw = varname + "_raw"
             noise = "ne%sz" % varname[0]
             if varname_raw not in ds:
@@ -511,6 +530,10 @@ class RcmDataset(BaseDataset):
                     else:
                         denoised.attrs["comment"] = "not clipped, some values can be <0"
                     ds[varname] = denoised
+                    
+                    ds[varname_raw].attrs[
+                        "denoising information"
+                    ] = f"product was not denoised"
 
                 else:
                     logging.debug(
@@ -518,7 +541,7 @@ class RcmDataset(BaseDataset):
                     )
                     denoised = ds[varname_raw]
                     denoised.attrs["denoising information"] = (
-                        "already denoised by Canadian Agency"
+                        "already denoised by Canadian Space Agency"
                     )
                     if clip:
                         denoised = denoised.clip(min=0)
@@ -530,7 +553,7 @@ class RcmDataset(BaseDataset):
                     ds[varname_raw] = denoised + ds[noise]
                     ds[varname_raw].attrs[
                         "denoising information"
-                    ] = "product was already denoised, noise added back"
+                    ] = "product was already denoised by Canadian Space Agency, noise added back"
 
         return ds
 
@@ -561,7 +584,7 @@ class RcmDataset(BaseDataset):
         # ds_lut_f_delayed.attrs = incidence.attrs
         return da
 
-    @timing
+    @ timing
     def _load_elevation_from_lut(self):
         """
         Load elevation from lut.
@@ -583,7 +606,7 @@ class RcmDataset(BaseDataset):
         inside = angle_rad * earth_radius / (earth_radius + satellite_height)
         return np.degrees(np.arcsin(inside))
 
-    @timing
+    @ timing
     def _get_offboresight_from_elevation(self):
         """
         Compute offboresight angle.
@@ -609,7 +632,7 @@ class RcmDataset(BaseDataset):
             "comment"
         ] = "built from elevation angle and latitude"
 
-    @timing
+    @ timing
     def load_from_geoloc(self, varnames, lazy_loading=True):
         """
         Interpolate (with RectBiVariateSpline) variables from `self.sar_meta.geoloc` to `self._dataset`
@@ -663,7 +686,8 @@ class RcmDataset(BaseDataset):
                 )
                 typee = self.sar_meta.geoloc[varname_in_geoloc].dtype
                 if lazy_loading:
-                    da_var = map_blocks_coords(self._da_tmpl.astype(typee), interp_func)
+                    da_var = map_blocks_coords(
+                        self._da_tmpl.astype(typee), interp_func)
                 else:
                     da_val = interp_func(
                         self._dataset.digital_number.line,
@@ -695,7 +719,7 @@ class RcmDataset(BaseDataset):
         ds = xr.merge(da_list)
         return ds
 
-    @property
+    @ property
     def interpolate_times(self):
         """
         Apply interpolation with RectBivariateSpline to the azimuth time extracted from `self.sar_meta.geoloc`
@@ -712,7 +736,8 @@ class RcmDataset(BaseDataset):
         interp_func = RectBivariateSpline(
             x=lines, y=samples, z=time_values_2d.astype(float), kx=1, ky=1
         )
-        da_var = map_blocks_coords(self._da_tmpl.astype("datetime64[ns]"), interp_func)
+        da_var = map_blocks_coords(
+            self._da_tmpl.astype("datetime64[ns]"), interp_func)
         return da_var.isel(sample=0).to_dataset(name="time")
 
     def get_sensor_velocity(self):
@@ -735,10 +760,11 @@ class RcmDataset(BaseDataset):
         vels = np.sqrt(np.sum(velos, axis=0))
         interp_f = interp1d(azimuth_times.astype(float), vels)
         _vels = interp_f(self.interpolate_times["time"].astype(float))
-        res = xr.DataArray(_vels, dims=["line"], coords={"line": self.dataset.line})
+        res = xr.DataArray(_vels, dims=["line"], coords={
+            "line": self.dataset.line})
         return xr.Dataset({"velocity": res})
 
-    @timing
+    @ timing
     def load_digital_number(
         self, resolution=None, chunks=None, resampling=rasterio.enums.Resampling.rms
     ):
@@ -898,8 +924,10 @@ class RcmDataset(BaseDataset):
                 (resolution["sample"] - 1) / 2, (resolution["line"] - 1) / 2
             )
             scale = Affine.scale(
-                rio.width // resolution["sample"] * resolution["sample"] / out_shape[1],
-                rio.height // resolution["line"] * resolution["line"] / out_shape[0],
+                rio.width // resolution["sample"] *
+                resolution["sample"] / out_shape[1],
+                rio.height // resolution["line"] *
+                resolution["line"] / out_shape[0],
             )
             sample, _ = translate * scale * (dn.sample, 0)
             _, line = translate * scale * (0, dn.line)
@@ -916,7 +944,8 @@ class RcmDataset(BaseDataset):
             "history": yaml.safe_dump(
                 {
                     var_name: get_glob(
-                        [p.replace(self.sar_meta.path + "/", "") for p in tiff_files]
+                        [p.replace(self.sar_meta.path + "/", "")
+                         for p in tiff_files]
                     )
                 }
             ),
@@ -935,7 +964,7 @@ class RcmDataset(BaseDataset):
             intro = "full coverage"
         return "<RcmDataset %s object>" % intro
 
-    @timing
+    @ timing
     def flip_sample_da(self, ds):
         """
         When a product is flipped, flip back data arrays (from a dataset) sample dimensions to respect the xsar
@@ -969,7 +998,7 @@ class RcmDataset(BaseDataset):
             new_ds = ds
         return new_ds
 
-    @timing
+    @ timing
     def flip_line_da(self, ds):
         """
         Flip dataArrays (from a dataset) that depend on line dimension when a product is ascending, in order to
@@ -1004,7 +1033,7 @@ class RcmDataset(BaseDataset):
         self.datatree.attrs |= self.sar_meta.dt.attrs
         return
 
-    @property
+    @ property
     def dataset(self):
         """
         `xarray.Dataset` representation of this `xsar.RcmDataset` object.
@@ -1015,7 +1044,7 @@ class RcmDataset(BaseDataset):
         res.attrs = self.datatree.attrs
         return res
 
-    @dataset.setter
+    @ dataset.setter
     def dataset(self, ds):
         if self.sar_meta.name == ds.attrs["name"]:
             # check if new ds has changed coordinates
@@ -1032,6 +1061,6 @@ class RcmDataset(BaseDataset):
         else:
             raise ValueError("dataset must be same kind as original one.")
 
-    @dataset.deleter
+    @ dataset.deleter
     def dataset(self):
         logger.debug("deleter dataset")

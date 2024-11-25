@@ -516,7 +516,6 @@ class RcmDataset(BaseDataset):
         if vars is None:
             vars = ["sigma0", "beta0", "gamma0"]
         for varname in vars:
-
             varname_raw = varname + "_raw"
             noise = "ne%sz" % varname[0]
             if varname_raw not in ds:
@@ -531,6 +530,10 @@ class RcmDataset(BaseDataset):
                     else:
                         denoised.attrs["comment"] = "not clipped, some values can be <0"
                     ds[varname] = denoised
+                    
+                    ds[varname_raw].attrs[
+                        "denoising information"
+                    ] = f"product was not denoised"
 
                 else:
                     logging.debug(
@@ -538,7 +541,7 @@ class RcmDataset(BaseDataset):
                     )
                     denoised = ds[varname_raw]
                     denoised.attrs["denoising information"] = (
-                        "already denoised by Canadian Agency"
+                        "already denoised by Canadian Space Agency"
                     )
                     if clip:
                         denoised = denoised.clip(min=0)
@@ -550,7 +553,7 @@ class RcmDataset(BaseDataset):
                     ds[varname_raw] = denoised + ds[noise]
                     ds[varname_raw].attrs[
                         "denoising information"
-                    ] = "product was already denoised, noise added back"
+                    ] = "product was already denoised by Canadian Space Agency, noise added back"
 
         return ds
 

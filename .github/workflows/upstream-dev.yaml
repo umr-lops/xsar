@@ -61,7 +61,7 @@ jobs:
           fetch-depth: 0 # fetch all branches and tags
 
       - name: set up conda environment
-        uses: mamba-org/setup-micromamba@v1
+        uses: mamba-org/setup-micromamba@v2
         with:
           environment-file: ci/requirements/environment.yaml
           environment-name: tests

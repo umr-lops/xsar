@@ -17,3 +17,11 @@ dependencies:
   - dask
   - distributed
   - aiohttp
+  - rasterio
+  - cartopy
+  - pyproj
+  - scipy
+  - shapely
+  - geopandas
+  - lxml
+  - rioxarray

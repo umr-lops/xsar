@@ -14,6 +14,6 @@ dependencies:
   - xarray
   - rioxarray >=0.10
   - pandoc
-  - python >=3.8
+  - python >=3.10
   - importlib_resources
   - lxml

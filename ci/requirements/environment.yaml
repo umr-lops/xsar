@@ -3,6 +3,7 @@ channels:
   - conda-forge
 dependencies:
   - ipython
+  - python
   - pre-commit
   - pytest
   - pytest-reportlog

@@ -49,6 +49,74 @@ mapping_dataset_geoloc = {
 }
 
 
+def add_denoised(ds,sar_meta_denoised,dataset_recalibration, clip=False, vars=None,apply_recalibration=False,):
+    """add denoised vars to dataset
+
+    Parameters
+    ----------
+    ds : xarray.DataSet
+        dataset with non denoised vars, named `%s_raw`.
+    sar_meta_denoised : dict
+        with pol as key, and bool as values (True is DN is predenoised at L1 level)
+    clip : bool, optional
+        If True, negative signal will be clipped to 0. (default to False )
+    vars : list, optional
+        variables names to add, by default `['sigma0' , 'beta0' , 'gamma0']`
+
+    Returns
+    -------
+    xarray.Dataset
+        dataset with denoised variables
+    """
+    if vars is None:
+        vars = ["sigma0", "beta0", "gamma0"]
+    for varname in vars:
+        varname_raw = varname + "_raw"
+        noise = "ne%sz" % varname[0]
+        if varname_raw not in ds:
+            continue
+        if all(sar_meta_denoised.values()): # previously self.sar_meta.denoised.values()
+            # already denoised, just add an alias
+            ds[varname] = ds[varname_raw]
+        elif len(set(sar_meta_denoised.values())) != 1:
+            # TODO: to be implemented
+            raise NotImplementedError(
+                "semi denoised products not yet implemented")
+        else:
+            varname_raw_corrected = varname_raw + "__corrected"
+            if (apply_recalibration is True) & (
+                    varname_raw_corrected in dataset_recalibration.variables
+            ):
+                denoised = (
+                        dataset_recalibration[varname_raw_corrected] - ds[noise]
+                )
+                denoised.attrs["history"] = merge_yaml(
+                    [ds[varname_raw].attrs["history"],
+                     ds[noise].attrs["history"]],
+                    section=varname,
+                )
+                denoised.attrs["comment_recalibration"] = (
+                    "kersten recalibration applied"
+                )
+            else:
+                denoised = ds[varname_raw] - ds[noise]
+                denoised.attrs["history"] = merge_yaml(
+                    [ds[varname_raw].attrs["history"],
+                     ds[noise].attrs["history"]],
+                    section=varname,
+                )
+                denoised.attrs["comment_recalibration"] = (
+                    "kersten recalibration not applied"
+                )
+
+            if clip:
+                denoised = denoised.clip(min=0)
+                denoised.attrs["comment"] = "clipped, no values <0"
+            else:
+                denoised.attrs["comment"] = "not clipped, some values can be <0"
+            ds[varname] = denoised
+    return ds
+
 # noinspection PyTypeChecker
 class Sentinel1Dataset(BaseDataset):
     """
@@ -159,7 +227,7 @@ class Sentinel1Dataset(BaseDataset):
         geoloc = self.sar_meta.geoloc
         geoloc.attrs["history"] = "annotations"
 
-        #  offboresight angle
+        # offboresight angle
         geoloc["offboresightAngle"] = (
             geoloc.elevationAngle
             - (
@@ -802,7 +870,7 @@ class Sentinel1Dataset(BaseDataset):
             os.path.basename(self.sar_meta.manifest_attrs["aux_pp1"])
         )
 
-        #  1 - compute offboresight angle
+        # 1 - compute offboresight angle
         roll = self.datatree["antenna_pattern"]["roll"]
         azimuthTime = self.datatree["antenna_pattern"]["azimuthTime"]
         interp_roll = interp1d(
@@ -910,7 +978,7 @@ class Sentinel1Dataset(BaseDataset):
                 self._dataset_recalibration["offboresigthAngle"]
             )
 
-        # 3- get gains gproc and map them
+        # 3-get gains gproc and map them
         dict_gproc_old = get_gproc_gains(
             path_aux_pp1_old,
             mode=self.sar_meta.manifest_attrs["swath_type"],
@@ -1039,7 +1107,10 @@ class Sentinel1Dataset(BaseDataset):
                 self._dataset_recalibration
             )
 
-        self._dataset = self._add_denoised(self._dataset)
+        self._dataset = add_denoised(self._dataset,sar_meta_denoised=self.sar_meta.denoised,clip=False,
+                                     vars=None,
+                                     apply_recalibration=self.apply_recalibration,
+                                     dataset_recalibration=self._dataset_recalibration)
         
         for var_name, lut_name in self._map_var_lut.items():
             var_name_raw = var_name + "_raw"
@@ -1715,71 +1786,7 @@ class Sentinel1Dataset(BaseDataset):
         )
         return dataarr.to_dataset(name=name)
 
-    def _add_denoised(self, ds, clip=False, vars=None):
-        """add denoised vars to dataset
 
-        Parameters
-        ----------
-        ds : xarray.DataSet
-            dataset with non denoised vars, named `%s_raw`.
-        clip : bool, optional
-            If True, negative signal will be clipped to 0. (default to False )
-        vars : list, optional
-            variables names to add, by default `['sigma0' , 'beta0' , 'gamma0']`
-
-        Returns
-        -------
-        xarray.DataSet
-            dataset with denoised vars
-        """
-        if vars is None:
-            vars = ["sigma0", "beta0", "gamma0"]
-        for varname in vars:
-            varname_raw = varname + "_raw"
-            noise = "ne%sz" % varname[0]
-            if varname_raw not in ds:
-                continue
-            if all(self.sar_meta.denoised.values()):
-                # already denoised, just add an alias
-                ds[varname] = ds[varname_raw]
-            elif len(set(self.sar_meta.denoised.values())) != 1:
-                # TODO: to be implemented
-                raise NotImplementedError(
-                    "semi denoised products not yet implemented")
-            else:
-                varname_raw_corrected = varname_raw + "__corrected"
-                if (self.apply_recalibration) & (
-                    varname_raw_corrected in self._dataset_recalibration.variables
-                ):
-                    denoised = (
-                        self._dataset_recalibration[varname_raw_corrected] - ds[noise]
-                    )
-                    denoised.attrs["history"] = merge_yaml(
-                        [ds[varname_raw].attrs["history"],
-                            ds[noise].attrs["history"]],
-                        section=varname,
-                    )
-                    denoised.attrs["comment_recalibration"] = (
-                        "kersten recalibration applied"
-                    )
-                else:
-                    denoised = ds[varname_raw] - ds[noise]
-                    denoised.attrs["history"] = merge_yaml(
-                        [ds[varname_raw].attrs["history"],
-                            ds[noise].attrs["history"]],
-                        section=varname,
-                    )
-                    denoised.attrs["comment_recalibration"] = (
-                        "kersten recalibration not applied"
-                    )
-
-                if clip:
-                    denoised = denoised.clip(min=0)
-                    denoised.attrs["comment"] = "clipped, no values <0"
-                else:
-                    denoised.attrs["comment"] = "not clipped, some values can be <0"
-                ds[varname] = denoised
-        return ds
 
     @property
     def get_burst_azitime(self):

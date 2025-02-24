@@ -845,3 +845,16 @@ def get_path_aux_pp1(aux_pp1_name):
     if not os.path.isfile(path):
         raise FileNotFoundError(f"File doesn't exist: {path}")
     return path
+
+
+def get_path_aux_ins(aux_ins_name):
+    path = os.path.join(
+        config["auxiliary_dir"],
+        aux_ins_name[0:3] + "_AUX_INS",
+        aux_ins_name,
+        "data",
+        aux_ins_name[0:3].lower() + "-aux-ins.xml",
+    )
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f"File doesn't exist: {path}")
+    return path

@@ -98,7 +98,8 @@ def timing(f):
             endrss = process.memory_info().rss
             mem_str = "mem: %+.1fMb" % ((endrss - startrss) / (1024**2))
         logger.debug(
-            "timing %s : %.2fs. %s" % (f.__name__, endtime - starttime, mem_str)
+            "timing %s : %.2fs. %s" % (
+                f.__name__, endtime - starttime, mem_str)
         )
         return result
 
@@ -152,12 +153,14 @@ def haversine(lon1, lat1, lon2, lat2):
     # haversine formula
     dlon = lon2 - lon1
     dlat = lat2 - lat1
-    a = np.sin(dlat / 2) ** 2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2) ** 2
+    a = np.sin(dlat / 2) ** 2 + np.cos(lat1) * \
+        np.cos(lat2) * np.sin(dlon / 2) ** 2
     c = 2 * np.arcsin(np.sqrt(a))
     r = 6371000  # Radius of earth in meters.
     bearing = np.arctan2(
         np.sin(lon2 - lon1) * np.cos(lat2),
-        np.cos(lat1) * np.sin(lat2) - np.sin(lat1) * np.cos(lat2) * np.cos(lon2 - lon1),
+        np.cos(lat1) * np.sin(lat2) - np.sin(lat1) *
+        np.cos(lat2) * np.cos(lon2 - lon1),
     )
     return c * r, np.rad2deg(bearing)
 
@@ -251,7 +254,8 @@ def map_blocks_coords(da, func, func_kwargs={}, **kwargs):
             loc = tuple(zip((0,) * len(block.shape), block.shape))
 
         # use loc to get corresponding coordinates
-        coords_sel = tuple(c[loc[i][0] : loc[i][1]] for i, c in enumerate(coords))
+        coords_sel = tuple(c[loc[i][0]: loc[i][1]]
+                           for i, c in enumerate(coords))
 
         result = f(*coords_sel, **func_kwargs)
 
@@ -267,7 +271,8 @@ def map_blocks_coords(da, func, func_kwargs={}, **kwargs):
     meta = da.data
     dtype = meta.dtype
 
-    from_coords = bind(_evaluate_from_coords, ..., ..., coords.values(), dtype=dtype)
+    from_coords = bind(_evaluate_from_coords, ..., ...,
+                       coords.values(), dtype=dtype)
 
     daskarr = meta.map_blocks(from_coords, func, meta=meta, **kwargs)
     dataarr = xr.DataArray(daskarr, dims=da.dims, coords=coords)
@@ -329,7 +334,8 @@ def compress_safe(
         pass
     os.mkdir(safe_path_out_tmp)
     if "S1" in product:
-        shutil.copytree(safe_path_in + "/annotation", safe_path_out_tmp + "/annotation")
+        shutil.copytree(safe_path_in + "/annotation",
+                        safe_path_out_tmp + "/annotation")
         shutil.copyfile(
             safe_path_in + "/manifest.safe", safe_path_out_tmp + "/manifest.safe"
         )
@@ -373,14 +379,17 @@ def compress_safe(
                 band = src.read(1)
 
             with rasterio.open(
-                safe_path_out_tmp + "/measurement/" + os.path.basename(tiff_file),
+                safe_path_out_tmp + "/measurement/" +
+                    os.path.basename(tiff_file),
                 "w",
                 **open_kwargs,
             ) as dst:
                 dst.write(band, 1)
     elif "RCM" in product:
-        shutil.copytree(safe_path_in + "/metadata", safe_path_out_tmp + "/metadata")
-        shutil.copytree(safe_path_in + "/support", safe_path_out_tmp + "/support")
+        shutil.copytree(safe_path_in + "/metadata",
+                        safe_path_out_tmp + "/metadata")
+        shutil.copytree(safe_path_in + "/support",
+                        safe_path_out_tmp + "/support")
         shutil.copyfile(
             safe_path_in + "/manifest.safe", safe_path_out_tmp + "/manifest.safe"
         )
@@ -431,10 +440,12 @@ def compress_safe(
                 dst.write(band, 1)
 
     elif "RS2" in product:
-        shutil.copytree(safe_path_in + "/schemas", safe_path_out_tmp + "/schemas")
+        shutil.copytree(safe_path_in + "/schemas",
+                        safe_path_out_tmp + "/schemas")
         for xml_file in glob.glob(os.path.join(safe_path_in, "*.xml")):
             shutil.copyfile(
-                xml_file, os.path.join(safe_path_out_tmp, os.path.basename(xml_file))
+                xml_file, os.path.join(
+                    safe_path_out_tmp, os.path.basename(xml_file))
             )
         for tiff_file in glob.glob(os.path.join(safe_path_in, "*.tif")):
             src = rasterio.open(tiff_file)
@@ -705,7 +716,8 @@ def url_get(url, cache_dir=os.path.join(config["data_dir"], "fsspec_cache")):
     if "://" in url:
         with fsspec.open(
             "filecache::%s" % url,
-            https={"client_kwargs": {"timeout": aiohttp.ClientTimeout(total=3600)}},
+            https={"client_kwargs": {
+                "timeout": aiohttp.ClientTimeout(total=3600)}},
             filecache={
                 "cache_storage": os.path.join(
                     os.path.join(config["data_dir"], "fsspec_cache")
@@ -822,6 +834,19 @@ def get_gproc_gains(path_aux_pp1, mode, product):
 
 
 def get_path_aux_cal(aux_cal_name):
+    """
+    Get full path to AUX_CAL file.
+
+    Parameters
+    ----------
+    aux_cal_name: str
+        name of the AUX_CAL file
+
+    Returns
+    -------
+    str
+        full path to the AUX_CAL file
+    """
     path = os.path.join(
         config["auxiliary_dir"],
         aux_cal_name[0:3] + "_AUX_CAL",
@@ -835,6 +860,19 @@ def get_path_aux_cal(aux_cal_name):
 
 
 def get_path_aux_pp1(aux_pp1_name):
+    """
+    Get full path to AUX_PP1 file.
+
+    Parameters
+    ----------
+    aux_pp1_name: str
+        name of the AUX_PP1 file
+
+    Returns
+    -------
+    str
+        full path to the AUX_PP1 file
+    """
     path = os.path.join(
         config["auxiliary_dir"],
         aux_pp1_name[0:3] + "_AUX_PP1",
@@ -848,6 +886,19 @@ def get_path_aux_pp1(aux_pp1_name):
 
 
 def get_path_aux_ins(aux_ins_name):
+    """
+    Get full path to AUX_INS file.
+
+    Parameters
+    ----------
+    aux_ins_name: str
+        name of the AUX_INS file
+
+    Returns
+    -------
+    str
+        full path to the AUX_INS file
+    """
     path = os.path.join(
         config["auxiliary_dir"],
         aux_ins_name[0:3] + "_AUX_INS",

@@ -161,7 +161,7 @@ class Sentinel1Meta(BaseMeta):
     def to_dict(self, keys="minimal"):
 
         info_keys = {"minimal": [
-            "ipf", "platform", "swath", "product", "pols"]}
+            "ipf_version", "platform", "swath", "product", "pols"]}
         info_keys["all"] = info_keys["minimal"] + [
             "name",
             "start_date",
@@ -335,7 +335,7 @@ class Sentinel1Meta(BaseMeta):
         return self.reader.denoised
 
     @property
-    def ipf(self):
+    def ipf_version(self):
         """ipf version"""
         return self.manifest_attrs["ipf_version"]
 

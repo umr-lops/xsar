@@ -696,9 +696,10 @@ class Sentinel1Dataset(BaseDataset):
                     self.add_gains(path_aux_cal_new, path_aux_pp1_new,
                                    path_aux_cal_old, path_aux_pp1_old)
 
-                self.datatree["recalibration"].attrs["aux_cal_new"] = os.path.basename(new_cal)
-                self.datatree["recalibration"].attrs["aux_pp1_new"] = os.path.basename(new_pp1)
-
+                self.datatree["recalibration"].attrs["aux_cal_new"] = os.path.basename(
+                    new_cal)
+                self.datatree["recalibration"].attrs["aux_pp1_new"] = os.path.basename(
+                    new_pp1)
 
             rasters = self._load_rasters_vars()
             if rasters is not None:
@@ -1128,7 +1129,7 @@ class Sentinel1Dataset(BaseDataset):
         if self.sar_meta.swath == "WV":
             if (
                 lut.name in ["noise_lut_azi", "noise_lut"]
-                and self.sar_meta.ipf in [2.9, 2.91]
+                and self.sar_meta.ipf_version in [2.9, 2.91]
                 and self.sar_meta.platform in ["SENTINEL-1A", "SENTINEL-1B"]
             ):
                 noise_calibration_cst_pp1 = {

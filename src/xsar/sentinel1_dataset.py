@@ -18,12 +18,19 @@ from .utils import (
     merge_yaml,
     to_lon180,
     config,
+
+    get_path_aux_cal,
+    get_path_aux_pp1,
+    get_geap_gains,
+    get_gproc_gains,
 )
 from .sentinel1_meta import Sentinel1Meta
 from .ipython_backends import repr_mimebundle
 from .base_dataset import BaseDataset
 import pandas as pd
 import geopandas as gpd
+
+import os
 
 
 logger = logging.getLogger("xsar.sentinel1_dataset")
@@ -623,6 +630,17 @@ class Sentinel1Dataset(BaseDataset):
 
             if "GRD" in str(self.datatree.attrs["product"]):
                 self.add_swath_number()
+                path_aux_cal_old = get_path_aux_cal(
+                    self.sar_meta.manifest_attrs["aux_cal"]
+                )
+
+                path_aux_pp1_old = get_path_aux_pp1(
+                    self.sar_meta.manifest_attrs["aux_pp1"]
+                )
+
+                if self.apply_recalibration == False:
+                    new_cal = "None"
+                    new_pp1 = "None"
 
                 if self.apply_recalibration:
                     path_dataframe_aux = config["path_dataframe_aux"]
@@ -647,7 +665,7 @@ class Sentinel1Dataset(BaseDataset):
                     sel_cal = sel_cal.sort_values(
                         by=["validation_date", "generation_date"], ascending=False)
 
-                    path_new_cal = sel_cal.iloc[0].aux_path
+                    new_cal = sel_cal.iloc[0].aux_path
 
                     sel_pp1 = dataframe_aux.loc[(dataframe_aux.sat_name == self.sar_meta.manifest_attrs['satellite']) &
                                                 (dataframe_aux.aux_type == "PP1") &
@@ -668,9 +686,20 @@ class Sentinel1Dataset(BaseDataset):
                     sel_pp1 = sel_pp1.sort_values(
                         by=["validation_date", "generation_date"], ascending=False
                     )
-                    path_new_pp1 = sel_pp1.iloc[0].aux_path
+                    new_pp1 = sel_pp1.iloc[0].aux_path
 
-                    self.add_gains(path_new_cal, path_new_pp1)
+                    path_aux_cal_new = get_path_aux_cal(
+                        os.path.basename(new_cal))
+                    path_aux_pp1_new = get_path_aux_pp1(
+                        os.path.basename(new_pp1))
+
+                    self.add_gains(path_aux_cal_new, path_aux_pp1_new,
+                                   path_aux_cal_old, path_aux_pp1_old)
+
+                self.datatree["recalibration"].attrs["aux_cal_new"] = os.path.basename(
+                    new_cal)
+                self.datatree["recalibration"].attrs["aux_pp1_new"] = os.path.basename(
+                    new_pp1)
 
             rasters = self._load_rasters_vars()
             if rasters is not None:
@@ -778,28 +807,12 @@ class Sentinel1Dataset(BaseDataset):
             self._dataset_recalibration
         )
 
-    def add_gains(self, new_aux_cal_name, new_aux_pp1_name):
-        from .utils import (
-            get_path_aux_cal,
-            get_path_aux_pp1,
-            get_geap_gains,
-            get_gproc_gains,
-        )
-        import os
+    def add_gains(self, path_aux_cal_new, path_aux_pp1_new, path_aux_cal_old, path_aux_pp1_old):
+
         from scipy.interpolate import interp1d
 
         logger.debug(
-            f"doing recalibration with AUX_CAL = {new_aux_cal_name} & AUX_PP1 = {new_aux_pp1_name}"
-        )
-
-        path_aux_cal_new = get_path_aux_cal(os.path.basename(new_aux_cal_name))
-        path_aux_cal_old = get_path_aux_cal(
-            os.path.basename(self.sar_meta.manifest_attrs["aux_cal"])
-        )
-
-        path_aux_pp1_new = get_path_aux_pp1(os.path.basename(new_aux_pp1_name))
-        path_aux_pp1_old = get_path_aux_pp1(
-            os.path.basename(self.sar_meta.manifest_attrs["aux_pp1"])
+            f"doing recalibration with AUX_CAL = {path_aux_cal_new} & AUX_PP1 = {path_aux_pp1_new}"
         )
 
         #  1 - compute offboresight angle
@@ -986,10 +999,6 @@ class Sentinel1Dataset(BaseDataset):
             self._dataset_recalibration
         )
 
-        self.datatree["recalibration"].attrs["path_aux_cal_new"] = path_aux_cal_new
-        self.datatree["recalibration"].attrs["path_aux_pp1_new"] = path_aux_pp1_new
-        self.datatree["recalibration"].attrs["path_aux_cal_old"] = path_aux_cal_old
-        self.datatree["recalibration"].attrs["path_aux_pp1_old"] = path_aux_pp1_old
         # return self._dataset
 
     def apply_calibration_and_denoising(self):
@@ -1040,7 +1049,7 @@ class Sentinel1Dataset(BaseDataset):
             )
 
         self._dataset = self._add_denoised(self._dataset)
-        
+
         for var_name, lut_name in self._map_var_lut.items():
             var_name_raw = var_name + "_raw"
             if var_name_raw in self._dataset:
@@ -1051,8 +1060,7 @@ class Sentinel1Dataset(BaseDataset):
                     "Skipping variable '%s' ('%s' lut is missing)"
                     % (var_name, lut_name)
                 )
-                
-                
+
         self.datatree["measurement"] = self.datatree["measurement"].assign(
             self._dataset
         )
@@ -1121,7 +1129,7 @@ class Sentinel1Dataset(BaseDataset):
         if self.sar_meta.swath == "WV":
             if (
                 lut.name in ["noise_lut_azi", "noise_lut"]
-                and self.sar_meta.ipf in [2.9, 2.91]
+                and self.sar_meta.ipf_version in [2.9, 2.91]
                 and self.sar_meta.platform in ["SENTINEL-1A", "SENTINEL-1B"]
             ):
                 noise_calibration_cst_pp1 = {

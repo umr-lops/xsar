@@ -79,6 +79,13 @@ class Sentinel1Meta(BaseMeta):
 
         self.manifest_attrs = self.reader.manifest_attrs
 
+        for attr in ['aux_cal', 'aux_pp1', 'aux_ins']:
+            if attr not in self.manifest_attrs:
+                self.manifest_attrs[attr] = None
+            else:
+                self.manifest_attrs[attr] = os.path.basename(
+                    self.manifest_attrs[attr])
+
         self.multidataset = False
         """True if multi dataset"""
         self.subdatasets = gpd.GeoDataFrame(geometry=[], index=[])
@@ -101,8 +108,10 @@ class Sentinel1Meta(BaseMeta):
                 )
             except ValueError:
                 # not as many footprints than subdatasets count. (probably TOPS product)
-                self._submeta = [Sentinel1Meta(subds) for subds in datasets_names]
-                sub_footprints = [submeta.footprint for submeta in self._submeta]
+                self._submeta = [Sentinel1Meta(subds)
+                                 for subds in datasets_names]
+                sub_footprints = [
+                    submeta.footprint for submeta in self._submeta]
                 self.subdatasets = gpd.GeoDataFrame(
                     geometry=sub_footprints, index=datasets_names
                 )
@@ -151,7 +160,8 @@ class Sentinel1Meta(BaseMeta):
 
     def to_dict(self, keys="minimal"):
 
-        info_keys = {"minimal": ["ipf", "platform", "swath", "product", "pols"]}
+        info_keys = {"minimal": [
+            "ipf_version", "platform", "swath", "product", "pols"]}
         info_keys["all"] = info_keys["minimal"] + [
             "name",
             "start_date",
@@ -160,6 +170,11 @@ class Sentinel1Meta(BaseMeta):
             "coverage",
             "orbit_pass",
             "platform_heading",
+            "icid",
+            "aux_cal",
+            "aux_pp1",
+            "aux_ins",
+
         ]  # 'pixel_line_m', 'pixel_sample_m',
 
         if isinstance(keys, str):
@@ -172,7 +187,9 @@ class Sentinel1Meta(BaseMeta):
             elif k in self.manifest_attrs.keys():
                 res_dict[k] = self.manifest_attrs[k]
             else:
-                raise KeyError('Unable to find key/attr "%s" in Sentinel1Meta' % k)
+                raise KeyError(
+                    'Unable to find key/attr "%s" in Sentinel1Meta' % k)
+
         return res_dict
 
     def annotation_angle(self, line, sample, angle):
@@ -240,7 +257,8 @@ class Sentinel1Meta(BaseMeta):
                     self._geoloc[ll].isel(line=a, sample=x).values
                     for a, x in [(0, 0), (0, -1), (-1, -1), (-1, 0)]
                 ]
-            corners = list(zip(footprint_dict["longitude"], footprint_dict["latitude"]))
+            corners = list(
+                zip(footprint_dict["longitude"], footprint_dict["latitude"]))
             p = Polygon(corners)
             self._geoloc.attrs["footprint"] = p
 
@@ -272,10 +290,12 @@ class Sentinel1Meta(BaseMeta):
                 for sample in self._geoloc.sample
             ]
             # approx transform, from all gcps (inaccurate)
-            self._geoloc.attrs["approx_transform"] = rasterio.transform.from_gcps(gcps)
+            self._geoloc.attrs["approx_transform"] = rasterio.transform.from_gcps(
+                gcps)
             for vv in self._geoloc:
                 if vv in self.xsd_definitions:
-                    self._geoloc[vv].attrs["definition"] = str(self.xsd_definitions[vv])
+                    self._geoloc[vv].attrs["definition"] = str(
+                        self.xsd_definitions[vv])
 
         return self._geoloc
 
@@ -315,7 +335,7 @@ class Sentinel1Meta(BaseMeta):
         return self.reader.denoised
 
     @property
-    def ipf(self):
+    def ipf_version(self):
         """ipf version"""
         return self.manifest_attrs["ipf_version"]
 

@@ -630,14 +630,6 @@ class Sentinel1Dataset(BaseDataset):
 
             if "GRD" in str(self.datatree.attrs["product"]):
                 self.add_swath_number()
-                path_aux_cal_old = get_path_aux_cal(
-                    self.sar_meta.manifest_attrs["aux_cal"]
-                )
-
-                path_aux_pp1_old = get_path_aux_pp1(
-                    self.sar_meta.manifest_attrs["aux_pp1"]
-                )
-
                 if self.apply_recalibration == False:
                     new_cal = "None"
                     new_pp1 = "None"
@@ -645,6 +637,14 @@ class Sentinel1Dataset(BaseDataset):
                 if self.apply_recalibration:
                     path_dataframe_aux = config["path_dataframe_aux"]
                     dataframe_aux = pd.read_csv(path_dataframe_aux)
+
+                    path_aux_cal_old = get_path_aux_cal(
+                        self.sar_meta.manifest_attrs["aux_cal"]
+                    )
+
+                    path_aux_pp1_old = get_path_aux_pp1(
+                        self.sar_meta.manifest_attrs["aux_pp1"]
+                    )
 
                     sel_cal = dataframe_aux.loc[(dataframe_aux.sat_name == self.sar_meta.manifest_attrs['satellite']) &
                                                 (dataframe_aux.aux_type == "CAL") &

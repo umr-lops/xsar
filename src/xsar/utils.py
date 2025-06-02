@@ -847,15 +847,20 @@ def get_path_aux_cal(aux_cal_name):
     str
         full path to the AUX_CAL file
     """
-    path = os.path.join(
-        config["auxiliary_dir"],
-        aux_cal_name[0:3] + "_AUX_CAL",
-        aux_cal_name,
-        "data",
-        aux_cal_name[0:3].lower() + "-aux-cal.xml",
-    )
-    if not os.path.isfile(path):
-        raise FileNotFoundError(f"File doesn't exist: {path}")
+    path = None
+    if config["auxiliary_dir"] is not None:
+        path = os.path.join(
+            config["auxiliary_dir"],
+            aux_cal_name[0:3] + "_AUX_CAL",
+            aux_cal_name,
+            "data",
+            aux_cal_name[0:3].lower() + "-aux-cal.xml",
+        )
+        if not os.path.isfile(path):
+            logger.warning('auxiliary directory (used interalia for recalibration is not set).'
+                           'Nevertheless the Digital Number calibration is well applied but but'
+                           ' probably not the most accurate achievable.')
+            # raise FileNotFoundError(f"File doesn't exist: {path}")
     return path
 
 
@@ -873,15 +878,20 @@ def get_path_aux_pp1(aux_pp1_name):
     str
         full path to the AUX_PP1 file
     """
-    path = os.path.join(
-        config["auxiliary_dir"],
-        aux_pp1_name[0:3] + "_AUX_PP1",
-        aux_pp1_name,
-        "data",
-        aux_pp1_name[0:3].lower() + "-aux-pp1.xml",
-    )
-    if not os.path.isfile(path):
-        raise FileNotFoundError(f"File doesn't exist: {path}")
+    path = None
+    if config["auxiliary_dir"] is not None:
+        path = os.path.join(
+            config["auxiliary_dir"],
+            aux_pp1_name[0:3] + "_AUX_PP1",
+            aux_pp1_name,
+            "data",
+            aux_pp1_name[0:3].lower() + "-aux-pp1.xml",
+        )
+        if not os.path.isfile(path):
+            logger.warning('auxiliary directory (used interalia for recalibration is not set).'
+                           'Nevertheless the Digital Number calibration is well applied but but'
+                           ' probably not the most accurate achievable.')
+            # raise FileNotFoundError(f"File doesn't exist: {path}")
     return path
 
 
@@ -899,13 +909,18 @@ def get_path_aux_ins(aux_ins_name):
     str
         full path to the AUX_INS file
     """
-    path = os.path.join(
-        config["auxiliary_dir"],
-        aux_ins_name[0:3] + "_AUX_INS",
-        aux_ins_name,
-        "data",
-        aux_ins_name[0:3].lower() + "-aux-ins.xml",
-    )
-    if not os.path.isfile(path):
-        raise FileNotFoundError(f"File doesn't exist: {path}")
+    path = None
+    if config["auxiliary_dir"] is not None:
+        path = os.path.join(
+            config["auxiliary_dir"],
+            aux_ins_name[0:3] + "_AUX_INS",
+            aux_ins_name,
+            "data",
+            aux_ins_name[0:3].lower() + "-aux-ins.xml",
+        )
+        if not os.path.isfile(path):
+            logger.warning('auxiliary directory (used interalia for recalibration is not set).'
+                           'Nevertheless the Digital Number calibration is well applied but but'
+                           ' probably not the most accurate achievable.')
+            # raise FileNotFoundError(f"File doesn't exist: {path}")
     return path

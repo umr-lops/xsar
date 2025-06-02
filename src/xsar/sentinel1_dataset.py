@@ -365,7 +365,7 @@ class Sentinel1Dataset(BaseDataset):
             self.add_high_resolution_variables(
                 patch_variable=patch_variable, luts=luts, lazy_loading=lazyloading
             )
-            if self.apply_recalibration:
+            if self.apply_recalibration and config['auxiliary_dir'] is not None:
                 self.select_gains()
             self.apply_calibration_and_denoising()
 
@@ -638,11 +638,11 @@ class Sentinel1Dataset(BaseDataset):
                     self.sar_meta.manifest_attrs["aux_pp1"]
                 )
 
-                if self.apply_recalibration == False:
+                if self.apply_recalibration is False:
                     new_cal = "None"
                     new_pp1 = "None"
 
-                if self.apply_recalibration:
+                if self.apply_recalibration and config["path_dataframe_aux"] is not None:
                     path_dataframe_aux = config["path_dataframe_aux"]
                     dataframe_aux = pd.read_csv(path_dataframe_aux)
 
@@ -696,10 +696,12 @@ class Sentinel1Dataset(BaseDataset):
                     self.add_gains(path_aux_cal_new, path_aux_pp1_new,
                                    path_aux_cal_old, path_aux_pp1_old)
 
-                self.datatree["recalibration"].attrs["aux_cal_new"] = os.path.basename(
-                    new_cal)
-                self.datatree["recalibration"].attrs["aux_pp1_new"] = os.path.basename(
-                    new_pp1)
+                    self.datatree["recalibration"].attrs["aux_cal_new"] = os.path.basename(
+                        new_cal)
+                    self.datatree["recalibration"].attrs["aux_pp1_new"] = os.path.basename(
+                        new_pp1)
+                else:
+                    logger.debug('no recalibration performed.')
 
             rasters = self._load_rasters_vars()
             if rasters is not None:
@@ -815,7 +817,7 @@ class Sentinel1Dataset(BaseDataset):
             f"doing recalibration with AUX_CAL = {path_aux_cal_new} & AUX_PP1 = {path_aux_pp1_new}"
         )
 
-        #  1 - compute offboresight angle
+        # 1 - compute offboresight angle
         roll = self.datatree["antenna_pattern"]["roll"]
         azimuthTime = self.datatree["antenna_pattern"]["azimuthTime"]
         interp_roll = interp1d(
@@ -1023,7 +1025,7 @@ class Sentinel1Dataset(BaseDataset):
                     % (var_name, lut_name)
                 )
 
-        if self.apply_recalibration:
+        if self.apply_recalibration and config['auxiliary_dir'] is not None:
             interest_var = ["sigma0_raw", "gamma0_raw", "beta0_raw"]
             for var in interest_var:
                 if var not in self._dataset:
@@ -1047,6 +1049,8 @@ class Sentinel1Dataset(BaseDataset):
             self.datatree["recalibration"] = self.datatree["recalibration"].assign(
                 self._dataset_recalibration
             )
+        else:
+            logger.debug('no recalibration performed.')
 
         self._dataset = self._add_denoised(self._dataset)
 

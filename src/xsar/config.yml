@@ -2,3 +2,4 @@
 data_dir: /tmp
 auxiliary_dir:
 path_auxiliary_df:
+path_dataframe_aux:

@@ -69,7 +69,6 @@ def _load_config():
             config_file = default_config_file
             with config_file.open() as f:
                 config = yaml.safe_load(f)
-
         # Check if empty config
         if config is None:
             config = {}
@@ -94,6 +93,31 @@ def _load_config():
             config = yaml.safe_load(f)
 
     # Return the loaded configuration
+    return config
+
+
+def _load_config():
+    """
+    Load configuration from ~/.xsar/config.yml if it exists,
+    otherwise fall back to the default xsar/config.yml.
+
+    Returns
+    -------
+    dict
+        Configuration dictionary. Returns a dictionary with 'data_dir' set to '/tmp'
+    """
+    user_config = Path("~/.xsar/config.yml").expanduser()
+    default_config = files("xsar").joinpath("config.yml")
+    config_file = user_config if user_config.exists() else default_config
+
+    try:
+        with config_file.open() as f:
+            config = yaml.safe_load(f) or {'data_dir': '/tmp'}
+    except yaml.YAMLError as e:
+        logger.error("Failed to load config from %s: %s", config_file, e)
+        raise FileNotFoundError(
+            f"Configuration file {config_file} is not readable or empty")
+
     return config
 
 

@@ -238,18 +238,26 @@ class Sentinel1Dataset(BaseDataset):
 
         # apply recalibration ?
         self.apply_recalibration = recalibration
+        if self.apply_recalibration & ("auxiliary_dir" not in config or config['auxiliary_dir'] is None):
+            raise ValueError(
+                "config['auxiliary_dir'] is None or not in config."
+                "You can set it to a valid path in your xsar config file."
+            )
+
         if self.apply_recalibration and (
             self.sar_meta.swath != "EW" and self.sar_meta.swath != "IW"
         ):
-            self.apply_recalibration = False
             raise ValueError(
                 f"Recalibration in only done for EW/IW modes. You have '{self.sar_meta.swath}'. apply_recalibration is set to False."
             )
+        if self.apply_recalibration and (not os.path.exists(config['auxiliary_dir']) or not os.path.exists(config['path_dataframe_aux'])):
+            raise ValueError(
+                f"Check if config['auxiliary_dir'] is set to a valid path in your xsar config file. It should contain the auxiliary files needed for recalibration.\n\
+                Also check if config['path_dataframe_aux'] is set to a valid path in your xsar config file.")
 
         if self.apply_recalibration and np.all(
             np.isnan(self.datatree.antenna_pattern["roll"].values)
         ):
-            self.apply_recalibration = False
             raise ValueError(
                 f"Recalibration can't be done without roll angle. You probably work with an old file for which roll angle is not in auxiliary file.")
 
@@ -366,7 +374,7 @@ class Sentinel1Dataset(BaseDataset):
                 patch_variable=patch_variable, luts=luts, lazy_loading=lazyloading
             )
             if self.apply_recalibration:
-                self.select_gains()
+                self.select_gains_for_recalibration()
             self.apply_calibration_and_denoising()
 
         # added 6 fev 23, to fill  empty attrs
@@ -426,7 +434,7 @@ class Sentinel1Dataset(BaseDataset):
             res.attrs["corrected_range_noise_lut"] = "shift : %i lines" % line_shift
         return res
 
-    def select_gains(self):
+    def select_gains_for_recalibration(self):
         """
         attribution of the good swath gain by getting the swath number of each pixel
 
@@ -630,7 +638,7 @@ class Sentinel1Dataset(BaseDataset):
 
             if "GRD" in str(self.datatree.attrs["product"]):
                 self.add_swath_number()
-                if self.apply_recalibration == False:
+                if self.apply_recalibration is False:
                     new_cal = "None"
                     new_pp1 = "None"
 

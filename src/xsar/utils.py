@@ -40,20 +40,60 @@ except ImportError:
 
 def _load_config():
     """
-    load config from default xsar/config.yml file or user ~/.xsar/config.yml
+    Load config from default xsar/config.yml file or user ~/.xsar/config.yml
+
     Returns
     -------
     dict
+        The loaded configuration.
     """
+    # Path to the user's configuration file
     user_config_file = Path("~/.xsar/config.yml").expanduser()
+    # Path to the default configuration file
     default_config_file = files("xsar").joinpath("config.yml")
+    # Check if the user's configuration file exists
 
     if user_config_file.exists():
         config_file = user_config_file
-    else:
-        config_file = default_config_file
+        try:
+            # Open and load the user's configuration file
+            with config_file.open() as f:
+                config = yaml.safe_load(f)
+        except yaml.YAMLError as e:
+            # In case of YAML file reading error, log the error and use the default configuration file
+            logger.error(
+                "Error while loading user config file %s: %s. Using default config instead.",
+                user_config_file,
+                e,
+            )
+            config_file = default_config_file
+            with config_file.open() as f:
+                config = yaml.safe_load(f)
 
-    config = yaml.load(config_file.open(), Loader=yaml.FullLoader)
+        # Check if empty config
+        if config is None:
+            config = {}
+            logger.warning(
+                "User config file %s is empty. Using default config instead.", user_config_file
+            )
+        # Check if the "data_dir" key is present in the configuration, otherwise use a default directory
+        if "data_dir" not in config:
+            config["data_dir"] = "/tmp"
+            logger.warning(
+                "data_dir not found in user config file. Using default ~/tmp"
+            )
+    else:
+        # If the user's configuration file does not exist, use the default configuration file
+        logging.info(
+            "User config file %s does not exist. Using default config file %s",
+            user_config_file,
+            default_config_file,
+        )
+        config_file = default_config_file
+        with config_file.open() as f:
+            config = yaml.safe_load(f)
+
+    # Return the loaded configuration
     return config
 
 

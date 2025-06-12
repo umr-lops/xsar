@@ -40,20 +40,26 @@ except ImportError:
 
 def _load_config():
     """
-    load config from default xsar/config.yml file or user ~/.xsar/config.yml
+    Load configuration from ~/.xsar/config.yml if it exists,
+    otherwise fall back to the default xsar/config.yml.
+
     Returns
     -------
     dict
+        Configuration dictionary. Returns a dictionary with 'data_dir' set to '/tmp'
     """
-    user_config_file = Path("~/.xsar/config.yml").expanduser()
-    default_config_file = files("xsar").joinpath("config.yml")
+    user_config = Path("~/.xsar/config.yml").expanduser()
+    default_config = files("xsar").joinpath("config.yml")
+    config_file = user_config if user_config.exists() else default_config
 
-    if user_config_file.exists():
-        config_file = user_config_file
-    else:
-        config_file = default_config_file
+    try:
+        with config_file.open() as f:
+            config = yaml.safe_load(f) or {'data_dir': '/tmp'}
+    except yaml.YAMLError as e:
+        logger.error("Failed to load config from %s: %s", config_file, e)
+        raise FileNotFoundError(
+            f"Configuration file {config_file} is not readable or empty")
 
-    config = yaml.load(config_file.open(), Loader=yaml.FullLoader)
     return config
 
 

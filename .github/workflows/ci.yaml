@@ -67,7 +67,7 @@ jobs:
           environment-file: ${{ env.CONDA_ENV_FILE }}
           environment-name: xsar-tests
           cache-environment: true
-          cache-environment-key: "${{runner.os}}-${{runner.arch}}-py${{matrix.python-version}}-${{env.TODAY}}-${{hashFiles(env.CONDA_ENV_FILE)}}"
+          cache-environment-key: "${{runner.os}}-${{runner.arch}}-py${{matrix.python-version}}-${{env.TODAY}}-${{hashFiles('ci/requirements/environment.yaml')}}"
           create-args: >-
             python=${{matrix.python-version}}
 

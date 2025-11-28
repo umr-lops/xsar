@@ -59,7 +59,7 @@ class RadarSat2Meta(BaseMeta):
         """Safe file name"""
         # there is no information on resolution 'F' 'H' or 'M' in the manifest, so we have to extract it from filename
         try:
-            self.product = os.path.basename(self.path).split("_")[9]
+            self.product = os.path.basename(self.path).split("_")[-1]
         except ValueError:
             self.product = "XXX"
         """Product type, like 'GRDH', 'SLC', etc .."""

@@ -14,7 +14,7 @@ jobs:
 # from https://michaelheap.com/dynamic-matrix-generation-github-actions/
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - id: get-matrix
         run: |
           echo "get matrix for event ${{ github.event_name }}"
@@ -37,7 +37,7 @@ jobs:
         shell: bash -l {0}
     name: python ${{ matrix.python-version }} on ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Strip python version
         run: cat environment.yml | egrep -vw python > environment-nopython.yml
       - uses: conda-incubator/setup-miniconda@v3

@@ -21,7 +21,8 @@ logger = logging.getLogger("xsar.base_meta")
 logger.addHandler(logging.NullHandler())
 
 # we know tiff as no geotransform : ignore warning
-warnings.filterwarnings("ignore", category=rasterio.errors.NotGeoreferencedWarning)
+warnings.filterwarnings(
+    "ignore", category=rasterio.errors.NotGeoreferencedWarning)
 
 # allow nan without warnings
 # some dask warnings are still non filtered: https://github.com/dask/dask/issues/3245
@@ -214,7 +215,8 @@ class BaseMeta(BaseDataset):
     def cross_antemeridian(self):
         """True if footprint cross antemeridian"""
         return (
-            (np.max(self.geoloc["longitude"]) - np.min(self.geoloc["longitude"])) > 180
+            (np.max(self.geoloc["longitude"]) -
+             np.min(self.geoloc["longitude"])) > 180
         ).item()
 
     @property
@@ -293,6 +295,7 @@ class BaseMeta(BaseDataset):
                 lat = dict_coords2ll["latitude"].ev(lines, samples)
 
         if self.cross_antemeridian:
+            # go back to [-180, 180]
             lon = to_lon180(lon)
 
         if scalar and hasattr(lon, "__iter__"):
@@ -395,8 +398,10 @@ class BaseMeta(BaseDataset):
 
         """
 
-        lon1, lat1 = self.coords2ll(lines - 1, samples, to_grid=to_grid, approx=approx)
-        lon2, lat2 = self.coords2ll(lines + 1, samples, to_grid=to_grid, approx=approx)
+        lon1, lat1 = self.coords2ll(
+            lines - 1, samples, to_grid=to_grid, approx=approx)
+        lon2, lat2 = self.coords2ll(
+            lines + 1, samples, to_grid=to_grid, approx=approx)
         _, heading = haversine(lon1, lat1, lon2, lat2)
         return heading
 

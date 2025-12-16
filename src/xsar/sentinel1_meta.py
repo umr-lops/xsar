@@ -390,11 +390,11 @@ class Sentinel1Meta(BaseMeta):
             ```
         Notes:
         ------
-            if self.cross_antemeridian is True, 'longitude' will be in range [0, 360]
+            if self.cross_antimeridian is True, 'longitude' will be in range [0, 360]
         """
         resdict = {}
         geoloc = self.geoloc
-        if self.cross_antemeridian:
+        if self.cross_antimeridian:
             geoloc["longitude"] = geoloc["longitude"] % 360
 
         idx_sample = np.array(geoloc.sample)

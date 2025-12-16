@@ -212,8 +212,8 @@ class BaseMeta(BaseDataset):
         pass
 
     @property
-    def cross_antemeridian(self):
-        """True if footprint cross antemeridian"""
+    def cross_antimeridian(self):
+        """True if footprint cross antimeridian"""
         return (
             (np.max(self.geoloc["longitude"]) -
              np.min(self.geoloc["longitude"])) > 180
@@ -294,7 +294,7 @@ class BaseMeta(BaseDataset):
                 lon = dict_coords2ll["longitude"].ev(lines, samples)
                 lat = dict_coords2ll["latitude"].ev(lines, samples)
 
-        if self.cross_antemeridian:
+        if self.cross_antimeridian:
             # go back to [-180, 180]
             lon = to_lon180(lon)
 

@@ -871,7 +871,7 @@ class BaseDataset(ABC):
         # ensure dims ordering
         raster_ds = raster_ds.transpose("y", "x")
 
-        if self.sar_meta.cross_antemeridian:
+        if self.sar_meta.cross_antimeridian:
             x_vals = np.array(self.sar_meta.footprint.exterior.xy[0]) % 360
             lon_range = [x_vals.min(), x_vals.max()]
             y_vals = np.array(self.sar_meta.footprint.exterior.xy[1])
@@ -934,7 +934,7 @@ class BaseDataset(ABC):
             raster_ds = raster_ds.to_dataset(name=name)
 
         target_lon = self._dataset.longitude
-        if self.sar_meta.cross_antemeridian:
+        if self.sar_meta.cross_antimeridian:
             target_lon = target_lon % 360
 
         mapped_ds_list = []
@@ -982,7 +982,7 @@ class BaseDataset(ABC):
             logger.warning("Raster variable are experimental")
 
         to180 = True
-        if self.sar_meta.cross_antemeridian:
+        if self.sar_meta.cross_antimeridian:
             # raise NotImplementedError("Antimeridian crossing not yet checked")
             to180 = False
 

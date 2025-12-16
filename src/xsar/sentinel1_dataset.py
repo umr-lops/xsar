@@ -1486,7 +1486,7 @@ class Sentinel1Dataset(BaseDataset):
                     float)
             elif varname == "longitude":
                 z_values = self.sar_meta.geoloc[varname_in_geoloc]
-                if self.sar_meta.cross_antemeridian:
+                if self.sar_meta.cross_antimeridian:
                     logger.debug("translate longitudes between 0 and 360")
                     z_values = z_values % 360
             else:
@@ -1553,7 +1553,7 @@ class Sentinel1Dataset(BaseDataset):
                         self._dataset.digital_number.sample,
                     )
             if varname == "longitude":
-                if self.sar_meta.cross_antemeridian:
+                if self.sar_meta.cross_antimeridian:
                     da_var.data = da_var.data.map_blocks(to_lon180)
 
             da_var.name = varname
@@ -1587,7 +1587,7 @@ class Sentinel1Dataset(BaseDataset):
             z_values = self.sar_meta.geoloc[varname_in_geoloc].astype(float)
         elif varname == "longitude":
             z_values = self.sar_meta.geoloc[varname_in_geoloc]
-            # if self.sar_meta.cross_antemeridian:
+            # if self.sar_meta.cross_antimeridian:
             #     logger.debug('translate longitudes between 0 and 360')
             #     z_values = z_values % 360
         else:

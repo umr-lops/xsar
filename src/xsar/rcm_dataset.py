@@ -530,7 +530,7 @@ class RcmDataset(BaseDataset):
                     else:
                         denoised.attrs["comment"] = "not clipped, some values can be <0"
                     ds[varname] = denoised
-                    
+
                     ds[varname_raw].attrs[
                         "denoising information"
                     ] = f"product was not denoised"
@@ -584,7 +584,7 @@ class RcmDataset(BaseDataset):
         # ds_lut_f_delayed.attrs = incidence.attrs
         return da
 
-    @ timing
+    @timing
     def _load_elevation_from_lut(self):
         """
         Load elevation from lut.
@@ -606,7 +606,7 @@ class RcmDataset(BaseDataset):
         inside = angle_rad * earth_radius / (earth_radius + satellite_height)
         return np.degrees(np.arcsin(inside))
 
-    @ timing
+    @timing
     def _get_offboresight_from_elevation(self):
         """
         Compute offboresight angle.
@@ -632,7 +632,7 @@ class RcmDataset(BaseDataset):
             "comment"
         ] = "built from elevation angle and latitude"
 
-    @ timing
+    @timing
     def load_from_geoloc(self, varnames, lazy_loading=True):
         """
         Interpolate (with RectBiVariateSpline) variables from `self.sar_meta.geoloc` to `self._dataset`
@@ -672,7 +672,7 @@ class RcmDataset(BaseDataset):
             else:
                 if varname == "longitude":
                     z_values = self.sar_meta.geoloc[varname]
-                    if self.sar_meta.cross_antemeridian:
+                    if self.sar_meta.cross_antimeridian:
                         logger.debug("translate longitudes between 0 and 360")
                         z_values = z_values % 360
                 else:
@@ -702,7 +702,7 @@ class RcmDataset(BaseDataset):
                         },
                     )
                 if varname == "longitude":
-                    if self.sar_meta.cross_antemeridian:
+                    if self.sar_meta.cross_antimeridian:
                         da_var.data = da_var.data.map_blocks(to_lon180)
 
                 da_var.name = varname
@@ -719,7 +719,7 @@ class RcmDataset(BaseDataset):
         ds = xr.merge(da_list)
         return ds
 
-    @ property
+    @property
     def interpolate_times(self):
         """
         Apply interpolation with RectBivariateSpline to the azimuth time extracted from `self.sar_meta.geoloc`
@@ -764,7 +764,7 @@ class RcmDataset(BaseDataset):
             "line": self.dataset.line})
         return xr.Dataset({"velocity": res})
 
-    @ timing
+    @timing
     def load_digital_number(
         self, resolution=None, chunks=None, resampling=rasterio.enums.Resampling.rms
     ):
@@ -964,7 +964,7 @@ class RcmDataset(BaseDataset):
             intro = "full coverage"
         return "<RcmDataset %s object>" % intro
 
-    @ timing
+    @timing
     def flip_sample_da(self, ds):
         """
         When a product is flipped, flip back data arrays (from a dataset) sample dimensions to respect the xsar
@@ -998,7 +998,7 @@ class RcmDataset(BaseDataset):
             new_ds = ds
         return new_ds
 
-    @ timing
+    @timing
     def flip_line_da(self, ds):
         """
         Flip dataArrays (from a dataset) that depend on line dimension when a product is ascending, in order to
@@ -1033,7 +1033,7 @@ class RcmDataset(BaseDataset):
         self.datatree.attrs |= self.sar_meta.dt.attrs
         return
 
-    @ property
+    @property
     def dataset(self):
         """
         `xarray.Dataset` representation of this `xsar.RcmDataset` object.
@@ -1044,7 +1044,7 @@ class RcmDataset(BaseDataset):
         res.attrs = self.datatree.attrs
         return res
 
-    @ dataset.setter
+    @dataset.setter
     def dataset(self, ds):
         if self.sar_meta.name == ds.attrs["name"]:
             # check if new ds has changed coordinates
@@ -1061,6 +1061,6 @@ class RcmDataset(BaseDataset):
         else:
             raise ValueError("dataset must be same kind as original one.")
 
-    @ dataset.deleter
+    @dataset.deleter
     def dataset(self):
         logger.debug("deleter dataset")

@@ -106,7 +106,8 @@ class RadarSat2Meta(BaseMeta):
                 self.geoloc[ll].isel(line=a, pixel=x).values
                 for a, x in [(0, 0), (0, -1), (-1, -1), (-1, 0)]
             ]
-        corners = list(zip(footprint_dict["longitude"], footprint_dict["latitude"]))
+        corners = list(
+            zip(footprint_dict["longitude"], footprint_dict["latitude"]))
         p = Polygon(corners)
         self.geoloc.attrs["footprint"] = p
         dic["footprints"] = p
@@ -201,7 +202,8 @@ class RadarSat2Meta(BaseMeta):
             elif k in self.manifest_attrs.keys():
                 res_dict[k] = self.manifest_attrs[k]
             else:
-                raise KeyError('Unable to find key/attr "%s" in RadarSat2Meta' % k)
+                raise KeyError(
+                    'Unable to find key/attr "%s" in RadarSat2Meta' % k)
         return res_dict
 
     @property
@@ -291,11 +293,11 @@ class RadarSat2Meta(BaseMeta):
             ```
         Notes:
         ------
-            if self.cross_antemeridian is True, 'longitude' will be in range [0, 360]
+            if self.cross_antimeridian is True, 'longitude' will be in range [0, 360]
         """
         resdict = {}
         geoloc = self.geoloc
-        if self.cross_antemeridian:
+        if self.cross_antimeridian:
             geoloc["longitude"] = geoloc["longitude"] % 360
 
         idx_sample = np.array(geoloc.pixel)

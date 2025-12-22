@@ -903,7 +903,9 @@ class BaseDataset(ABC):
             reprojected_ds = mapraster.map_raster(
                 raster_ds, self._dataset,
                 footprint=self.sar_meta.footprint,
-                cross_antimeridian=self.sar_meta.cross_antimeridian)
+                cross_antimeridian=self.sar_meta.cross_antimeridian).rename(
+                {v: "%s_%s" % (name, v) for v in raster_ds}
+            )
 
             for v in reprojected_ds:
                 reprojected_ds[v].attrs["history"] = yaml.safe_dump({

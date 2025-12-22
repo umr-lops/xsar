@@ -79,6 +79,8 @@ def ecmwf_0100_1h(fname, **kwargs):
     -------
     xarray.Dataset
     """
+    to180 = kwargs.get("to180", True)  # True if not specified
+
     ecmwf_ds = xr.open_dataset(
         fname, chunks={'time': 1, 'latitude': 901, 'longitude': 1800}).isel(time=0)
     ecmwf_ds.attrs['time'] = datetime.datetime.fromtimestamp(
@@ -92,7 +94,7 @@ def ecmwf_0100_1h(fname, **kwargs):
                       for k in ["title", "institution", "time"]}
 
     # dataset is lon [0, 360], make it [-180,180]
-    if kwargs["to180"]:
+    if to180:
         ecmwf_ds = _to_lon180(ecmwf_ds)
     else:
         ecmwf_ds = _to_lon360(ecmwf_ds)
@@ -116,6 +118,8 @@ def ecmwf_0125_1h(fname, **kwargs):
     -------
     xarray.Dataset
     """
+    to180 = kwargs.get("to180", True)  # True if not specified
+
     ecmwf_ds = xr.open_dataset(
         fname, chunks={"longitude": 1000, "latitude": 1000})
 
@@ -129,7 +133,7 @@ def ecmwf_0125_1h(fname, **kwargs):
     ecmwf_ds["y"] = ecmwf_ds.y.compute()
 
     # dataset is lon [0, 360], make it [-180,180]
-    if kwargs["to180"]:
+    if to180:
         ecmwf_ds = _to_lon180(ecmwf_ds)
     else:
         ecmwf_ds = _to_lon360(ecmwf_ds)
@@ -157,6 +161,8 @@ def hwrf_0015_3h(fname, **kwargs):
     -------
     xarray.Dataset
     """
+    to180 = kwargs.get("to180", True)  # True if not specified
+
     hwrf_ds = xr.open_dataset(fname, chunks={'t': 1, 'LAT': 700, 'LON': 700})
     try:
         hwrf_ds = hwrf_ds[["U", "V", "LON", "LAT"]]
@@ -179,7 +185,7 @@ def hwrf_0015_3h(fname, **kwargs):
     )
 
     # hwrf_ds.attrs = {k: hwrf_ds.attrs[k] for k in ['institution', 'time']}
-    if kwargs["to180"]:
+    if to180:
         hwrf_ds = _to_lon180(hwrf_ds)
     else:
         hwrf_ds = _to_lon360(hwrf_ds)
@@ -203,6 +209,7 @@ def era5_0250_1h(fname, **kwargs):
     -------
     xarray.Dataset
     """
+    to180 = kwargs.get("to180", True)  # True if not specified
 
     ds_era5 = xr.open_dataset(
         fname, chunks={'time': 6, 'latitude025': 721, 'longitude025': 1440})
@@ -215,7 +222,8 @@ def era5_0250_1h(fname, **kwargs):
     )
 
     ds_era5.attrs["time"] = kwargs["date"]
-    if kwargs["to180"]:
+
+    if to180:
         ds_era5 = _to_lon180(ds_era5)
     else:
         ds_era5 = _to_lon360(ds_era5)

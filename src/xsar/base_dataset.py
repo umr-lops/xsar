@@ -20,7 +20,7 @@ import geopandas as gpd
 from scipy.spatial import KDTree
 import time
 import rasterio.features
-
+import mapraster
 
 from xsar.utils import bbox_coords, haversine, map_blocks_coords, timing
 
@@ -849,131 +849,6 @@ class BaseDataset(ABC):
         return self.geometry
 
     @timing
-    def map_raster(self, raster_ds):
-        """
-        Map a raster onto xsar grid
-
-        Parameters
-        ----------
-        raster_ds: xarray.Dataset or xarray.DataArray
-            The dataset we want to project onto xsar grid. The `raster_ds.rio` accessor must be valid.
-
-        Returns
-        -------
-        xarray.Dataset or xarray.DataArray
-            The projected dataset, with 'line' and 'sample' coordinate (same size as xsar dataset), and with valid `.rio` accessor.
-
-
-        """
-        if not raster_ds.rio.crs.is_geographic:
-            raster_ds = raster_ds.rio.reproject(4326)
-
-        # ensure dims ordering
-        raster_ds = raster_ds.transpose("y", "x")
-
-        if self.sar_meta.cross_antimeridian:
-            x_vals = np.array(self.sar_meta.footprint.exterior.xy[0]) % 360
-            lon_range = [x_vals.min(), x_vals.max()]
-            y_vals = np.array(self.sar_meta.footprint.exterior.xy[1])
-            lat_range = [y_vals.min(), y_vals.max()]
-        else:
-            lon1, lat1, lon2, lat2 = self.sar_meta.footprint.exterior.bounds
-            lon_range = [lon1, lon2]
-            lat_range = [lat1, lat2]
-
-        # ensure coords are increasing ( for RectBiVariateSpline )
-        for coord in ["x", "y"]:
-            if raster_ds[coord].values[-1] < raster_ds[coord].values[0]:
-                raster_ds = raster_ds.reindex({coord: raster_ds[coord][::-1]})
-
-        # from lon/lat box in xsar dataset, get the corresponding box in raster_ds (by index)
-        """
-        ilon_range = [
-            np.searchsorted(raster_ds.x.values, lon_range[0]),
-            np.searchsorted(raster_ds.x.values, lon_range[1])
-        ]
-        ilat_range = [
-            np.searchsorted(raster_ds.y.values, lat_range[0]),
-            np.searchsorted(raster_ds.y.values, lat_range[1])
-        ]
-        """  # for incomplete raster (not global like hwrf)
-        ilon_range = [
-            np.max([1, np.searchsorted(raster_ds.x.values, lon_range[0])]),
-            np.min(
-                [np.searchsorted(raster_ds.x.values,
-                                 lon_range[1]), raster_ds.x.size]
-            ),
-        ]
-        ilat_range = [
-            np.max([1, np.searchsorted(raster_ds.y.values, lat_range[0])]),
-            np.min(
-                [np.searchsorted(raster_ds.y.values,
-                                 lat_range[1]), raster_ds.y.size]
-            ),
-        ]
-
-        # enlarge the raster selection range, for correct interpolation
-        ilon_range, ilat_range = [
-            [rg[0] - 1, rg[1] + 1] for rg in (ilon_range, ilat_range)
-        ]
-
-        # select the xsar box in the raster
-        raster_ds = raster_ds.isel(x=slice(*ilon_range), y=slice(*ilat_range))
-
-        # upscale coordinates, in original projection
-        # 1D array of lons/lats, trying to have same spacing as dataset (if not to high)
-        num = min((self._dataset.sample.size +
-                  self._dataset.line.size) // 2, 1000)
-        lons = np.linspace(*lon_range, num=num)
-        lats = np.linspace(*lat_range, num=num)
-
-        name = None
-        if isinstance(raster_ds, xr.DataArray):
-            # convert to temporary dataset
-            name = raster_ds.name or "_tmp_name"
-            raster_ds = raster_ds.to_dataset(name=name)
-
-        target_lon = self._dataset.longitude
-        if self.sar_meta.cross_antimeridian:
-            target_lon = target_lon % 360
-
-        mapped_ds_list = []
-        for var in raster_ds:
-            raster_da = raster_ds[var].chunk(raster_ds[var].shape)
-            # upscale in original projection using interpolation
-            # in most cases, RectBiVariateSpline give better results, but can't handle Nans
-            if np.any(np.isnan(raster_da)):
-                upscaled_da = raster_da.interp(x=lons, y=lats)
-            else:
-                upscaled_da = map_blocks_coords(
-                    xr.DataArray(dims=["y", "x"], coords={"x": lons, "y": lats}).chunk(
-                        1000
-                    ),
-                    RectBivariateSpline(
-                        raster_da.y.values,
-                        raster_da.x.values,
-                        raster_da.values,
-                        kx=3,
-                        ky=3,
-                    ),
-                )
-            upscaled_da.name = var
-            # interp upscaled_da on sar grid
-            mapped_ds_list.append(
-                upscaled_da.interp(
-                    x=target_lon, y=self._dataset.latitude
-                ).drop_vars(["x", "y"])
-            )
-        mapped_ds = xr.merge(mapped_ds_list)
-
-        if name is not None:
-            # convert back to dataArray
-            mapped_ds = mapped_ds[name]
-            if name == "_tmp_name":
-                mapped_ds.name = None
-        return self._set_rio(mapped_ds)
-
-    @timing
     def _load_rasters_vars(self):
         # load and map variables from rasterfile (like ecmwf) on dataset
         if self.sar_meta.rasters.empty:
@@ -1025,13 +900,14 @@ class BaseDataset(ABC):
             if get_function is not None:
                 hist_res.update({"resource_decoded": resource_dec[1]})
 
-            reprojected_ds = self.map_raster(raster_ds).rename(
-                {v: "%s_%s" % (name, v) for v in raster_ds}
-            )
+            reprojected_ds = mapraster.map_raster(
+                raster_ds, self._dataset,
+                footprint=self.sar_meta.footprint,
+                cross_antimeridian=self.sar_meta.cross_antimeridian)
 
             for v in reprojected_ds:
                 reprojected_ds[v].attrs["history"] = yaml.safe_dump({
-                                                                    v: hist_res})
+                    v: hist_res})
 
             da_var_list.append(reprojected_ds)
         return xr.merge(da_var_list)

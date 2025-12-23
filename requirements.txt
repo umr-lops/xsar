@@ -13,3 +13,4 @@ packaging
 pytest
 dill
 lxml
+map_raster

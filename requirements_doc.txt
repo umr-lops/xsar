@@ -11,4 +11,4 @@ sphinxcontrib-programoutput
 xradarsat2
 xarray-safe-rcm
 xarray-safe-s1
-map_raster
+mapraster

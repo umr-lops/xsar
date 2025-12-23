@@ -51,7 +51,7 @@ dependencies = [
   'jinja2',
   'rioxarray',
   'lxml',
-  'mapraster @ git+https://github.com/umr-lops/mapraster.git@main'
+  'mapraster'
 ]
 [project.optional-dependencies]
 RS2 = ["xradarsat2"]

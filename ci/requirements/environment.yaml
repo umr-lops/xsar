@@ -26,5 +26,4 @@ dependencies:
   - geopandas
   - lxml
   - rioxarray
-  - pip:
-      - mapraster @ git+https://github.com/umr-lops/mapraster.git
+  - mapraster

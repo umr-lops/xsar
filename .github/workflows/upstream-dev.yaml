@@ -68,6 +68,7 @@ jobs:
           create-args: >-
             python=${{ matrix.python-version }}
             pytest-reportlog
+          post-cleanup: "none"
 
       - name: install upstream-dev dependencies
         run: bash ci/install-upstream-dev.sh

@@ -26,4 +26,5 @@ dependencies:
   - geopandas
   - lxml
   - rioxarray
-  - mapraster
+  - pip:
+      - mapraster

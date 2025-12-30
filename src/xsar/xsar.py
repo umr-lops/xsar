@@ -162,7 +162,7 @@ def product_info(path, columns="minimal", include_multi=False):
     """
 
     info_keys = {
-        "minimal": ["name", "ipf", "platform", "swath", "product", "pols", "meta"]
+        "minimal": ["name", "ipf_version", "platform", "swath", "product", "pols", "meta"]
     }
     info_keys["spatial"] = info_keys["minimal"] + ["time_range", "geometry"]
 

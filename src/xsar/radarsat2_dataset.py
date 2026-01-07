@@ -391,7 +391,7 @@ class RadarSat2Dataset(BaseDataset):
             else:
                 if varname == "longitude":
                     z_values = self.sar_meta.geoloc[varname]
-                    if self.sar_meta.cross_antemeridian:
+                    if self.sar_meta.cross_antimeridian:
                         logger.debug("translate longitudes between 0 and 360")
                         z_values = z_values % 360
                 else:
@@ -421,7 +421,7 @@ class RadarSat2Dataset(BaseDataset):
                         },
                     )
                 if varname == "longitude":
-                    if self.sar_meta.cross_antemeridian:
+                    if self.sar_meta.cross_antimeridian:
                         da_var.data = da_var.data.map_blocks(to_lon180)
 
                 da_var.name = varname

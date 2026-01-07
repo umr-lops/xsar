@@ -58,6 +58,13 @@ def _to_lon180(ds):
     return ds
 
 
+def _to_lon360(ds):
+    # Ensure [0, 360] on dim x (longitude)
+    ds = ds.assign_coords({"x": ds.x % 360})
+    ds = ds.sortby("x")
+    return ds
+
+
 def ecmwf_0100_1h(fname, **kwargs):
     """
     ecmwf 0.1 deg 1h reader (ECMWF_FORECAST_0100_202109091300_10U_10V.nc)
@@ -72,6 +79,8 @@ def ecmwf_0100_1h(fname, **kwargs):
     -------
     xarray.Dataset
     """
+    to180 = kwargs.get("to180", True)  # True if not specified
+
     ecmwf_ds = xr.open_dataset(
         fname, chunks={'time': 1, 'latitude': 901, 'longitude': 1800}).isel(time=0)
     ecmwf_ds.attrs['time'] = datetime.datetime.fromtimestamp(
@@ -81,10 +90,14 @@ def ecmwf_0100_1h(fname, **kwargs):
     ecmwf_ds = ecmwf_ds[["Longitude", "Latitude", "10U", "10V"]].rename(
         {"Longitude": "x", "Latitude": "y", "10U": "U10", "10V": "V10"}
     )
-    ecmwf_ds.attrs = {k: ecmwf_ds.attrs[k] for k in ["title", "institution", "time"]}
+    ecmwf_ds.attrs = {k: ecmwf_ds.attrs[k]
+                      for k in ["title", "institution", "time"]}
 
     # dataset is lon [0, 360], make it [-180,180]
-    ecmwf_ds = _to_lon180(ecmwf_ds)
+    if to180:
+        ecmwf_ds = _to_lon180(ecmwf_ds)
+    else:
+        ecmwf_ds = _to_lon360(ecmwf_ds)
 
     ecmwf_ds.rio.write_crs("EPSG:4326", inplace=True)
 
@@ -105,7 +118,10 @@ def ecmwf_0125_1h(fname, **kwargs):
     -------
     xarray.Dataset
     """
-    ecmwf_ds = xr.open_dataset(fname, chunks={"longitude": 1000, "latitude": 1000})
+    to180 = kwargs.get("to180", True)  # True if not specified
+
+    ecmwf_ds = xr.open_dataset(
+        fname, chunks={"longitude": 1000, "latitude": 1000})
 
     ecmwf_ds = (
         ecmwf_ds.rename({"longitude": "x", "latitude": "y"})
@@ -117,9 +133,13 @@ def ecmwf_0125_1h(fname, **kwargs):
     ecmwf_ds["y"] = ecmwf_ds.y.compute()
 
     # dataset is lon [0, 360], make it [-180,180]
-    ecmwf_ds = _to_lon180(ecmwf_ds)
+    if to180:
+        ecmwf_ds = _to_lon180(ecmwf_ds)
+    else:
+        ecmwf_ds = _to_lon360(ecmwf_ds)
 
-    ecmwf_ds.attrs["time"] = datetime.datetime.fromisoformat(ecmwf_ds.attrs["date"])
+    ecmwf_ds.attrs["time"] = datetime.datetime.fromisoformat(
+        ecmwf_ds.attrs["date"])
 
     ecmwf_ds.rio.write_crs("EPSG:4326", inplace=True)
 
@@ -141,13 +161,16 @@ def hwrf_0015_3h(fname, **kwargs):
     -------
     xarray.Dataset
     """
+    to180 = kwargs.get("to180", True)  # True if not specified
+
     hwrf_ds = xr.open_dataset(fname, chunks={'t': 1, 'LAT': 700, 'LON': 700})
     try:
         hwrf_ds = hwrf_ds[["U", "V", "LON", "LAT"]]
         hwrf_ds = hwrf_ds.squeeze("t", drop=True)
 
     except Exception:
-        raise ValueError("date '%s' can't be find in %s " % (kwargs["date"], fname))
+        raise ValueError("date '%s' can't be find in %s " %
+                         (kwargs["date"], fname))
 
     hwrf_ds.attrs["time"] = datetime.datetime.strftime(
         kwargs["date"], "%Y-%m-%d %H:%M:%S"
@@ -162,7 +185,10 @@ def hwrf_0015_3h(fname, **kwargs):
     )
 
     # hwrf_ds.attrs = {k: hwrf_ds.attrs[k] for k in ['institution', 'time']}
-    hwrf_ds = _to_lon180(hwrf_ds)
+    if to180:
+        hwrf_ds = _to_lon180(hwrf_ds)
+    else:
+        hwrf_ds = _to_lon360(hwrf_ds)
     hwrf_ds.rio.write_crs("EPSG:4326", inplace=True)
 
     return hwrf_ds
@@ -183,6 +209,7 @@ def era5_0250_1h(fname, **kwargs):
     -------
     xarray.Dataset
     """
+    to180 = kwargs.get("to180", True)  # True if not specified
 
     ds_era5 = xr.open_dataset(
         fname, chunks={'time': 6, 'latitude025': 721, 'longitude025': 1440})
@@ -195,7 +222,12 @@ def era5_0250_1h(fname, **kwargs):
     )
 
     ds_era5.attrs["time"] = kwargs["date"]
-    ds_era5 = _to_lon180(ds_era5)
+
+    if to180:
+        ds_era5 = _to_lon180(ds_era5)
+    else:
+        ds_era5 = _to_lon360(ds_era5)
+
     ds_era5.rio.write_crs("EPSG:4326", inplace=True)
     return ds_era5
 
@@ -213,7 +245,8 @@ def gebco(gebco_files):
 
 
 # list available rasters as a pandas dataframe
-available_rasters = pd.DataFrame(columns=["resource", "read_function", "get_function"])
+available_rasters = pd.DataFrame(
+    columns=["resource", "read_function", "get_function"])
 available_rasters.loc["gebco"] = [None, gebco, glob.glob]
 available_rasters.loc["ecmwf_0100_1h"] = [
     None,

@@ -176,21 +176,27 @@ class BaseMeta(BaseDataset):
             return descr
 
         if self._mask_geometry[name] is None:
-
             intersecting_geoms = self._get_mask_intersecting_geometries(name)
 
             # Fix invalid geometries before union
             if any(~intersecting_geoms.is_valid):
                 logging.warning(
                     f"Fixing {sum(~intersecting_geoms.is_valid)} invalid geometries in mask '{name}'")
-                intersecting_geoms['geometry'] = intersecting_geoms['geometry'].apply(
-                    lambda g: g.buffer(0) if not g.is_valid else g
-                )
-            if self._get_mask_intersecting_geometries(name).unary_union:
-                poly = self._get_mask_intersecting_geometries(
-                    name
-                ).unary_union.intersection(self.footprint)
 
+                # buffer 0
+                if isinstance(intersecting_geoms, gpd.GeoDataFrame):
+                    intersecting_geoms['geometry'] = intersecting_geoms['geometry'].apply(
+                        lambda g: g.buffer(0) if not g.is_valid else g
+                    )
+                else:
+                    intersecting_geoms = intersecting_geoms.apply(
+                        lambda g: g.buffer(0) if not g.is_valid else g
+                    )
+
+            union_geom = intersecting_geoms.union_all()
+
+            if union_geom and not union_geom.is_empty:
+                poly = union_geom.intersection(self.footprint)
             else:
                 poly = Polygon()
 

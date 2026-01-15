@@ -6,6 +6,7 @@ import cartopy
 import rasterio
 import shapely
 from shapely.geometry import Polygon
+from shapely.validation import make_valid
 import numpy as np
 from datetime import datetime
 
@@ -183,17 +184,20 @@ class BaseMeta(BaseDataset):
                 logging.warning(
                     f"Fixing {sum(~intersecting_geoms.is_valid)} invalid geometries in mask '{name}'")
 
-                # buffer 0
                 if isinstance(intersecting_geoms, gpd.GeoDataFrame):
                     intersecting_geoms['geometry'] = intersecting_geoms['geometry'].apply(
-                        lambda g: g.buffer(0) if not g.is_valid else g
+                        lambda g: make_valid(g) if not g.is_valid else g
                     )
                 else:
                     intersecting_geoms = intersecting_geoms.apply(
-                        lambda g: g.buffer(0) if not g.is_valid else g
+                        lambda g: make_valid(g) if not g.is_valid else g
                     )
 
             union_geom = intersecting_geoms.union_all()
+
+            # Fix invalid geometry after union
+            if not union_geom.is_valid:
+                union_geom = make_valid(union_geom)
 
             if union_geom and not union_geom.is_empty:
                 poly = union_geom.intersection(self.footprint)

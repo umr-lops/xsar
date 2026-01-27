@@ -17,7 +17,6 @@ import glob
 import re
 import datetime
 import string
-import pytz
 import yaml
 from importlib.resources import files
 from pathlib import Path
@@ -663,7 +662,7 @@ def safe_dir(filename, path=".", only_exists=False):
         tags[tag] = regroups.group(itag)
 
     startdate = datetime.datetime.strptime(tags["STARTDATE"], "%Y%m%dT%H%M%S").replace(
-        tzinfo=pytz.UTC
+        tzinfo=datetime.timezone.utc
     )
     tags["SAFE"] = regroups.group(0)
     tags["missionid"] = tags["MISSIONID"][

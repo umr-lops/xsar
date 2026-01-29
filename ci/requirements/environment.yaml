@@ -27,6 +27,7 @@ dependencies:
   - lxml
   - rioxarray
   - mapraster
+  - xmlschema <4.0.0
   - xarray-safe-s1
   - xradarsat2
   - xarray-safe-rcm

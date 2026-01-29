@@ -173,7 +173,8 @@ class BaseMeta(BaseDataset):
                     descr.name,
                 )
             except AttributeError:
-                pass
+                # Fallback for features without a name attribute
+                descr = "%s.%s" % (descr.__module__, descr.__class__.__name__)
             return descr
 
         if self._mask_geometry[name] is None:

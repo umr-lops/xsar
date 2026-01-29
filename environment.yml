@@ -17,3 +17,4 @@ dependencies:
   - python
   - importlib_resources
   - lxml
+  - mapraster

@@ -99,7 +99,7 @@ nbsphinx_timeout = 300
 nbsphinx_prolog = """
 Download this notebook from github_.
 
-.. _github: https://github.com/oarcher/xsar/tree/develop/docs/{{ env.doc2path(env.docname, base=False) }}
+.. _github: https://github.com/oarcher/xsar/tree/main/docs/{{ env.doc2path(env.docname, base=False) }}
 
 ----
 """

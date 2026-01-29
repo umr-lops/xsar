@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-conda remove -y --force cytoolz numpy xarray toolz python-dateutil pandas
+conda remove -y --force cytoolz numpy xarray toolz python-dateutil pandas xmlschema
 python -m pip install \
   -i https://pypi.anaconda.org/scientific-python-nightly-wheels/simple \
   --no-deps \
@@ -8,7 +8,8 @@ python -m pip install \
   --upgrade \
   numpy \
   pandas \
-  xarray
+  xarray \
+  xmlschema
 python -m pip install --upgrade \
   git+https://github.com/pytoolz/toolz \
   git+https://github.com/dateutil/dateutil

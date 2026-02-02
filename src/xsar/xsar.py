@@ -22,6 +22,8 @@ from .radarsat2_meta import RadarSat2Meta
 from .radarsat2_dataset import RadarSat2Dataset
 from .rcm_meta import RcmMeta
 from .rcm_dataset import RcmDataset
+from .biomass_meta import BiomassMeta
+from .biomass_dataset import BiomassDataset
 
 logger = logging.getLogger("xsar")
 logger.addHandler(logging.NullHandler())
@@ -50,33 +52,40 @@ def open_dataset(*args, **kwargs):
     >>> xsar.Sentinel1Dataset(*args, **kwargs).dataset
     >>> xsar.RadarSat2Dataset(*args, **kwargs).dataset
     >>> xsar.RcmDataset(*args, **kwargs).dataset
+    >>> xsar.BiomassDataset(*args, **kwargs).dataset
 
     See Also
     --------
     xsar.Sentinel1Dataset
     xsar.RadarSat2Dataset
     xsar.RcmDataset
+    xsar.BiomassDataset
     """
     dataset_id = args[0]
-    # TODO: check product type (S1, RS2), and call specific reader
-    if (
-        isinstance(dataset_id, Sentinel1Meta)
-        or isinstance(dataset_id, str)
-        and "S1" in dataset_id
-    ):
+    # Detect product type from Meta object or path string, then call specific reader.
+    # BIOMASS is checked first because its paths may contain substrings
+    # (like "S1") that would match other branches when checking the full path.
+    if isinstance(dataset_id, BiomassMeta):
+        sar_obj = BiomassDataset(*args, **kwargs)
+    elif isinstance(dataset_id, Sentinel1Meta):
         sar_obj = Sentinel1Dataset(*args, **kwargs)
-    elif (
-        isinstance(dataset_id, RadarSat2Meta)
-        or isinstance(dataset_id, str)
-        and "RS2" in dataset_id
-    ):
+    elif isinstance(dataset_id, RadarSat2Meta):
         sar_obj = RadarSat2Dataset(*args, **kwargs)
-    elif (
-        isinstance(dataset_id, RcmMeta)
-        or isinstance(dataset_id, str)
-        and "RCM" in dataset_id
-    ):
+    elif isinstance(dataset_id, RcmMeta):
         sar_obj = RcmDataset(*args, **kwargs)
+    elif isinstance(dataset_id, str):
+        basename = os.path.basename(dataset_id.rstrip("/"))
+        basename_upper = basename.upper()
+        if "BIO" in basename_upper: # warning BIOMASS product also contain the S1 string
+            sar_obj = BiomassDataset(*args, **kwargs)
+        elif "S1" in dataset_id:
+            sar_obj = Sentinel1Dataset(*args, **kwargs)
+        elif "RS2" in dataset_id:
+            sar_obj = RadarSat2Dataset(*args, **kwargs)
+        elif "RCM" in dataset_id:
+            sar_obj = RcmDataset(*args, **kwargs)
+        else:
+            raise TypeError("Unknown dataset type from %s" % str(dataset_id))
     else:
         raise TypeError("Unknown dataset type from %s" % str(dataset_id))
     ds = sar_obj.dataset
@@ -111,25 +120,28 @@ def open_datatree(*args, **kwargs):
     xsar.RcmDataset
     """
     dataset_id = args[0]
-    # Check product type (S1, RS2), and call specific reader
-    if (
-        isinstance(dataset_id, Sentinel1Meta)
-        or isinstance(dataset_id, str)
-        and "S1" in dataset_id
-    ):
+    # Detect product type from Meta object or path string, then call specific reader.
+    if isinstance(dataset_id, BiomassMeta):
+        sar_obj = BiomassDataset(*args, **kwargs)
+    elif isinstance(dataset_id, Sentinel1Meta):
         sar_obj = Sentinel1Dataset(*args, **kwargs)
-    elif (
-        isinstance(dataset_id, RadarSat2Meta)
-        or isinstance(dataset_id, str)
-        and "RS2" in dataset_id
-    ):
+    elif isinstance(dataset_id, RadarSat2Meta):
         sar_obj = RadarSat2Dataset(*args, **kwargs)
-    elif (
-        isinstance(dataset_id, RcmMeta)
-        or isinstance(dataset_id, str)
-        and "RCM" in dataset_id
-    ):
+    elif isinstance(dataset_id, RcmMeta):
         sar_obj = RcmDataset(*args, **kwargs)
+    elif isinstance(dataset_id, str):
+        basename = os.path.basename(dataset_id.rstrip("/"))
+        basename_upper = basename.upper()
+        if "BIO" in basename_upper:
+            sar_obj = BiomassDataset(*args, **kwargs)
+        elif "S1" in dataset_id:
+            sar_obj = Sentinel1Dataset(*args, **kwargs)
+        elif "RS2" in dataset_id:
+            sar_obj = RadarSat2Dataset(*args, **kwargs)
+        elif "RCM" in dataset_id:
+            sar_obj = RcmDataset(*args, **kwargs)
+        else:
+            raise TypeError("Unknown dataset type from %s" % str(dataset_id))
     else:
         raise TypeError("Unknown dataset type from %s" % str(dataset_id))
     dt = sar_obj.datatree

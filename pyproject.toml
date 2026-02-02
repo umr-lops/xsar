@@ -15,6 +15,7 @@ keywords = [
   "Sentinel-1",
   "RCM",
   "RadarSat2",
+  "BIOMASS",
   "sar",
   "synthetic-aperture-radar",
 ]
@@ -56,6 +57,7 @@ dependencies = [
 RS2 = ["xradarsat2"]
 RCM = ["xarray-safe-rcm"]
 S1 = ["xarray-safe-s1"]
+# BIOMASS = ["xarray-biomass"]  # to be uncommented once the reader is publicly available on pypi
 
 
 

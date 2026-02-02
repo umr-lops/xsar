@@ -87,6 +87,13 @@ pip install xsar[RCM]
 pip install xsar[RS2,RCM]
 ```
 
+- install `xsar` including Biomass :
+
+N.B: Still in development, ask Alexis Mouche for access to the reader library 
+
+```bash
+pip install git+https://<gh_auth_token>:github.com/alxmouche/xarray-biomass
+```
 
 ```python
 >>> import xsar

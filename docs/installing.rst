@@ -112,7 +112,6 @@ Xsar can be used in jupyter, with holoviews and geoviews. To install aditional d
 
 .. code-block::
 
-    pip install -r https://raw.githubusercontent.com/umr-lops/xsar/develop/requirements.txt
     pip install git+https://github.com/umr-lops/xsarsea.git
 
 
@@ -141,7 +140,6 @@ Developement  installation
     # this is needed to register git filters
     git config --local include.path ../.gitconfig
     pip install -e .
-    pip install -r requirements.txt
 
 
 .. _conda: https://docs.anaconda.com/anaconda/install/

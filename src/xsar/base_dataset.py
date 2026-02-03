@@ -132,7 +132,7 @@ class BaseDataset(ABC):
         """
         return Polygon(zip(*self._bbox_ll))
 
-    def load_ground_heading(self):
+    def load_ground_heading(self, approx=True):
         """
         Load ground heading as delayed thanks to `BaseMeta.coords2heading`.
 
@@ -144,7 +144,7 @@ class BaseDataset(ABC):
 
         def coords2heading(lines, samples):
             return self.sar_meta.coords2heading(
-                lines, samples, to_grid=True, approx=True
+                lines, samples, to_grid=True, approx=approx
             )
 
         gh = map_blocks_coords(

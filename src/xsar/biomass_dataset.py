@@ -238,6 +238,9 @@ class BiomassDataset(BaseDataset):
         self.resampled = resolution is not None
         self._bbox_coords_ori = self._bbox_coords
 
+    def load_ground_heading(self):
+        return super().load_ground_heading(approx=False)
+
     def _add_high_resolution_variables(self, luts=False, lazy_loading=True):
         """
         Add high-resolution variables: lat/lon from GCPs, LUT variables via resampling,

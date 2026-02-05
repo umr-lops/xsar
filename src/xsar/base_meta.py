@@ -164,20 +164,25 @@ class BaseMeta(BaseDataset):
 
         """
         if describe:
-            if isinstance(descr, str):
-                descr = self._mask_features_raw.get(name)
-            elif descr is None:
+            descr = self._mask_features_raw.get(name)
+
+            # 1) if descr is a str ( shapefile file path in most of the case)
+
+            # 2) if descr is None
+            if descr is None:
                 descr = f"Unknown mask feature: {name}"
-            else:
-                module = getattr(descr, "__module__", "unknown_module")
-                cls = descr.__class__.__name__
-                feat_name = getattr(descr, "name",  f"{module}.{cls}")
-                # nice repr for a class (like 'cartopy.feature.NaturalEarthFeature land')
-                descr = "%s.%s %s" % (
-                        module,
-                        cls,
-                        feat_name
-                )
+
+            # 3) otherwise
+            module = getattr(descr, "__module__", "unknown_module")
+            cls = descr.__class__.__name__
+            feat_name = getattr(descr, "name",  f"{module}.{cls}")
+            # nice repr for a class (like 'cartopy.feature.NaturalEarthFeature land')
+            descr = "%s.%s %s" % (
+                    module,
+                    cls,
+                    feat_name,
+            )
+
             return descr
         if self._mask_geometry[name] is None:
             intersecting_geoms = self._get_mask_intersecting_geometries(name)

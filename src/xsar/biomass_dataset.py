@@ -262,9 +262,20 @@ class BiomassDataset(BaseDataset):
         self._dataset = xr.merge(ds_merge_list)
         self._dataset.attrs = attrs
 
-        # 1. Generate full-resolution lat/lon from GCPs (accurate method)
-        full_shape = (self._dataset.sizes["line"], self._dataset.sizes["sample"])
-        lat, lon = self.sar_meta.reader.generate_latlon_from_gcps(full_shape)
+        # 1. Generate lat/lon from GCPs using actual pixel coordinates.
+        # The dataset's line/sample coords are in the original full-resolution
+        # pixel space (set by the Affine transform in load_digital_number).
+        # We must use these instead of np.arange(shape) so the GCP transformer
+        # maps to the correct geographic extent at any resolution.
+        from rasterio.transform import GCPTransformer
+        gcps, _ = self.sar_meta.reader._read_gcps()
+        transformer = GCPTransformer(gcps)
+        line_vals = self._dataset.line.values
+        sample_vals = self._dataset.sample.values
+        rows, cols = np.meshgrid(line_vals, sample_vals, indexing='ij')
+        lon_flat, lat_flat = transformer.xy(rows.ravel(), cols.ravel())
+        lat = np.array(lat_flat).reshape(len(line_vals), len(sample_vals))
+        lon = np.array(lon_flat).reshape(len(line_vals), len(sample_vals))
 
         self._dataset["latitude"] = xr.DataArray(
             lat.astype(np.float64),

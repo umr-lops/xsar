@@ -267,6 +267,7 @@ class BiomassDataset(BaseDataset):
         # pixel space (set by the Affine transform in load_digital_number).
         # We must use these instead of np.arange(shape) so the GCP transformer
         # maps to the correct geographic extent at any resolution.
+        full_shape = (self._dataset.sizes["line"], self._dataset.sizes["sample"])
         from rasterio.transform import GCPTransformer
         gcps, _ = self.sar_meta.reader._read_gcps()
         transformer = GCPTransformer(gcps)

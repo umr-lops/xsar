@@ -19,7 +19,6 @@ dependencies:
   - distributed
   - aiohttp
   - rasterio
-  - cartopy
   - pyproj
   - scipy
   - shapely

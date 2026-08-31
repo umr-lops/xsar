@@ -4,7 +4,6 @@ try:
     # make sure we are running from a notebook
     # if test fail, nothing will be imported, and that will save lot of importtime
     assert get_ipython() is not None
-    import cartopy
     import holoviews as hv
     import geoviews as gv
     import geoviews.feature as gf
@@ -51,10 +50,8 @@ def repr_mimebundle_Sentinel1Meta(self, include=None, exclude=None):
         """
     )
 
-    crs = cartopy.crs.PlateCarree()
-
     world = gv.operation.resample_geometry(gf.land.geoms("10m")).opts(
-        color="khaki", projection=crs, alpha=0.5
+        color="khaki", alpha=0.5
     )
 
     center = self.footprint.centroid
@@ -78,7 +75,7 @@ def repr_mimebundle_Sentinel1Meta(self, include=None, exclude=None):
 
     footprint = (
         gv.Polygons(footprints_df, label="footprint")
-        .opts(projection=crs, xlim=xlim, ylim=ylim, alpha=0.5)
+        .opts(xlim=xlim, ylim=ylim, alpha=0.5)
         .opts(
             **(opts.get(hv.Store.current_backend) or {}),
             backend=hv.Store.current_backend
@@ -87,7 +84,7 @@ def repr_mimebundle_Sentinel1Meta(self, include=None, exclude=None):
 
     orbit = (
         gv.Points(self.orbit["geometry"].to_crs("EPSG:4326"), label="orbit")
-        .opts(projection=crs, xlim=xlim, ylim=ylim, alpha=0.5)
+        .opts(xlim=xlim, ylim=ylim, alpha=0.5)
         .opts(
             **(opts.get(hv.Store.current_backend) or {}),
             backend=hv.Store.current_backend

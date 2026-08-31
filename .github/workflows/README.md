@@ -20,7 +20,7 @@ The jobs contains 5 steps:
 
 - Setup conda and create environment : using a community github action package [conda-incubator/setup-miniconda@v2](https://github.com/marketplace/actions/setup-miniconda)
 - Install xsar dependencies
-- Check xsar environment: you can see in a debug job the version of conda, python, rasterio, gdal, cartopy and dask
+- Check xsar environment: you can see in a debug job the version of conda, python, rasterio, gdal and dask
 - Install xsar
 - Testing xsar : run the script test `test/test_xsar.py`
 

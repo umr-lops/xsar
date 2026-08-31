@@ -10,9 +10,7 @@ import pytest
 import geopandas as gpd
 from shapely.geometry import Polygon, MultiPolygon, box
 from shapely.validation import explain_validity
-import cartopy
-
-from xsar.base_meta import BaseMeta
+from xsar.base_meta import BaseMeta, _ShapefileFeature
 
 
 class DummyMeta(BaseMeta):
@@ -131,12 +129,9 @@ def test_get_mask_handles_self_intersecting_geometry(sentinel1_footprint):
     # Get the problematic polygon
     invalid_poly = get_problematic_gshhs_polygon()
 
-    # Create a mock cartopy feature with the invalid geometry
+    # Create a mock shapefile feature with the invalid geometry
     geoseries = gpd.GeoSeries([invalid_poly])
-    mock_feature = cartopy.feature.ShapelyFeature(
-        geoseries,
-        cartopy.crs.PlateCarree()
-    )
+    mock_feature = _ShapefileFeature(geoseries)
 
     # Set the mask feature
     meta.set_mask_feature("gshhs_test", mock_feature)
@@ -171,10 +166,7 @@ def test_get_mask_with_multiple_invalid_coastal_geometries(sentinel1_footprint):
 
     # Create a mock feature with mixed geometries
     geoseries = gpd.GeoSeries([valid_poly1, invalid_poly, valid_poly2])
-    mock_feature = cartopy.feature.ShapelyFeature(
-        geoseries,
-        cartopy.crs.PlateCarree()
-    )
+    mock_feature = _ShapefileFeature(geoseries)
 
     # Set the mask feature
     meta.set_mask_feature("gshhs_multiple", mock_feature)
@@ -223,10 +215,7 @@ def test_get_mask_caches_fixed_geometry(sentinel1_footprint):
 
     invalid_poly = get_problematic_gshhs_polygon()
     geoseries = gpd.GeoSeries([invalid_poly])
-    mock_feature = cartopy.feature.ShapelyFeature(
-        geoseries,
-        cartopy.crs.PlateCarree()
-    )
+    mock_feature = _ShapefileFeature(geoseries)
 
     meta.set_mask_feature("gshhs_cache", mock_feature)
 

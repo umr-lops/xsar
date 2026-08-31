@@ -553,17 +553,22 @@ class BaseDataset(ABC):
             # transform * (x, y) -> (line, sample)
             # (where (x, y) are index in out_shape)
             # Affine.permutation() is used because (line, sample) is transposed from geographic
+            # coords label the pixel centers, while rasterio expects the transform
+            # to map pixel indices to the grid corner -> shift by half a step
+            dline = (line[-1] - line[0]) / (len(line) - 1)
+            dsample = (sample[-1] - sample[0]) / (len(sample) - 1)
 
             transform = (
-                Affine.translation(*chunk_coords[0])
-                * Affine.scale(*[np.unique(np.diff(c))[0] for c in [line, sample]])
+                Affine.translation(line[0] - dline / 2,
+                                   sample[0] - dsample / 2)
+                * Affine.scale(dline, dsample)
                 * Affine.permutation()
             )
 
             raster_mask = rasterio.features.rasterize(
                 [vector_mask_coords],
                 out_shape=out_shape,
-                all_touched=False,
+                all_touched=True,
                 transform=transform,
             )
             return raster_mask
@@ -732,9 +737,15 @@ class BaseDataset(ABC):
             # (where (x, y) are index in out_shape)
             # Affine.permutation() is used because (line, sample) is transposed from geographic
             # this transform Affine seems to be sufficient approx for SLC -> curvilinear could be even better?
+            # coords label the pixel centers, while rasterio expects the transform
+            # to map pixel indices to the grid corner -> shift by half a step
+            dline = (line[-1] - line[0]) / (len(line) - 1)
+            dsample = (sample[-1] - sample[0]) / (len(sample) - 1)
+
             transform = (
-                Affine.translation(*chunk_coords[0])
-                * Affine.scale(*[np.unique(np.diff(c))[0] for c in [line, sample]])
+                Affine.translation(line[0] - dline / 2,
+                                   sample[0] - dsample / 2)
+                * Affine.scale(dline, dsample)
                 * Affine.permutation()
             )
 

@@ -2,3 +2,6 @@
 data_dir: /tmp
 auxiliary_dir:
 path_auxiliary_df:
+# default 'land' mask: path to a shapefile (e.g. OSM land-polygons).
+# if empty, no default land mask, ValueError
+land_mask:

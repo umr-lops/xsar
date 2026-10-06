@@ -15,7 +15,14 @@ from .raster_readers import available_rasters
 from .base_dataset import BaseDataset
 import geopandas as gpd
 
-from .utils import class_or_instancemethod, to_lon180, haversine, config
+from .utils import (
+    class_or_instancemethod,
+    to_lon180,
+    geometry_to_lon180,
+    geometry_to_lon360,
+    haversine,
+    config,
+)
 
 logger = logging.getLogger("xsar.base_meta")
 logger.addHandler(logging.NullHandler())
@@ -59,6 +66,7 @@ class BaseMeta(BaseDataset):
     _mask_intersecting_geometries = {}
     _mask_geometry = {}
     _geoloc = None
+    _cross_antimeridian = None
     _rasterized_masks = None
     manifest_attrs = None
     _time_range = None
@@ -104,7 +112,9 @@ class BaseMeta(BaseDataset):
                 proj_transform = pyproj.Transformer.from_crs(
                     pyproj.CRS("EPSG:4326"), crs_in, always_xy=True
                 ).transform
-                footprint_crs = transform(proj_transform, self.footprint)
+                # the shapefile is in [-180, 180]: a footprint crossing the antimeridian
+                # (continuous [0, 360] longitudes) is split in two parts
+                footprint_crs = transform(proj_transform, geometry_to_lon180(self.footprint))
 
                 with warnings.catch_warnings():
                     # ignore "RuntimeWarning: Sequential read of iterator was interrupted. Resetting iterator."
@@ -229,7 +239,12 @@ class BaseMeta(BaseDataset):
                 union_geom = make_valid(union_geom)
 
             if union_geom and not union_geom.is_empty:
-                poly = union_geom.intersection(self.footprint)
+                footprint = self.footprint
+                if footprint.bounds[2] > 180:
+                    # footprint crossing the antimeridian: it is in the continuous
+                    # [0, 360] longitude range, so the mask is expressed in the same range
+                    union_geom = geometry_to_lon360(union_geom)
+                poly = union_geom.intersection(footprint)
             else:
                 poly = Polygon()
 
@@ -260,13 +275,41 @@ class BaseMeta(BaseDataset):
     def footprint(self):
         pass
 
+    def _continuous_longitude(self, longitude):
+        """
+        Set `self.cross_antimeridian` from the longitudes of the geolocation grid, as given
+        by the product ([-180, 180]), and return them in a continuous range.
+
+        This has to be done once, when the geolocation grid is read: everything derived from
+        this grid (footprint, approx_transform, interpolators) needs continuous longitudes.
+
+        Parameters
+        ----------
+        longitude: xarray.DataArray or numpy.ndarray
+            longitudes of the geolocation grid, in [-180, 180] range
+
+        Returns
+        -------
+        xarray.DataArray or numpy.ndarray
+            longitudes in [0, 360] range if the footprint cross antimeridian, unchanged otherwise.
+        """
+        self._cross_antimeridian = ((np.max(longitude) - np.min(longitude)) > 180).item()
+        if self._cross_antimeridian:
+            attrs = getattr(longitude, "attrs", {})
+            longitude = longitude % 360
+            if attrs:
+                longitude.attrs.update(attrs)
+        return longitude
+
     @property
     def cross_antimeridian(self):
         """True if footprint cross antimeridian"""
-        return (
-            (np.max(self.geoloc["longitude"]) -
-             np.min(self.geoloc["longitude"])) > 180
-        ).item()
+        if self._cross_antimeridian is None:
+            # reading the geolocation grid sets the flag (see `_continuous_longitude`)
+            geoloc = self.geoloc
+            if self._cross_antimeridian is None:
+                self._continuous_longitude(geoloc["longitude"])
+        return self._cross_antimeridian
 
     @property
     def swath(self):
@@ -311,6 +354,11 @@ class BaseMeta(BaseDataset):
         -------
         tuple of np.array or tuple of float
             (longitude, latitude) , with shape depending on `to_grid` keyword.
+
+        Notes
+        -----
+        longitudes are in [-180, 180] range. For a shapely object, if `self.cross_antimeridian` is True,
+        longitudes are in the continuous [0, 360] range (a geometry can't jump from 180 to -180).
 
         See Also
         --------
@@ -369,7 +417,15 @@ class BaseMeta(BaseDataset):
             (xoff, a, b, yoff, d, e) = self.approx_transform.to_gdal()
             return shapely.affinity.affine_transform(shape, (a, b, d, e, xoff, yoff))
         else:
-            return shapely.ops.transform(self.coords2ll, shape)
+
+            def coords2ll_continuous(lines, samples):
+                lon, lat = self.coords2ll(np.asarray(lines), np.asarray(samples))
+                if self.cross_antimeridian:
+                    # keep the geometry in one piece
+                    lon = lon % 360
+                return lon, lat
+
+            return shapely.ops.transform(coords2ll_continuous, shape)
 
     def ll2coords(self, *args):
         """
@@ -404,17 +460,26 @@ class BaseMeta(BaseDataset):
             return self._ll2coords_shapely(args[0])
 
         lon, lat = args
+        lon = np.asarray(lon)
+        lat = np.asarray(lat)
+        
+        cross_antimeridian = self.cross_antimeridian
+        if cross_antimeridian:
+            # define approx transform continuous longitudes
+            lon = lon % 360
 
         # approximation with global inaccurate transform
         line_approx, sample_approx = ~self.approx_transform * (
-            np.asarray(lon),
-            np.asarray(lat),
+            lon,
+            lat
         )
 
         # Theoretical identity. It should be the same, but the difference show the error.
         lon_identity, lat_identity = self.coords2ll(
             line_approx, sample_approx, to_grid=False
         )
+        if cross_antimeridian:
+            lon_identity = lon_identity % 360
         line_identity, sample_identity = ~self.approx_transform * (
             lon_identity,
             lat_identity,

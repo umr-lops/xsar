@@ -76,6 +76,9 @@ class RadarSat2Meta(BaseMeta):
         self.subdatasets = gpd.GeoDataFrame(geometry=[], index=[])
         """Subdatasets as GeodataFrame (empty if single dataset)"""
         self.geoloc = self.dt["geolocationGrid"].to_dataset()
+        # if the footprint cross antimeridian, footprint, approx_transform and interpolators
+        # need continuous longitudes
+        self.geoloc["longitude"] = self._continuous_longitude(self.geoloc["longitude"])
 
         self.orbit_and_attitude = self.dt["orbitAndAttitude"].ds
         self.doppler_centroid = self.dt["imageGenerationParameters"]["doppler"][
@@ -297,8 +300,6 @@ class RadarSat2Meta(BaseMeta):
         """
         resdict = {}
         geoloc = self.geoloc
-        if self.cross_antimeridian:
-            geoloc["longitude"] = geoloc["longitude"] % 360
 
         idx_sample = np.array(geoloc.pixel)
         idx_line = np.array(geoloc.line)

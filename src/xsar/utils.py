@@ -23,6 +23,9 @@ from pathlib import Path
 import fsspec
 import aiohttp
 from lxml import objectify
+from shapely.affinity import translate
+from shapely.geometry import box
+from shapely.ops import unary_union
 
 logger = logging.getLogger("xsar.utils")
 logger.addHandler(logging.NullHandler())
@@ -133,6 +136,62 @@ def to_lon180(lon):
         if change:
             lon = lon - 360
     return lon
+
+
+def geometry_to_lon360(geom):
+    """
+    Express a lon/lat geometry in the continuous [0, 360] longitude range.
+
+    A footprint crossing the antimeridian is continuous in this range, whereas
+    its longitudes jump by 360 in [-180, 180].
+
+    Parameters
+    ----------
+    geom: shapely.geometry.base.BaseGeometry
+        longitudes in [-180, 180] or [0, 360] range
+
+    Returns
+    -------
+    shapely.geometry.base.BaseGeometry
+        same geometry, where the part with negative longitudes is shifted by +360.
+        A geometry already in [0, 360] is returned unchanged.
+
+    """
+    if geom.is_empty or geom.bounds[0] >= 0:
+        return geom
+    return unary_union(
+        [
+            geom.intersection(box(0, -90, 360, 90)),
+            translate(geom.intersection(box(-180, -90, 0, 90)), xoff=360),
+        ]
+    )
+
+
+def geometry_to_lon180(geom):
+    """
+    Express a lon/lat geometry in the [-180, 180] longitude range.
+
+    Parameters
+    ----------
+    geom: shapely.geometry.base.BaseGeometry
+        longitudes in [0, 360] or [-180, 180] range
+
+    Returns
+    -------
+    shapely.geometry.base.BaseGeometry
+        same geometry, where the part beyond 180 is shifted by -360.
+        If `geom` crosses the antimeridian, the result is split in two parts.
+        A geometry already in [-180, 180] is returned unchanged.
+
+    """
+    if geom.is_empty or geom.bounds[2] <= 180:
+        return geom
+    return unary_union(
+        [
+            geom.intersection(box(-180, -90, 180, 90)),
+            translate(geom.intersection(box(180, -90, 360, 90)), xoff=-360),
+        ]
+    )
 
 
 def haversine(lon1, lat1, lon2, lat2):

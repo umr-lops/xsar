@@ -250,6 +250,9 @@ class Sentinel1Meta(BaseMeta):
         if self._geoloc is None:
             self._geoloc = self.dt["geolocationGrid"].to_dataset()
             self._geoloc.attrs = {}
+            # if the footprint cross antimeridian, footprint, approx_transform and interpolators
+            # below need continuous longitudes
+            self._geoloc["longitude"] = self._continuous_longitude(self._geoloc["longitude"])
             # compute attributes (footprint, coverage, pixel_size)
             footprint_dict = {}
             for ll in ["longitude", "latitude"]:
@@ -394,8 +397,6 @@ class Sentinel1Meta(BaseMeta):
         """
         resdict = {}
         geoloc = self.geoloc
-        if self.cross_antimeridian:
-            geoloc["longitude"] = geoloc["longitude"] % 360
 
         idx_sample = np.array(geoloc.sample)
         idx_line = np.array(geoloc.line)

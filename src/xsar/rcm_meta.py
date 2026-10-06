@@ -90,6 +90,9 @@ class RcmMeta(BaseMeta):
         self.subdatasets = gpd.GeoDataFrame(geometry=[], index=[])
         """Subdatasets as GeodataFrame (empty if single dataset)"""
         self.geoloc = self.dt[self._xpath["geolocationGrid"]].to_dataset()
+        # if the footprint cross antimeridian, footprint, approx_transform and interpolators
+        # need continuous longitudes
+        self.geoloc["longitude"] = self._continuous_longitude(self.geoloc["longitude"])
 
         self.orbit = self.dt[self._xpath["orbit"]].ds
         self.attitude = self.dt[self._xpath["attitude"]].ds
@@ -383,8 +386,6 @@ class RcmMeta(BaseMeta):
         """
         resdict = {}
         geoloc = self.geoloc
-        if self.cross_antimeridian:
-            geoloc["longitude"] = geoloc["longitude"] % 360
 
         idx_sample = np.array(geoloc.pixel)
         idx_line = np.array(geoloc.line)

@@ -129,8 +129,13 @@ class BaseDataset(ABC):
     def geometry(self):
         """
         geometry of this dataset, as a `shapely.geometry.Polygon` (lon/lat coordinates)
+
+        If `self.sar_meta.cross_antimeridian` is True, longitudes are in the continuous [0, 360] range.
         """
-        return Polygon(zip(*self._bbox_ll))
+        lon, lat = self._bbox_ll
+        if self.sar_meta.cross_antimeridian:
+            lon = np.asarray(lon) % 360
+        return Polygon(zip(lon, lat))
 
     def load_ground_heading(self):
         """
@@ -348,6 +353,9 @@ class BaseDataset(ABC):
                 #         print('lat',lat)
                 # else:
                 lon, lat = self.sar_meta.coords2ll(line, sample)
+                if self.sar_meta.cross_antimeridian:
+                    # continuous longitudes, as the footprint (no jump from 180 to -180 between gcps)
+                    lon = lon % 360
                 gcp = GroundControlPoint(x=lon, y=lat, z=0, col=icol, row=irow)
                 local_gcps.append(gcp)
                 cpt += 1

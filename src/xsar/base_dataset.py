@@ -239,7 +239,13 @@ class BaseDataset(ABC):
 
         """
         if isinstance(args[0], shapely.geometry.base.BaseGeometry):
-            return self.sar_meta._ll2coords_shapely(args[0].intersection(self.geometry))
+            # self.geometry is the dataset bbox in lon/lat; for antimeridian-
+            # spanning products the lon wrap makes it self-intersecting, which
+            # makes GEOS raise a TopologyException here. Repair before intersect.
+            geometry = self.geometry
+            if geometry.is_valid is False:
+                geometry = make_valid(geometry)
+            return self.sar_meta._ll2coords_shapely(args[0].intersection(geometry))
 
         line, sample = self.sar_meta.ll2coords(*args)
 
@@ -534,6 +540,12 @@ class BaseDataset(ABC):
             # chunk footprint polygon, in lon/lat
             chunk_footprint_ll = self.sar_meta.coords2ll(
                 chunk_footprint_coords)
+            # footprints spanning the antimeridian wrap in lon without unwrapping,
+            # producing a self-intersecting polygon that makes GEOS raise a
+            # TopologyException in the intersection below. Repair it, as the SLC
+            # sibling method (land_mask_slc_per_bursts) already does.
+            if chunk_footprint_ll.is_valid is False:
+                chunk_footprint_ll = make_valid(chunk_footprint_ll)
 
             # get vector mask over chunk, in lon/lat
             vector_mask_ll = self.sar_meta.get_mask(mask).intersection(

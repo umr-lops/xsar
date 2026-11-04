@@ -8,6 +8,7 @@ following the xsar conventions.
 """
 
 import logging
+import os
 import warnings
 
 import dask
@@ -334,11 +335,13 @@ class BiomassDataset(BaseDataset):
 
         BIOMASS calibration formula (from calibration_biomass.md):
             σ⁰ = (Amplitude_MDS)² × (σ⁰_LUT)²
-            σ⁰_noise = Noise_LUT × (σ⁰_LUT)²
+            σ⁰_noise = (Noise_LUT)² × (σ⁰_LUT)²
             σ⁰_denoised = max(σ⁰ - σ⁰_noise, 0)
         """
         cal_ds = self.sar_meta.get_calibration_luts
         noise_ds = self.sar_meta.get_noise_luts
+        # Denoising LUT is amplitude-valued: corrected specification, confirmed by user.
+        self._dataset.attrs["biomass_noise_calibration"] = "amplitude_lut_squared_v1"
 
         n_lines = self._dataset.sizes["line"]
         n_samples = self._dataset.sizes["sample"]
@@ -429,7 +432,7 @@ class BiomassDataset(BaseDataset):
                 # Store raw noise LUT for reference
                 self._dataset[f"noise_lut_{pol}"] = noise_luts[pol]
                 self._dataset[f"noise_lut_{pol}"].attrs = {
-                    "units": "power (linear)",
+                    "units": "amplitude (linear)",
                     "history": "BIOMASS denoising LUT (raw)",
                 }
 
@@ -440,8 +443,8 @@ class BiomassDataset(BaseDataset):
             for i, pol in enumerate(pols):
                 sigma0_pol = self._dataset["sigma0_raw"].isel(pol=i)
                 if pol in noise_luts:
-                    # Convert noise to σ⁰: σ⁰_noise = noise_lut × LUT²
-                    noise_sigma0 = noise_luts[pol] * (sigma0_lut_da ** 2)
+                    # Convert noise to σ⁰: σ⁰_noise = noise_lut² × LUT²
+                    noise_sigma0 = (noise_luts[pol] ** 2) * (sigma0_lut_da ** 2)
                     # Store NESZ (Noise Equivalent Sigma Zero)
                     nesz_list.append(noise_sigma0)
                     # Denoise and clip to 0
@@ -465,7 +468,7 @@ class BiomassDataset(BaseDataset):
             nesz.attrs = {
                 "units": "linear",
                 "comment": "Noise Equivalent Sigma Zero",
-                "history": "BIOMASS NESZ = noise_lut × LUT²",
+                "history": "BIOMASS NESZ = noise_lut² × LUT²",
             }
             self._dataset["nesz"] = nesz
 
@@ -476,8 +479,8 @@ class BiomassDataset(BaseDataset):
             for i, pol in enumerate(pols):
                 gamma0_pol = self._dataset["gamma0_raw"].isel(pol=i)
                 if pol in noise_luts:
-                    # Convert noise to γ⁰: γ⁰_noise = noise_lut × LUT²
-                    noise_gamma0 = noise_luts[pol] * (gamma0_lut_da ** 2)
+                    # Convert noise to γ⁰: γ⁰_noise = noise_lut² × LUT²
+                    noise_gamma0 = (noise_luts[pol] ** 2) * (gamma0_lut_da ** 2)
                     negz_list.append(noise_gamma0)
                     # Denoise and clip to 0
                     denoised_pol = np.maximum(gamma0_pol - noise_gamma0, 0)
@@ -499,7 +502,7 @@ class BiomassDataset(BaseDataset):
             negz.attrs = {
                 "units": "linear",
                 "comment": "Noise Equivalent Gamma Zero",
-                "history": "BIOMASS NEGZ = noise_lut × LUT²",
+                "history": "BIOMASS NEGZ = noise_lut² × LUT²",
             }
             self._dataset["negz"] = negz
 

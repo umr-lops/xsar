@@ -32,6 +32,35 @@ Overview
     * `open a dataset at lower resolution`_
     * `convert lon/lat to dataset coordinates`_
 
+Readers
+.......
+
+    **xsar** relies on one reader per mission for the metadata. The *digital_number* is read by
+    the reader for Sentinel-1 and RadarSAT-2, and by **xsar** itself for RCM:
+
+    .. list-table::
+       :header-rows: 1
+
+       * - mission
+         - metadata
+         - *digital_number*
+         - image flipped by **xsar**
+       * - Sentinel-1
+         - `xarray-safe-s1`_
+         - `xarray-safe-s1`_
+         - never: ESA products are in acquisition order
+       * - RadarSAT-2
+         - `xradarsat2`_
+         - `xradarsat2`_
+         - depending on pass direction and antenna pointing
+       * - RCM
+         - `xarray-safe-rcm`_
+         - **xsar** (``RcmDataset.load_digital_number``)
+         - depending on pass direction and antenna pointing
+
+    So the reading of *digital_number* (full or lower resolution) is tested in `xarray-safe-s1`_
+    for Sentinel-1, in `xradarsat2`_ for RadarSAT-2, and in **xsar** for RCM.
+
 Examples
 ........
 
@@ -118,6 +147,9 @@ Last documentation build: |today|
    basic_api
 
 .. _on github: https://github.com/umr-lops/xsar
+.. _xarray-safe-s1: https://github.com/umr-lops/xarray-safe-s1
+.. _xradarsat2: https://github.com/umr-lops/xradarsat2
+.. _xarray-safe-rcm: https://github.com/umr-lops/xarray-safe-rcm
 .. _xarray: http://xarray.pydata.org
 .. _dask: http://dask.org
 .. _xarray.open_dataset: http://xarray.pydata.org/en/stable/generated/xarray.open_dataset.html

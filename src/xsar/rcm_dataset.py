@@ -10,7 +10,15 @@ from affine import Affine
 
 from .rcm_meta import RcmMeta
 import numpy as np
-from .utils import timing, map_blocks_coords, BlockingActorProxy, to_lon180, get_glob
+from .utils import (
+    timing,
+    map_blocks_coords,
+    BlockingActorProxy,
+    to_lon180,
+    get_glob,
+    read_cells,
+    read_valid_fraction,
+)
 from scipy.interpolate import RectBivariateSpline, interp1d
 import dask
 import xarray as xr
@@ -45,9 +53,12 @@ class RcmDataset(BaseDataset):
     resolution: dict, number or string, optional
         resampling dict like `{'line': 20, 'sample': 20}` where 20 is in pixels.
 
-        if a number, dict will be constructed from `{'line': number, 'sample': number}`
+        if a number, it is a size in meters, as for a str.
 
         if str, it must end with 'm' (meters), like '100m'. dict will be computed from sensor pixel size.
+
+        The image is averaged on whole cells: the zeros outside the swath are not counted, and
+        `valid_pixel_fraction` gives the share of each cell inside the swath (0 to 1).
 
     resampling: rasterio.enums.Resampling or str, optional
 
@@ -771,6 +782,27 @@ class RcmDataset(BaseDataset):
         """
         load digital_number from tiff files, as an `xarray.Dataset`.
 
+        With `resolution=None`, the files are read lazily at full resolution, in uint16.
+
+        Otherwise, the files are resampled while reading, on a grid of whole cells of
+        `r_line` x `r_sample` pixels (`r` is the cell size in pixels):
+
+        * cell `k` covers the pixels `[k * r, (k + 1) * r)`, and its coordinate is the
+          cell center `k * r + (r - 1) / 2`, in pixels of the full resolution image;
+        * there are `int(size / r)` cells: the pixels left over at the bottom and right
+          edges of the image (less than one cell) are not used;
+        * the pixels at 0 (outside the swath) are not counted: a cell straddling the
+          swath border is the `resampling` mean of its valid pixels only, and a cell
+          without any valid pixel is 0;
+        * the cell values are kept in float32, they are not rounded to integers;
+        * `r` may be non-integer: a pixel cut by a cell edge is weighted by the part
+          of it inside the cell.
+
+        The dataset also holds `valid_pixel_fraction`: the fraction of non-zero pixels in
+        each cell (0: outside the swath, 1: full cell). The swath border is the same in all
+        polarisations: the fraction is computed on the co-polarisation and given for each
+        polarisation.
+
         Parameters
         ----------
         resolution: None, number, str or dict
@@ -781,7 +813,8 @@ class RcmDataset(BaseDataset):
         Returns
         -------
         xarray.Dataset
-            dataset (possibly dual-pol), with basic coords/dims naming convention
+            dataset (possibly dual-pol) with `digital_number` and, if resampled,
+            `valid_pixel_fraction` (dims "pol", "line", "sample")
         """
 
         def _list_tiff_files():
@@ -879,36 +912,20 @@ class RcmDataset(BaseDataset):
                 # resolution = dict(line=resolution / self.dataset['sampleSpacing'].values,
                 #                   sample=resolution / self.dataset['lineSpacing'].values)
 
-            # resample the DN at gdal level, before feeding it to the dataset
+            # resample the DN at gdal level, before feeding it to the dataset.
+            # Whole cells only: the pixels left over at the bottom and right edges
+            # (less than one cell) are not used.
             out_shape = (
                 int(rio.height / resolution["line"]),
                 int(rio.width / resolution["sample"]),
             )
-            out_shape_pol = (1,) + out_shape
             # read resampled array in one chunk, and rechunk
             # this doesn't optimize memory, but total size remain quite small
-
-            if isinstance(resolution["line"], int):
-                # legacy behaviour: winsize is the maximum full image size that can be divided  by resolution (int)
-                winsize = (
-                    0,
-                    0,
-                    rio.width // resolution["sample"] * resolution["sample"],
-                    rio.height // resolution["line"] * resolution["line"],
-                )
-                window = rasterio.windows.Window(*winsize)
-            else:
-                window = None
-
             dn = xr.concat(
                 [
                     xr.DataArray(
                         dask.array.from_array(
-                            rasterio.open(f).read(
-                                out_shape=out_shape_pol,
-                                resampling=resampling,
-                                window=window,
-                            ),
+                            read_cells(f, resolution, out_shape, resampling),
                             chunks=chunks_rio,
                         ),
                         dims=tuple(map_dims.keys()),
@@ -918,17 +935,20 @@ class RcmDataset(BaseDataset):
                 ],
                 "pol",
             ).chunk(chunks)
+            # the swath border is the same in all polarisations: one read, on the
+            # co-polarisation, which has the strongest signal
+            co_pol_file = next(
+                (f for f, p in zip(tiff_files, pols) if p[0] == p[1]),
+                tiff_files[0],
+            )
+            valid_fraction = read_valid_fraction(
+                co_pol_file, resolution, out_shape)
 
-            # create coordinates at box center
+            # coordinates at cell center: cell k covers pixels [k r, (k + 1) r)
             translate = Affine.translation(
                 (resolution["sample"] - 1) / 2, (resolution["line"] - 1) / 2
             )
-            scale = Affine.scale(
-                rio.width // resolution["sample"] *
-                resolution["sample"] / out_shape[1],
-                rio.height // resolution["line"] *
-                resolution["line"] / out_shape[0],
-            )
+            scale = Affine.scale(resolution["sample"], resolution["line"])
             sample, _ = translate * scale * (dn.sample, 0)
             _, line = translate * scale * (0, dn.line)
             dn = dn.assign_coords({"line": line, "sample": sample})
@@ -954,6 +974,19 @@ class RcmDataset(BaseDataset):
         astype = self._dtypes.get(var_name)
         if astype is not None:
             ds = ds.astype(self._dtypes[var_name])
+        if resolution is not None:
+            ds["valid_pixel_fraction"] = xr.DataArray(
+                valid_fraction,
+                dims=("line", "sample"),
+                coords={"line": ds.line, "sample": ds.sample},
+                attrs={
+                    "long_name": "fraction of valid pixels in the cell",
+                    "units": "1",
+                    "comment": "pixels at 0 (outside the swath) are not valid; "
+                    "0: outside the swath, 1: full cell; "
+                    "computed on the co-polarisation, the same for all polarisations",
+                },
+            ).expand_dims(pol=ds.pol.values).copy()
 
         return ds
 
@@ -989,11 +1022,12 @@ class RcmDataset(BaseDataset):
         ].attrs["passDirection"]
         flipped_cases = [("Left", "Ascending"), ("Right", "Descending")]
         if (antenna_pointing, pass_direction) in flipped_cases:
-            new_ds = (
-                ds.copy()
-                .isel(sample=slice(None, None, -1))
-                .assign_coords(sample=ds.sample)
-            )
+            # mirror the coordinates with the last pixel of the geolocation grid
+            # (same flip as the metadata): at reduced resolution, the cells keep
+            # their true centers
+            last = int(self.sar_meta.geoloc.pixel.max())
+            flipped = ds.copy().isel(sample=slice(None, None, -1))
+            new_ds = flipped.assign_coords(sample=last - flipped.sample.values)
         else:
             new_ds = ds
         return new_ds
@@ -1019,9 +1053,12 @@ class RcmDataset(BaseDataset):
             "sourceAttributes/orbitAndAttitude/orbitInformation"
         ].attrs["passDirection"]
         if pass_direction == "Ascending":
-            new_ds = (
-                ds.copy().isel(line=slice(None, None, -1)).assign_coords(line=ds.line)
-            )
+            # mirror the coordinates with the last line of the geolocation grid
+            # (same flip as the metadata): at reduced resolution, the cells keep
+            # their true centers
+            last = int(self.sar_meta.geoloc.line.max())
+            flipped = ds.copy().isel(line=slice(None, None, -1))
+            new_ds = flipped.assign_coords(line=last - flipped.line.values)
         else:
             new_ds = ds.copy()
         return new_ds

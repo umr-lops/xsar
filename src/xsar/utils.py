@@ -26,6 +26,7 @@ from lxml import objectify
 from shapely.affinity import translate
 from shapely.geometry import box
 from shapely.ops import unary_union
+from xml.sax.saxutils import escape
 
 logger = logging.getLogger("xsar.utils")
 logger.addHandler(logging.NullHandler())
@@ -656,6 +657,95 @@ def get_glob(strlist):
         strglob = strglob.replace("**", "*")
 
     return strglob
+
+
+def _float_vrt(path, nodata):
+    """
+    VRT (XML string) of the first band of `path`, as float32, with a nodata value.
+
+    Declaring a nodata value makes GDAL average the pixels itself, in float32.
+    Without it, GDAL delegates the resampling to the file, in its own dtype
+    (uint16), and the cell means are rounded to the nearest integer.
+    """
+    with rasterio.open(path) as src:
+        width = src.width
+        height = src.height
+    return f"""<VRTDataset rasterXSize="{width}" rasterYSize="{height}">
+  <VRTRasterBand dataType="Float32" band="1">
+    <NoDataValue>{nodata}</NoDataValue>
+    <SimpleSource>
+      <SourceFilename relativeToVRT="0">{escape(str(path))}</SourceFilename>
+      <SourceBand>1</SourceBand>
+    </SimpleSource>
+  </VRTRasterBand>
+</VRTDataset>"""
+
+
+def _read_on_cells(path, resolution, out_shape, resampling, nodata):
+    """
+    Resample `path` on `out_shape` cells of exactly
+    `resolution["line"]` x `resolution["sample"]` pixels, starting at pixel (0, 0).
+
+    The window is cropped to the whole cells, so that cell k covers pixels
+    [k r, (k + 1) r). Non-integer ratios are supported: GDAL weights the pixels
+    cut by a cell edge.
+    """
+    window = rasterio.windows.Window(
+        0,
+        0,
+        out_shape[1] * resolution["sample"],
+        out_shape[0] * resolution["line"],
+    )
+    with rasterio.open(_float_vrt(path, nodata)) as vrt:
+        return vrt.read(1, out_shape=out_shape, window=window, resampling=resampling)
+
+
+def read_cells(path, resolution, out_shape, resampling):
+    """
+    Resample a measurement file on a grid of whole cells.
+
+    Each cell is the `resampling` mean of the valid pixels it covers, in float32.
+    Pixels at 0 (outside the swath) are not counted; a cell without any valid
+    pixel is 0.
+
+    Parameters
+    ----------
+    path: str
+        measurement file
+    resolution: dict
+        cell size in pixels, like `{"line": 100.0, "sample": 100.0}`
+    out_shape: tuple
+        number of cells `(line, sample)`
+    resampling: rasterio.enums.Resampling
+
+    Returns
+    -------
+    numpy.ndarray
+        shape `(1, line, sample)`, float32
+    """
+    cells = _read_on_cells(path, resolution, out_shape, resampling, nodata=0)
+    return cells[np.newaxis]
+
+
+def read_valid_fraction(path, resolution, out_shape):
+    """
+    Fraction of non-zero pixels in each cell of the grid used by `read_cells`.
+
+    It is the mean with the zeros counted divided by the mean without them
+    (= valid pixels / all pixels). For the mean with the zeros counted, the nodata
+    value is -1, which never occurs in the file, so that GDAL still averages in
+    float32.
+
+    Returns
+    -------
+    numpy.ndarray
+        shape `(line, sample)`, float32, 0 outside the swath, 1 for a full cell
+    """
+    average = rasterio.enums.Resampling.average
+    mean_all = _read_on_cells(path, resolution, out_shape, average, nodata=-1)
+    mean_valid = _read_on_cells(path, resolution, out_shape, average, nodata=0)
+    fraction = mean_all / np.where(mean_valid > 0, mean_valid, 1)
+    return np.where(mean_valid > 0, fraction, 0).astype("float32")
 
 
 def safe_dir(filename, path=".", only_exists=False):

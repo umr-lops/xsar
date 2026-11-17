@@ -73,9 +73,12 @@ class Sentinel1Dataset(BaseDataset):
     resolution: dict, number or string, optional
         resampling dict like `{'line': 20, 'sample': 20}` where 20 is in pixels.
 
-        if a number, dict will be constructed from `{'line': number, 'sample': number}`
+        if a number, it is a size in meters, as for a str.
 
         if str, it must end with 'm' (meters), like '100m'. dict will be computed from sensor pixel size.
+
+        The image is averaged on whole cells: the zeros outside the swath are not counted, and
+        `valid_pixel_fraction` gives the share of each cell inside the swath (0 to 1).
 
     resampling: rasterio.enums.Resampling or str, optional
 

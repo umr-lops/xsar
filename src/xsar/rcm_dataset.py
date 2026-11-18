@@ -53,7 +53,8 @@ class RcmDataset(BaseDataset):
     resolution: dict, number or string, optional
         resampling dict like `{'line': 20, 'sample': 20}` where 20 is in pixels.
 
-        if a number, it is a size in meters, as for a str.
+        if a number, it is a size in meters, as for a str, but `sampleSpacing` and `lineSpacing`
+        then keep the full resolution pixel size (a warning is logged): prefer a str.
 
         if str, it must end with 'm' (meters), like '100m'. dict will be computed from sensor pixel size.
 
@@ -1025,7 +1026,7 @@ class RcmDataset(BaseDataset):
             # mirror the coordinates with the last pixel of the geolocation grid
             # (same flip as the metadata): at reduced resolution, the cells keep
             # their true centers
-            last = int(self.sar_meta.geoloc.pixel.max())
+            last = int(round(float(self.sar_meta.geoloc.pixel.max())))
             flipped = ds.copy().isel(sample=slice(None, None, -1))
             new_ds = flipped.assign_coords(sample=last - flipped.sample.values)
         else:
@@ -1056,7 +1057,7 @@ class RcmDataset(BaseDataset):
             # mirror the coordinates with the last line of the geolocation grid
             # (same flip as the metadata): at reduced resolution, the cells keep
             # their true centers
-            last = int(self.sar_meta.geoloc.line.max())
+            last = int(round(float(self.sar_meta.geoloc.line.max())))
             flipped = ds.copy().isel(line=slice(None, None, -1))
             new_ds = flipped.assign_coords(line=last - flipped.line.values)
         else:

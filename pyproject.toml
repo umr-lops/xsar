@@ -52,9 +52,9 @@ dependencies = [
   'mapraster'
 ]
 [project.optional-dependencies]
-RS2 = ["xradarsat2"]
+RS2 = ["xradarsat2>=2026.11.18"]
 RCM = ["xarray-safe-rcm"]
-S1 = ["xarray-safe-s1"]
+S1 = ["xarray-safe-s1>=2026.11.18"]
 
 
 

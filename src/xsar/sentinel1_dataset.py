@@ -73,7 +73,8 @@ class Sentinel1Dataset(BaseDataset):
     resolution: dict, number or string, optional
         resampling dict like `{'line': 20, 'sample': 20}` where 20 is in pixels.
 
-        if a number, it is a size in meters, as for a str.
+        if a number, it is a size in meters, as for a str, but `sampleSpacing` and `lineSpacing`
+        then keep the full resolution pixel size (a warning is logged): prefer a str.
 
         if str, it must end with 'm' (meters), like '100m'. dict will be computed from sensor pixel size.
 

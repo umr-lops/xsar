@@ -40,9 +40,13 @@ class RadarSat2Dataset(BaseDataset):
     resolution: dict, number or string, optional
         resampling dict like `{'line': 20, 'sample': 20}` where 20 is in pixels.
 
-        if a number, dict will be constructed from `{'line': number, 'sample': number}`
+        if a number, it is a size in meters, as for a str, but `sampleSpacing` and `lineSpacing`
+        then keep the full resolution pixel size (a warning is logged): prefer a str.
 
         if str, it must end with 'm' (meters), like '100m'. dict will be computed from sensor pixel size.
+
+        The image is averaged on whole cells: the zeros outside the swath are not counted, and
+        `valid_pixel_fraction` gives the share of each cell inside the swath (0 to 1).
 
     resampling: rasterio.enums.Resampling or str, optional
 
@@ -711,11 +715,12 @@ class RadarSat2Dataset(BaseDataset):
         pass_direction = self.sar_meta.dt.attrs["passDirection"]
         flipped_cases = [("Left", "Ascending"), ("Right", "Descending")]
         if (antenna_pointing, pass_direction) in flipped_cases:
-            new_ds = (
-                ds.copy()
-                .isel(sample=slice(None, None, -1))
-                .assign_coords(sample=ds.sample)
-            )
+            # mirror the coordinates with the last pixel of the geolocation grid
+            # (same flip as the metadata): at reduced resolution, the cells keep
+            # their true centers
+            last = int(round(float(self.sar_meta.geoloc.pixel.max())))
+            flipped = ds.copy().isel(sample=slice(None, None, -1))
+            new_ds = flipped.assign_coords(sample=last - flipped.sample.values)
         else:
             new_ds = ds
         return new_ds
@@ -741,9 +746,12 @@ class RadarSat2Dataset(BaseDataset):
         """
         pass_direction = self.sar_meta.dt.attrs["passDirection"]
         if pass_direction == "Ascending":
-            new_ds = (
-                ds.copy().isel(line=slice(None, None, -1)).assign_coords(line=ds.line)
-            )
+            # mirror the coordinates with the last line of the geolocation grid
+            # (same flip as the metadata): at reduced resolution, the cells keep
+            # their true centers
+            last = int(round(float(self.sar_meta.geoloc.line.max())))
+            flipped = ds.copy().isel(line=slice(None, None, -1))
+            new_ds = flipped.assign_coords(line=last - flipped.line.values)
         else:
             new_ds = ds.copy()
         return new_ds

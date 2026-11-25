@@ -70,6 +70,14 @@ class Sentinel1Dataset(BaseDataset):
 
         if str, it can be a path, or a gdal dataset identifier like `'SENTINEL1_DS:%s:WV_001' % filename`)
 
+        The path can be a fsspec URL of a remote SAFE, like `'s3://eodata/.../x.SAFE'`.
+
+    storage_options: dict, optional
+
+        fsspec storage options of a remote SAFE (like `s3fs` `key`, `secret`,
+        `client_kwargs={'endpoint_url': ...}`), see `xsar.Sentinel1Meta`.
+        Not allowed with a `Sentinel1Meta` object, which already has its own.
+
     resolution: dict, number or string, optional
         resampling dict like `{'line': 20, 'sample': 20}` where 20 is in pixels.
 
@@ -119,6 +127,7 @@ class Sentinel1Dataset(BaseDataset):
         patch_variable=True,
         lazyloading=True,
         recalibration=False,
+        storage_options=None,
     ):
         # default dtypes
         if dtypes is not None:
@@ -131,12 +140,19 @@ class Sentinel1Dataset(BaseDataset):
         """`xsar.Sentinel1Meta` object"""
 
         if not isinstance(dataset_id, Sentinel1Meta):
-            self.sar_meta = BlockingActorProxy(Sentinel1Meta, dataset_id)
+            self.sar_meta = BlockingActorProxy(
+                Sentinel1Meta, dataset_id, storage_options=storage_options
+            )
             # check serializable
             # import pickle
             # sar_meta = pickle.loads(pickle.dumps(self.sar_meta))
             # assert isinstance(sar_meta.coords2ll(100, 100),tuple)
         else:
+            if storage_options is not None:
+                raise ValueError(
+                    "storage_options are given with the Sentinel1Meta object, "
+                    "not to Sentinel1Dataset"
+                )
             # we want self.sar_meta to be a dask actor on a worker
             self.sar_meta = BlockingActorProxy(
                 Sentinel1Meta.from_dict, dataset_id.dict)

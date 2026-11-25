@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import copy
 import logging
 import numpy as np
 import xarray
@@ -29,7 +30,12 @@ class Sentinel1Meta(BaseMeta):
     Parameters
     ----------
     name: str
-        path or gdal identifier like `'SENTINEL1_DS:%s:WV_001' % path`
+        path or gdal identifier like `'SENTINEL1_DS:%s:WV_001' % path`.
+        The path can be a fsspec URL, like `'s3://eodata/.../x.SAFE'`.
+    storage_options: dict, optional
+        fsspec storage options to read a remote SAFE (like `s3fs` `key`, `secret`,
+        `client_kwargs={'endpoint_url': ...}`), given to `safe_s1.Sentinel1Reader`.
+        Without them, the settings come from the environment (`AWS_*` variables...).
 
     """
 
@@ -39,14 +45,19 @@ class Sentinel1Meta(BaseMeta):
     xsd_definitions = None
 
     @timing
-    def __init__(self, name):
+    def __init__(self, name, storage_options=None):
         super().__init__()
+        self.storage_options = storage_options
+        """fsspec storage options of a remote SAFE (None for a local one)"""
 
         try:
             from safe_s1.metadata import Sentinel1Reader
         except ImportError:
             from safe_s1.reader import Sentinel1Reader
-        self.reader = Sentinel1Reader(name)
+        backend_kwargs = None
+        if storage_options:
+            backend_kwargs = {"storage_options": storage_options}
+        self.reader = Sentinel1Reader(name, backend_kwargs=backend_kwargs)
 
         if not name.startswith("SENTINEL1_DS:"):
             name = name.rstrip("/")  # remove trailing space
@@ -108,8 +119,10 @@ class Sentinel1Meta(BaseMeta):
                 )
             except ValueError:
                 # not as many footprints than subdatasets count. (probably TOPS product)
-                self._submeta = [Sentinel1Meta(subds)
-                                 for subds in datasets_names]
+                self._submeta = [
+                    Sentinel1Meta(subds, storage_options=storage_options)
+                    for subds in datasets_names
+                ]
                 sub_footprints = [
                     submeta.footprint for submeta in self._submeta]
                 self.subdatasets = gpd.GeoDataFrame(
@@ -455,7 +468,25 @@ class Sentinel1Meta(BaseMeta):
         # make self serializable with pickle
         # https://docs.python.org/3/library/pickle.html#object.__reduce__
 
-        return self.__class__, (self.name,), self.dict
+        return self.__class__, (self.name, self.storage_options), self.dict
+
+    @property
+    def dict(self):
+        # like BaseMeta.dict, with the storage options needed to re-open a remote SAFE
+        minidict = super().dict
+        minidict["storage_options"] = self.storage_options
+        return minidict
+
+    @classmethod
+    def from_dict(cls, minidict):
+        # like BaseMeta.from_dict, re-opening a remote SAFE with its storage options
+        for name in minidict["_mask_features_raw"]:
+            assert minidict["_mask_geometry"][name] is None
+            assert minidict["_mask_features"][name] is None
+        minidict = copy.copy(minidict)
+        new = cls(minidict["name"], storage_options=minidict.get("storage_options"))
+        new.__dict__.update(minidict)
+        return new
 
     @property
     def _doppler_estimate(self):

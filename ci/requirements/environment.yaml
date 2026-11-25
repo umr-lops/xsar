@@ -8,6 +8,12 @@ dependencies:
   - pytest
   - pytest-reportlog
   - pytest-cov
+  # remote SAFE tests (fake S3 server)
+  - moto
+  - flask
+  - flask-cors
+  - boto3
+  - s3fs
   - numpy
   - toolz
   - cytoolz
